@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+
+# Local Python environment
+.venv/
+
+# Downloaded data and model weights
+data/
+models/
+
+# Training outputs
+checkpoints/
+outputs/
+logs/
+wandb/
+ray_results/
+
+# Credentials and machine-specific settings
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
