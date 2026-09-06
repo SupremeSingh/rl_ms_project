@@ -1,0 +1,30 @@
+"""One answer contract shared by preparation, training, and human review."""
+MODEL_ID = "Qwen/Qwen2.5-Math-1.5B"
+INSTRUCTION = (
+    "Solve the math problem step by step. End with a line containing only "
+    "Answer: <number>, where <number> is a decimal number. "
+    "Do not put the final answer in boxed notation or append units or punctuation."
+)
+
+
+def make_prompt(question):
+    return [{"role": "system", "content": INSTRUCTION},
+            {"role": "user", "content": question}]
+
+
+def validate_prompt(messages):
+    if len(messages) != 2 or messages[0] != {"role": "system", "content": INSTRUCTION} or messages[1]["role"] != "user":
+        raise ValueError("Stale prompt contract: rerun scripts/prepare_data.py and re-audit")
+
+
+def display_prompt(messages):
+    return "\n\n".join(f"[{m['role']}]\n{m['content']}" for m in messages)
+
+
+def validate_assets(assets):
+    if assets.get("model_id") != MODEL_ID:
+        raise ValueError(f"Expected base model {MODEL_ID}; preserve old assets separately and reprepare")
+    for key in ("model_revision", "dataset_revision"):
+        value = assets.get(key, "")
+        if len(value) != 40 or any(c not in "0123456789abcdef" for c in value):
+            raise ValueError(f"{key} must be an immutable commit SHA")

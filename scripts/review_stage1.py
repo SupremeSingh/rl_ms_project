@@ -11,6 +11,9 @@ def main():
     args = p.parse_args()
     response_path = args.run / "responses.jsonl"
     digest = hashlib.sha256(response_path.read_bytes()).hexdigest()
+    metadata = json.loads((args.run / "metadata.json").read_text())
+    if digest != metadata["responses_sha256"]:
+        raise ValueError("Response file has changed since generation")
     records = [json.loads(line) for line in response_path.read_text().splitlines()]
     label_path = args.run / "labels.jsonl"
     prior = [json.loads(x) for x in label_path.read_text().splitlines()] if label_path.exists() else []

@@ -1,112 +1,179 @@
-# Math RL: Stage 0
+# Math RL · Stages 0–1
 
-Goal: load -> generate -> score -> update -> save -> resume.
+A small, inspectable pipeline: **prompt → sample → score → update → save → resume**.
 
-This starter targets Linux x86_64, Slurm, Apptainer, and one BF16-capable NVIDIA
-GPU. Start with a 40 GB or 80 GB A100. Adjust the Slurm resource/partition/account
-options to the cluster. Other hardware and container runtimes need adaptation.
+- **Model:** `Qwen/Qwen2.5-Math-1.5B` (base).
+- **Data:** GSM8K; 128 training and 32 disjoint validation prompts from its training split.
+- **Reward:** 1 when the final line is `Answer: <number>` and numerically correct; 0 otherwise.
+- **Hardware:** Duke `compsci-gpu`, one `a6000` (48 GB VRAM), 8 CPUs, 64 GB host RAM.
+- **Runtime:** pinned VERL v0.4.1 and container; BF16, 512 response tokens.
 
-Use VERL v0.4.1 at commit 8d9e350ea58c7ad4b50dd14d9dcb50577242c55f with the documented
-application image below. This is an intentionally fixed older baseline.
-The package accepts Python >=3.10 to match that image (replaces the initial >=3.12).
+Stage 0 proves that the machinery works. Stage 1 checks whether the rewards and
+problem difficulty are useful. The official test split stays untouched.
 
-## Environment
+## 1. Copy to Duke
 
-Run from math-rl on a machine allowed to pull container images:
+From your local checkout:
 
 ```bash
-export MATH_RL_IMAGE="$PWD/../verl-v041.sif"
-apptainer pull "$MATH_RL_IMAGE" \
-  docker://verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.2-te2.2
-sha256sum "$MATH_RL_IMAGE" > configs/container.sha256
-apptainer shell --bind "$PWD:$PWD" --pwd "$PWD" "$MATH_RL_IMAGE"
+ssh ms785@login.cs.duke.edu 'mkdir -p /usr/xtmp/ms785/rl_ms_project'
+rsync -av --exclude=.venv --exclude=__pycache__ --exclude=.pytest_cache \
+  --exclude=.DS_Store --exclude='*.egg-info' --exclude=data --exclude=models \
+  --exclude=checkpoints --exclude=outputs --exclude=logs \
+  ./ ms785@login.cs.duke.edu:/usr/xtmp/ms785/rl_ms_project/
+ssh ms785@login.cs.duke.edu
+cd /usr/xtmp/ms785/rl_ms_project
 ```
 
-Inside the image, create a local environment using its existing GPU packages:
+Keep `.git` for provenance. Build the Python environment on Duke, inside the
+container. `/usr/xtmp/ms785` is working storage: back up important results elsewhere.
+
+## 2. Set up once
+
+Use a compute allocation for installation and downloads; login nodes are limited
+to one CPU and 4 GB RAM.
 
 ```bash
-python3 -m venv --system-site-packages .venv
-source .venv/bin/activate
-python -m pip install --no-deps \
-  'verl @ git+https://github.com/verl-project/verl.git@8d9e350ea58c7ad4b50dd14d9dcb50577242c55f'
-python -m pip install -e '.[dev]'
-python -m pip check
-python -m pip freeze > configs/environment.txt
-python -m pytest -q
-python scripts/prepare_data.py
-python -m math_rl.train --cfg job
+srun -p compsci --cpus-per-task=8 --mem=64G --time=02:00:00 --pty bash -i
+cd /usr/xtmp/ms785/rl_ms_project
+command -v singularity || command -v apptainer
+```
+
+If neither runtime is available, use `module avail` and load the site's listed
+Singularity/Apptainer module. Then:
+
+```bash
+source scripts/cluster_env.sh
+"$MATH_RL_RUNTIME" pull "$MATH_RL_IMAGE" \
+  docker://verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.2-te2.2
+sha256sum "$MATH_RL_IMAGE" > configs/container.sha256
+bash scripts/container_exec.sh bash scripts/setup_environment.sh
 exit
 ```
 
-The image supplies VERL's GPU dependencies; do not upgrade Torch or vLLM
-independently. Resolve any `pip check` errors before training. The environment
-snapshot records resolved versions; the SIF checksum identifies the exact runtime
-but does not download it. Keep the SIF for future reproduction.
+Setup installs VERL commit `8d9e350ea58c7ad4b50dd14d9dcb50577242c55f`, checks
+package compatibility, runs CPU tests, downloads assets, and prints the resolved
+training configuration. Keep the container's Torch/vLLM versions together.
+Downloads require network access from the allocation.
 
-Data preparation resolves and records Hugging Face commit IDs in
-configs/assets.json on first success and reuses them on subsequent runs. It
-prepares 128 training and 32 disjoint validation examples from GSM8K's training
-split, leaving its test split untouched, and downloads the Qwen2.5-Math-1.5B model. Preprocessing needs network access; training uses local
-files. Long prompts may be filtered by VERL, reducing the counts.
+The shared environment uses:
 
-## Save and resume
+```text
+/usr/xtmp/ms785/
+  containers/verl-v041.sif
+  cache/                         # Hugging Face, pip, container caches
+  rl_ms_project/
+    .venv/                       # created inside the container
+    configs/assets.json          # immutable model/data revisions
+    configs/environment.txt      # installed packages
+    configs/container.sha256     # checked before container commands
+    data/gsm8k/                  # prepared Parquet files
+    models/qwen-math/            # initial base checkpoint
+```
 
-From the host, in math-rl, with MATH_RL_IMAGE still exported:
+`MATH_RL_ROOT`, `MATH_RL_IMAGE`, and `MATH_RL_RUNTIME` override defaults. The wrapper
+binds these paths and sets the working directory. GPU jobs check BF16 support,
+the VERL commit, asset identity, and prompt format before running.
+
+**Updating an existing setup:** rerun `scripts/prepare_data.py` inside the
+container allocation to regenerate old prompts. The explicit system message
+replaces Qwen's default boxed-answer instruction. Preserve old audits and use a
+new output directory. An Instruct manifest is rejected rather than reused.
+
+## 3. Stage 0: prove save/resume
+
+From the checkout on the login node:
+
+```bash
+source scripts/cluster_env.sh
+bash scripts/submit_resume_check.sh
+squeue -u ms785
+```
+
+The helper creates `logs/` and submits three jobs: four uninterrupted updates,
+two updates, then a dependent restart from step 2 through step 4. Each update
+samples 8 prompts × 4 responses and uses VERL's GRPO advantage and clipped loss.
+KL, entropy regularization, and weight decay are disabled so learning comes from
+reward. This exercises infrastructure; the educational REINFORCE stage comes later.
+
+After all three jobs finish successfully:
+
+```bash
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/report_resume.py \
+  checkpoints/resume-control checkpoints/resume-split --atol 0.01 --rtol 0.1
+```
+
+The report writes `checkpoints/resume-split/resume_report.json` and exits nonzero
+if checks fail: checkpoint files, matching code/configuration, steps 3–4 in the
+resumed attempt, prompt order, rewards, loss, and gradient norm. Both runs need a
+mixed-reward group and a nonzero gradient. Inspect `logs/` for successful state
+restoration and any missing-state warnings.
+
+These fixed tolerances are a smoke check, not proof of bitwise RNG restoration.
+VERL console metrics have three-decimal precision; exact rollout agreement is
+reported separately. Do not loosen tolerances simply to pass. If all rewards
+match within every group, investigate Stage 1 before claiming a learning update.
+
+Each run retains `run.json`, `attempts/*/{run.json,resolved.yaml,console.log}`,
+`rollouts/*.jsonl`, and `global_step_*` checkpoints. Keep the parent run directory
+with its checkpoints. Fresh runs refuse nonempty directories; resume rejects
+code/data/configuration changes. Archive previous runs before repeating the helper.
+
+## 4. Stage 1: audit the reward
+
+Generate **100 prompts × 2 responses** from the initial base model, with temperature
+1, top-p 1, and a 512-token limit. No weights are updated.
 
 ```bash
 mkdir -p logs
-sbatch scripts/submit_smoke.sh trainer.total_training_steps=2
+sbatch scripts/submit_stage1.sh
+squeue -u ms785
 ```
 
-Wait for successful completion and checkpoint global_step_2. Then:
+After generation succeeds, review the 200 responses on the login node (no GPU):
 
 ```bash
-ls checkpoints/smoke/global_step_2
-ls checkpoints/smoke/global_step_2/actor
-sbatch scripts/submit_smoke.sh \
-  trainer.resume_mode=resume_path \
-  trainer.resume_from_path=checkpoints/smoke/global_step_2 \
-  trainer.total_training_steps=4
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" \
+  scripts/review_stage1.py outputs/stage1
 ```
 
-Explicit resume fails if the checkpoint is missing. It should report loading
-step 2 and proceed through steps 3 and 4. Keep the same GPU count, model, data,
-and configuration. We use a constant learning-rate schedule for this short test.
-Use a new trainer.default_local_dir for each genuinely fresh run.
+Read the complete prompt, reference, and response. Enter `reward format correct`:
 
-Verify:
-- Finite rewards and losses, and nonzero actor gradients in at least one update.
-- Sampled answers include valid Answer: lines. This numeric scorer intentionally
-  rejects fractions, units, prose after the answer, and boxed answers.
-- Actor model, optimizer, extra state files and data.pt exist at step 2.
-- Logs confirm model/optimizer/extra restoration and do not warn of missing data.pt.
-- The second job produces global_step_4 and retains its optimizer/data state.
+| Response | Label |
+|---|---|
+| Correct `Answer: 42` | `1 1 1` |
+| Wrong `Answer: 41` | `0 1 0` |
+| Correct final answer, wrong format | `0 0 1` |
 
-Successful resumption is not evidence of bitwise-identical sampled trajectories.
-With GRPO, groups whose rewards are all identical have zero task advantages.
-If that happens throughout this tiny run, increase the prompt budget before
-claiming a successful learning update. Four steps are an infrastructure test,
-not an accuracy result.
+`format` requires the entire final nonempty line to contain `Answer:` plus a
+signed decimal, optionally with correctly grouped commas. Fractions, units,
+boxed notation, trailing prose, and a terminal period fail. `correct` checks the
+unambiguous final numeric answer regardless of format; `reward = format × correct`.
+Automatic scores are hidden. Enter `q` to pause; rerun to resume saved labels.
 
-## Files and VERL map
+```bash
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" \
+  scripts/report_stage1.py outputs/stage1
+```
 
-- data.py constructs prompt/reference records; prepare_data.py downloads assets.
-- reward.py supplies a rule-based reward using VERL's custom reward interface.
-- smoke.yaml inherits VERL's defaults, choosing GRPO with 8 prompts x 4 responses.
-- train.py forwards config and CLI overrides to verl.trainer.main_ppo.
-- submit_smoke.sh supplies Slurm resources and the container environment.
-- tests/test_reward.py checks the scoring contract.
+`outputs/stage1/report.json` passes only with all 200 labels, ≥99% verifier
+agreement, 5–70% reward accuracy, ≥10% mixed pairs, ≥95% format rate, and ≤5%
+truncation. The last two are provisional engineering thresholds. Incomplete or
+failed reports exit nonzero. Inspect disagreements; fix the verifier, prompt,
+difficulty, or length budget as appropriate, then re-audit into a new `--out`
+directory. Never discard difficult responses to improve agreement.
 
-VERL code worth reading, at the pinned tag:
-- verl/trainer/main_ppo.py: configuration and worker setup.
-- verl/trainer/ppo/ray_trainer.py: overall training loop and save/load.
-- verl/trainer/ppo/core_algos.py: advantages and policy losses.
-- verl/workers/reward_manager/naive.py: calls the custom reward.
+This decimal verifier covers GSM8K. MATH/DAPO requires a suitable answer parser
+and a fresh human audit before training.
 
-https://github.com/verl-project/verl/tree/v0.4.1
-https://verl.readthedocs.io/en/v0.4.1/start/quickstart.html
+## Read the code
 
-Local validation: 12 reward tests pass; the YAML composes against v0.4.1 defaults;
-a synthetic dataset record survives a Parquet round trip with its prompt, answer,
-and ID preserved. GPU training, full downloads, and runtime installation have
-not been executed here and must be verified on the cluster.
+- `src/math_rl/{prompts,data,reward}.py`: the input and scoring contract.
+- `src/math_rl/{train,provenance}.py`: VERL launch, resume guards, run records.
+- `src/math_rl/audit.py`: Stage 1 metrics and gates.
+- `configs/smoke.yaml`: experiment settings; `scripts/`: setup, jobs, review, reports.
+- `tests/`: CPU checks. Run inside the environment with `python -m pytest -q`.
+
+For the underlying RL loop, read `verl/trainer/ppo/ray_trainer.py` and
+`core_algos.py` at the pinned commit. Local checks cover CPU behavior and mocked
+launching. Stage 0/1 are complete only after the Duke runs and human audit pass.

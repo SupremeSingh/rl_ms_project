@@ -28,6 +28,7 @@ def main():
     text = json.dumps(report, indent=2) + "\n"
     (args.run / "report.json").write_text(text)
     print(text)
+    raise SystemExit(0 if report["stage1_pass"] else 1)
 
 
 if __name__ == "__main__":

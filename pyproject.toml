@@ -7,7 +7,7 @@ name = "math-rl"
 version = "0.1.0"
 description = "Small math RL experiments"
 requires-python = ">=3.10"
-dependencies = ["datasets", "pyarrow", "huggingface-hub"]
+dependencies = ["datasets", "pyarrow", "huggingface-hub", "PyYAML"]
 
 [project.optional-dependencies]
 dev = ["pytest"]

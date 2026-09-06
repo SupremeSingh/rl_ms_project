@@ -10,6 +10,8 @@ def main():
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
     from math_rl.reward import compute_score
+    from math_rl.prompts import validate_assets, validate_prompt, display_prompt
+    from math_rl.provenance import snapshot
 
     root = Path(__file__).resolve().parents[1]
     p = argparse.ArgumentParser()
@@ -22,6 +24,7 @@ def main():
     if args.out.exists():
         p.error("Output directory exists; choose a new --out to preserve the audit")
     assets = json.loads((root / "configs/assets.json").read_text())
+    validate_assets(assets)
     model = root / "models/qwen-math"
     data_path = root / "data/gsm8k/train.parquet"
     tokenizer = AutoTokenizer.from_pretrained(model, local_files_only=True)
@@ -29,6 +32,7 @@ def main():
     eligible = []
     excluded = 0
     for row in dataset:
+        validate_prompt(row["prompt"])
         ids = tokenizer.apply_chat_template(row["prompt"], tokenize=True,
                                              add_generation_prompt=True)
         if len(ids) > 512:
@@ -52,7 +56,8 @@ def main():
             records.append({
                 "id": f"{row['extra_info']['prompt_id']}/{completion.index}",
                 "prompt_id": row["extra_info"]["prompt_id"],
-                "prompt": row["prompt"][0]["content"],
+                "prompt": display_prompt(row["prompt"]),
+                "messages": row["prompt"],
                 "ground_truth": row["reward_model"]["ground_truth"],
                 "response": completion.text,
                 "reward": compute_score("gsm8k", completion.text,
@@ -65,6 +70,7 @@ def main():
     payload = "".join(json.dumps(x) + "\n" for x in records)
     (args.out / "responses.jsonl").write_text(payload)
     metadata = {
+        "provenance": snapshot(root),
         "assets": assets, "seed": args.seed, "n": 2,
         "temperature": 1.0, "top_p": 1.0, "top_k": -1,
         "max_tokens": 512, "dtype": "bfloat16",
