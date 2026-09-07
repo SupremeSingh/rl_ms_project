@@ -34,7 +34,7 @@ Use a compute allocation for installation and downloads; login nodes are limited
 to one CPU and 4 GB RAM.
 
 ```bash
-srun -p compsci --cpus-per-task=8 --mem=64G --time=02:00:00 --pty bash -i
+srun -p compsci --cpus-per-task=8 --mem=128G --time=02:00:00 --pty bash -i
 cd /usr/xtmp/ms785/rl_ms_project
 command -v singularity || command -v apptainer
 ```
@@ -55,6 +55,11 @@ Setup installs VERL commit `8d9e350ea58c7ad4b50dd14d9dcb50577242c55f`, checks
 package compatibility, runs CPU tests, downloads assets, and prints the resolved
 training configuration. Keep the container's Torch/vLLM versions together.
 Downloads require network access from the allocation.
+
+The wrapper places Apptainer's build temporary files on `/usr/xtmp/ms785` rather
+than a potentially RAM-backed `/tmp`, and limits squashfs conversion to two
+workers. If a prior pull was killed, inspect the partial SIF and remove or move
+it before retrying; never use a partial image for training.
 
 The shared environment uses:
 

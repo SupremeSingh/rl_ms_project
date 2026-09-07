@@ -16,9 +16,14 @@ export MATH_RL_RUNTIME
 export HF_HOME="$MATH_RL_ROOT/cache/huggingface"
 export APPTAINER_CACHEDIR="$MATH_RL_ROOT/cache/apptainer"
 export SINGULARITY_CACHEDIR="$MATH_RL_ROOT/cache/singularity"
+export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-$MATH_RL_ROOT/cache/apptainer-tmp}"
+export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-$MATH_RL_ROOT/cache/singularity-tmp}"
+# mksquashfs is memory hungry; two workers are plenty for this one-time pull.
+export APPTAINER_MKSQUASHFS_ARGS="${APPTAINER_MKSQUASHFS_ARGS:--processors 2}"
+export SINGULARITY_MKSQUASHFS_ARGS="${SINGULARITY_MKSQUASHFS_ARGS:--processors 2}"
 export PIP_CACHE_DIR="$MATH_RL_ROOT/cache/pip"
 if [[ -n "${SLURM_JOB_ID:-}" ]]; then
   export TMPDIR="${SLURM_TMPDIR:-/tmp/math-rl-${USER}-${SLURM_JOB_ID}}"
   mkdir -p "$TMPDIR"
 fi
-mkdir -p "$MATH_RL_ROOT/containers" "$HF_HOME" "$APPTAINER_CACHEDIR" "$SINGULARITY_CACHEDIR" "$PIP_CACHE_DIR"
+mkdir -p "$MATH_RL_ROOT/containers" "$HF_HOME" "$APPTAINER_CACHEDIR" "$SINGULARITY_CACHEDIR" "$APPTAINER_TMPDIR" "$SINGULARITY_TMPDIR" "$PIP_CACHE_DIR"
