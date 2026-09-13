@@ -32,7 +32,10 @@ def main():
         contract = metadata.get("contract", "answer")
         rule = ("Answer: <decimal number>" if contract == "answer" else
                 r"a single \boxed{<decimal number>} on the final line, no other boxes or Answer: markers")
+        if contract == "numeric-box-v1":
+            rule = r"exactly one well-formed numeric \boxed{...}, allowed inside prose"
         print("Format: does the response satisfy", rule + "?")
+        print("Treat unrelated or contradicted extracted answers as incorrect; note ambiguities.")
         print("Answer_correct: is its unambiguous final answer numerically correct, regardless of format?")
         while True:
             value = input("> ").strip().lower()

@@ -34,6 +34,12 @@ def extract_answer(response, contract="answer"):
     final = lines[-1].strip()
     if contract == "answer":
         return parse_number(final[len("Answer:"):]) if final.startswith("Answer:") else None
+    if contract == "numeric-box-v1":
+        # Reference-independent extraction; semantic relevance requires human audit.
+        if response.count(r"\boxed") != 1:
+            return None
+        match = re.search(r"\\boxed\s*\{([^{}]*)\}", response)
+        return parse_number(match.group(1)) if match else None
     if contract != "boxed":
         raise ValueError(f"Unknown answer contract: {contract}")
     # A single numeric box on the final line; never search arbitrary numbers.

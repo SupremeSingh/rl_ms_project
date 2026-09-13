@@ -17,7 +17,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--out", type=Path, default=root / "outputs/stage1")
     p.add_argument("--mode", choices=["audit", "diagnostic"], default="audit")
-    p.add_argument("--contract", choices=["answer", "boxed"], default="answer")
+    p.add_argument("--contract", choices=["answer", "boxed", "numeric-box-v1"], default="answer")
     p.add_argument("--max-tokens", type=int, default=512)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--prompts", type=int)

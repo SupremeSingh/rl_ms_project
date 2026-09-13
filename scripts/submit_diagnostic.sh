@@ -12,10 +12,6 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit from the project directory}"
 export MATH_RL_GPU=1
 srun bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/preflight.py
-for contract in answer boxed; do
-    for tokens in 512 2048; do
-        srun bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/generate_stage1.py \
-            --mode diagnostic --contract "$contract" --max-tokens "$tokens" \
-            --out "outputs/diagnostic-${SLURM_JOB_ID}/${contract}-${tokens}"
-    done
-done
+srun bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/generate_stage1.py \
+    --mode diagnostic --contract numeric-box-v1 --max-tokens 2048 \
+    --out "outputs/diagnostic-${SLURM_JOB_ID}/numeric-box-v1-2048"

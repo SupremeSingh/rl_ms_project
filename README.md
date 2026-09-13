@@ -1,3 +1,48 @@
+
+## Current next step: aligned numeric-box diagnostic
+
+The prompt now asks for a single boxed numeric answer. The versioned candidate
+`numeric-box-v1` accepts one numeric box inside prose, exactly like the saved-response
+rescorer. Multiple boxes, malformed boxes, and nonnumeric contents are rejected.
+This candidate still needs human auditing; extraction alone cannot detect an
+unrelated or contradicted answer. The existing training reward is not promoted yet.
+
+On Duke after pulling these changes:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+source scripts/cluster_env.sh
+mkdir -p logs
+sbatch scripts/submit_diagnostic.sh
+```
+
+This now runs only the aligned condition: 32 validation questions, two responses
+each, 2,048 response tokens, temperature 1, on one A5000. Existing prepared data
+can be reused; the generator replaces the instruction explicitly in memory.
+Old output directories and labels remain untouched.
+
+Replace JOB_ID with the submitted number:
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode
+cat outputs/diagnostic-JOB_ID/numeric-box-v1-2048/summary.json
+python3 scripts/review_stage1.py outputs/diagnostic-JOB_ID/numeric-box-v1-2048
+```
+
+Wait for generation to complete before reading/reviewing. Human format/reward
+labels must be new for this contract. Do not start PPO based on generation success.
+If the diagnostic is satisfactory, the separate audit command is:
+
+```bash
+sbatch --gres=gpu:a5000:1 scripts/submit_stage1.sh \
+  --mode audit --contract numeric-box-v1 --max-tokens 2048 \
+  --out outputs/stage1-numeric-box-v1-2048
+```
+
+It uses 100 training-subset questions disjoint from diagnostic validation questions.
+Promote the audited contract into training preparation and validation together only
+after the audit passes. Earlier boxed/Answer commands below document old controls.
+
 # Math RL · Stages 0–1
 
 A small, inspectable pipeline: **prompt → sample → score → update → save → resume**.
@@ -183,9 +228,9 @@ For the underlying RL loop, read `verl/trainer/ppo/ray_trainer.py` and
 `core_algos.py` at the pinned commit. Local checks cover CPU behavior and mocked
 launching. Stage 0/1 are complete only after the Duke runs and human audit pass.
 
-### Stage 1 format/length diagnostic
+### Previous Stage 1 format/length diagnostic (historical)
 
-Run all four conditions (Answer/boxed × 512/2048 response tokens) sequentially
+The previous diagnostic ran all four conditions (Answer/boxed × 512/2048 response tokens) sequentially
 on one A5000. Uses the same 32 validation prompts, two responses each, temperature
 1. Training prompts and the training reward remain unchanged.
 

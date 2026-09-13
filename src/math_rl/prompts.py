@@ -38,6 +38,7 @@ BOXED_INSTRUCTION = (
 
 
 def prompt_for_contract(question, contract):
-    instruction = {"answer": INSTRUCTION, "boxed": BOXED_INSTRUCTION}[contract]
+    instruction = {"answer": INSTRUCTION, "boxed": BOXED_INSTRUCTION,
+                   "numeric-box-v1": r"Solve the math problem step by step. Put your final numeric answer inside a single \boxed{...}."}[contract]
     return [{"role": "system", "content": instruction},
             {"role": "user", "content": question}]
