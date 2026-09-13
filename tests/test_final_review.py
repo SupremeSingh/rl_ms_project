@@ -28,8 +28,8 @@ def test_integrity_and_separate_labels(tmp_path):
     (tmp_path / 'responses.jsonl').write_bytes(payload)
     (tmp_path / 'metadata.json').write_text(json.dumps({'responses_sha256': digest}))
     (tmp_path / 'labels.jsonl').write_text('old labels untouched')
-    (tmp_path / 'final-numeric-v2-rescore.json').write_text(json.dumps({
-        'rule_version': 'final-numeric-v2', 'conditions': [{'responses_sha256': digest,
+    (tmp_path / 'math-verify-v1-rescore.json').write_text(json.dumps({
+        'rule_version': 'math-verify-v1', 'conditions': [{'responses_sha256': digest,
         'results': [{'id': 'a', 'diagnostic_reward': 1, 'extracted': '3'}]}]}))
     assert module.load_review(tmp_path)[2] == []
     assert (tmp_path / 'labels.jsonl').read_text() == 'old labels untouched'
@@ -46,10 +46,10 @@ def test_v3_reuses_existing_labels(tmp_path):
     label_path = tmp_path / 'final-numeric-v2-human.jsonl'
     original = json.dumps(dict(id='a', unambiguous=1, correct=1, responses_sha256=digest))
     label_path.write_text(original)
-    (tmp_path / 'final-numeric-v3-rescore.json').write_text(json.dumps({
-        'rule_version': 'final-numeric-v3', 'conditions': [{'responses_sha256': digest,
+    (tmp_path / 'math-verify-v1-rescore.json').write_text(json.dumps({
+        'rule_version': 'math-verify-v1', 'conditions': [{'responses_sha256': digest,
         'results': [{'id': 'a', 'diagnostic_reward': 1, 'extracted': '3'}]}]}))
-    rows, predictions, labels, _, path = module.load_review(tmp_path, 'final-numeric-v3')
+    rows, predictions, labels, _, path = module.load_review(tmp_path, 'math-verify-v1')
     assert path == label_path
     assert label_path.read_text() == original
     assert module.summarize(predictions, labels, len(rows))['verifier_agreement'] == 1

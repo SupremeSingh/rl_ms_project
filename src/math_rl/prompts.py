@@ -30,38 +30,10 @@ def validate_assets(assets):
             raise ValueError(f"{key} must be an immutable commit SHA")
 
 
-BOXED_INSTRUCTION = (
-    "Solve the math problem step by step. End with a line containing only "
-    r"\boxed{<number>}, where <number> is a decimal number. "
-    "Use exactly one boxed answer; do not append units or punctuation."
-)
+# Frozen Stage 1 prefix. Legacy make_prompt above belongs to the old smoke path.
+AUDIT_INSTRUCTION = r"Solve the math problem step by step. Put your final numeric answer inside a single \boxed{...}."
 
 
-def prompt_for_contract(question, contract):
-    instruction = {"answer": INSTRUCTION, "boxed": BOXED_INSTRUCTION,
-                   "numeric-box-v1": r"Solve the math problem step by step. Put your final numeric answer inside a single \boxed{...}."}[contract]
-    return [{"role": "system", "content": instruction},
-            {"role": "user", "content": question}]
-
-
-def encode_prompt(tokenizer, messages, style):
-    """Return the actual generation prefix and its exact token IDs."""
-    if style == "chat":
-        text = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True)
-        ids = tokenizer.apply_chat_template(
-            messages, tokenize=True, add_generation_prompt=True)
-    elif style in ("completion", "completion-example-v1"):
-        example = ""
-        if style == "completion-example-v1":
-            example = (
-                "\n\nQuestion: A jar holds 2 red beads and 5 blue beads. "
-                "How many beads are in the jar?\n\nSolution: "
-                r"There are 2 + 5 = 7 beads. The answer is \boxed{7}."
-            )
-        text = (messages[0]["content"] + example + "\n\nQuestion: " +
-                messages[1]["content"] + "\n\nSolution:")
-        ids = tokenizer.encode(text, add_special_tokens=False)
-    else:
-        raise ValueError(f"Unknown prompt style: {style}")
-    return text, ids
+def encode_completion(tokenizer, question):
+    text = AUDIT_INSTRUCTION + "\n\nQuestion: " + question + "\n\nSolution:"
+    return text, tokenizer.encode(text, add_special_tokens=False)

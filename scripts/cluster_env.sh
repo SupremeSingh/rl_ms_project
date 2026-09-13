@@ -17,7 +17,7 @@ export HF_HOME="$MATH_RL_ROOT/cache/huggingface"
 export APPTAINER_CACHEDIR="$MATH_RL_ROOT/cache/apptainer"
 export SINGULARITY_CACHEDIR="$MATH_RL_ROOT/cache/singularity"
 export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-$MATH_RL_ROOT/cache/apptainer-tmp}"
-export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-$MATH_RL_ROOT/cache/singularity-tmp}"
+export SINGULARITY_TMPDIR="$APPTAINER_TMPDIR"
 # mksquashfs is memory hungry; two workers are plenty for this one-time pull.
 export APPTAINER_MKSQUASHFS_ARGS="${APPTAINER_MKSQUASHFS_ARGS:--processors 2}"
 export SINGULARITY_MKSQUASHFS_ARGS="${SINGULARITY_MKSQUASHFS_ARGS:--processors 2}"

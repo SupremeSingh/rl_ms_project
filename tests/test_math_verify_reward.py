@@ -33,14 +33,15 @@ def test_failures_and_pins(monkeypatch):
     assert grade('4', '4')['status'] == 'parse_timeout'
 
 
-def test_rescore_and_saved_labels_cli(tmp_path):
+@pytest.mark.parametrize('original_reward', [0, None])
+def test_rescore_and_saved_labels_cli(tmp_path, original_reward):
     import hashlib
     import json
     import subprocess
     import sys
     from pathlib import Path
     rows = [dict(id=str(i), prompt_id='p', prompt='Question', response=text,
-                 ground_truth='4', reward=0, finish_reason='stop')
+                 ground_truth='4', reward=original_reward, finish_reason='stop')
             for i, text in enumerate([r'The answer is \boxed{4}.', r'The answer is \boxed{5}.'])]
     payload = '\n'.join(json.dumps(r) for r in rows).encode()
     digest = hashlib.sha256(payload).hexdigest()

@@ -30,3 +30,5 @@ ray_results/
 .idea/
 .DS_Store
 .venv-verifier/
+
+configs/pip-check.txt

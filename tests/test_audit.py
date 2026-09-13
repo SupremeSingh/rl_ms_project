@@ -1,49 +1,37 @@
-import pytest
-from math_rl.audit import summarize
+from math_rl.audit import final_answer_gates
 
 
-def fixture_data():
-    records, labels = [], []
-    for pair in range(100):
-        for sample in range(2):
-            rid = f"{pair}/{sample}"
-            records.append({"id": rid, "prompt_id": str(pair),
-                            "reward": sample, "finish_reason": "stop"})
-            labels.append({"id": rid, "human_reward": sample,
-                           "human_format": 1, "human_answer_correct": sample})
-    return records, labels
+def inputs():
+    metadata = dict(mode='audit', audit_offset=160,
+                    excluded_development_ids=[str(i) for i in range(160)],
+                    prompt_ids=[str(i) for i in range(160, 260)])
+    scoring = dict(responses=200, status_counts={'correct': 100, 'incorrect': 100},
+                   diagnostic_reward_rate=0.5, mixed_pair_rate=0.3, truncation_rate=0)
+    return metadata, scoring
 
 
-def test_complete_audit_passes():
-    records, labels = fixture_data()
-    result = summarize(records, labels)
-    assert result["stage1_pass"]
-    assert result["mixed_pair_rate"] == 1
-    assert result["reward_accuracy"] == 0.5
+def test_complete_fresh_audit():
+    meta, scoring = inputs()
+    assert final_answer_gates(meta, scoring, 200, 0.99)['stage1_pass']
+    assert not final_answer_gates(meta, scoring, 199, 1)['stage1_pass']
+    assert not final_answer_gates(meta, scoring, 200, 0.985)['stage1_pass']
 
 
-def test_missing_human_labels_cannot_pass():
-    records, labels = fixture_data()
-    assert not summarize(records, [])['stage1_pass']
-    assert not summarize(records, labels[:-1])['stage1_pass']
+def test_easy_dataset_is_not_verifier_failure():
+    meta, scoring = inputs()
+    scoring['diagnostic_reward_rate'] = 0.86
+    result = final_answer_gates(meta, scoring, 200, 1)
+    assert result['verifier_audit_pass']
+    assert not result['stage1_pass']
 
 
-def test_three_disagreements_fail_99_percent_gate():
-    records, labels = fixture_data()
-    for label in labels[:3]:
-        label['human_reward'] = 1 - label['human_reward']
-        label['human_answer_correct'] = label['human_reward']
-    assert not summarize(records, labels)['gates']['verifier_agreement']
-
-
-def test_unpaired_data_rejected():
-    records, labels = fixture_data()
-    with pytest.raises(ValueError):
-        summarize(records[:-1], labels[:-1])
-
-
-def test_all_equal_rewards_fail_mixed_pair_gate():
-    records, _ = fixture_data()
-    for row in records:
-        row['reward'] = 0
-    assert not summarize(records, [])['gates']['mixed_pairs_at_least_10_percent']
+def test_overlap_diagnostic_and_errors_fail():
+    meta, scoring = inputs()
+    meta['prompt_ids'][0] = '0'
+    assert not final_answer_gates(meta, scoring, 200, 1)['verifier_audit_pass']
+    meta, scoring = inputs()
+    meta['mode'] = 'diagnostic'
+    assert not final_answer_gates(meta, scoring, 200, 1)['verifier_audit_pass']
+    meta, scoring = inputs()
+    scoring['status_counts']['verify_timeout'] = 1
+    assert not final_answer_gates(meta, scoring, 200, 1)['verifier_audit_pass']

@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 
-def load_review(run, rule='final-numeric-v2'):
+def load_review(run, rule='math-verify-v1'):
     payload = (run / 'responses.jsonl').read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
     if json.loads((run / 'metadata.json').read_text())['responses_sha256'] != digest:
@@ -19,7 +19,9 @@ def load_review(run, rule='final-numeric-v2'):
     ids = {r['id'] for r in rows}
     if not rows or len(ids) != len(rows) or ids != predictions.keys() or len(predictions) != len(conditions[0]['results']):
         raise ValueError('Duplicate or mismatched response IDs')
-    path = run / 'final-numeric-v2-human.jsonl'
+    # Keep existing semantic labels usable without copying or overwriting them.
+    legacy = run / 'final-numeric-v2-human.jsonl'
+    path = legacy if legacy.exists() else run / 'human-labels.jsonl'
     labels = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
     if len({r['id'] for r in labels}) != len(labels):
         raise ValueError('Duplicate labels')
@@ -46,7 +48,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run', type=Path)
     parser.add_argument('--report', action='store_true')
-    parser.add_argument('--rule', choices=['final-numeric-v2', 'final-numeric-v3', 'math-verify-v1'], default='final-numeric-v2')
+    parser.add_argument('--rule', choices=['math-verify-v1'], default='math-verify-v1')
     args = parser.parse_args()
     rows, predictions, labels, digest, path = load_review(args.run, args.rule)
     if not args.report:
@@ -77,6 +79,13 @@ def main():
                 handle.write(json.dumps(label)+'\n')
             labels.append(label)
     result = summarize(predictions, labels, len(rows))
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+    from math_rl.audit import final_answer_gates
+    metadata = json.loads((args.run / 'metadata.json').read_text())
+    scoring = json.loads((args.run / f'{args.rule}-rescore.json').read_text())['conditions'][0]
+    result.update(final_answer_gates(metadata, scoring, len(labels), result['verifier_agreement']))
+    result['note'] = 'Verifier reliability and dataset difficulty are reported separately; training promotion is a separate step.'
     result['rule_version'] = args.rule
     result['responses_sha256'] = digest
     result['rescore_sha256'] = hashlib.sha256((args.run / f'{args.rule}-rescore.json').read_bytes()).hexdigest()

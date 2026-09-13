@@ -1,120 +1,102 @@
-"""Generate 100 prompt pairs with the untrained initial checkpoint."""
+"""Generate frozen completion prompts; score separately in the verifier environment."""
 import argparse
 import hashlib
 import json
 from pathlib import Path
 
+AUDIT_OFFSET = 160  # Earlier train (128) and validation (32) prompts are excluded.
+
+
+def select_rows(source, tokenizer, count):
+    from math_rl.prompts import encode_completion
+    chosen, excluded = [], 0
+    seen = set()
+    for row in source:
+        question = row['prompt'][1]['content']
+        key = ' '.join(question.split())
+        if key in seen:
+            continue
+        seen.add(key)
+        rendered, ids = encode_completion(tokenizer, question)
+        if len(ids) > 512:
+            excluded += 1
+            continue
+        chosen.append((row, rendered, ids))
+        if len(chosen) == count:
+            break
+    if len(chosen) != count:
+        raise ValueError(f'Only {len(chosen)} eligible prompts; need {count}')
+    return chosen, excluded
+
 
 def main():
-    from datasets import Dataset
+    from datasets import Dataset, load_dataset
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
-    from math_rl.reward import score_contract, extract_answer
-    from math_rl.prompts import validate_assets, validate_prompt, prompt_for_contract, encode_prompt
+    from math_rl.data import make_row
+    from math_rl.prompts import validate_assets
     from math_rl.provenance import snapshot
 
-    root = Path(__file__).resolve().parents[1]
-    p = argparse.ArgumentParser()
-    p.add_argument("--out", type=Path, default=root / "outputs/stage1")
-    p.add_argument("--mode", choices=["audit", "diagnostic"], default="audit")
-    p.add_argument("--contract", choices=["answer", "boxed", "numeric-box-v1"], default="answer")
-    p.add_argument("--prompt-style", choices=["chat", "completion", "completion-example-v1"], default="chat")
-    p.add_argument("--max-tokens", type=int, default=512)
-    p.add_argument("--temperature", type=float, default=1.0)
-    p.add_argument("--prompts", type=int)
-    p.add_argument("--seed", type=int, default=42)
-    args = p.parse_args()
-    if args.prompts is None:
-        args.prompts = 32 if args.mode == "diagnostic" else 100
-    if args.max_tokens < 1 or args.temperature <= 0 or args.prompts < 1:
-        p.error("Token budget, temperature, and prompt count must be positive")
-    if args.mode == "audit" and args.prompts < 100:
-        p.error("Stage 1 requires at least 100 pairs / 200 responses")
-    if args.prompt_style == "completion-example-v1" and args.contract != "numeric-box-v1":
-        p.error("The boxed example requires --contract numeric-box-v1")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--mode', choices=['audit', 'diagnostic'], default='audit')
+    args = parser.parse_args()
     if args.out.exists():
-        p.error("Output directory exists; choose a new --out to preserve the audit")
-    assets = json.loads((root / "configs/assets.json").read_text())
+        parser.error('Output exists; use a new directory to preserve earlier results')
+    root = Path(__file__).resolve().parents[1]
+    assets = json.loads((root / 'configs/assets.json').read_text())
     validate_assets(assets)
-    model = root / "models/qwen-math"
-    data_path = root / "data/gsm8k" / ("val.parquet" if args.mode == "diagnostic" else "train.parquet")
+    if args.mode == 'audit':
+        source = load_dataset('openai/gsm8k', 'main', split='train', revision=assets['dataset_revision'])
+        source = source.add_column('original_index', list(range(len(source))))
+        source = source.shuffle(seed=assets['seed'])
+        # Original indexed IDs survive shuffling. Never sample the development prefix.
+        excluded_ids = [f"gsm8k/train/{source[i]['original_index']}" for i in range(AUDIT_OFFSET)]
+        development_questions = {' '.join(source[i]['question'].split()) for i in range(AUDIT_OFFSET)}
+        candidates = (make_row(source[i], source[i]['original_index'])
+                      for i in range(AUDIT_OFFSET, len(source))
+                      if ' '.join(source[i]['question'].split()) not in development_questions)
+        count = 100
+    else:
+        candidates = Dataset.from_parquet(str(root / 'data/gsm8k/val.parquet'))
+        excluded_ids = []
+        count = 32
+    model = root / 'models/qwen-math'
     tokenizer = AutoTokenizer.from_pretrained(model, local_files_only=True)
-    dataset = Dataset.from_parquet(str(data_path))
-    eligible = []
-    excluded = 0
-    for row in dataset:
-        validate_prompt(row["prompt"])
-        row["prompt"] = prompt_for_contract(row["prompt"][1]["content"], args.contract)
-        encodings = {style: encode_prompt(tokenizer, row["prompt"], style)
-                     for style in ("chat", "completion", "completion-example-v1")}
-        rendered, ids = encodings[args.prompt_style]
-        # Common eligibility preserves identical questions across prompt styles.
-        if any(len(tokens) > 512 for _, tokens in encodings.values()):
-            excluded += 1
-        else:
-            eligible.append((row, ids, rendered))
-    if len(eligible) < args.prompts:
-        p.error(f"Only {len(eligible)} eligible prompts; prepare more data")
-    chosen = eligible[:args.prompts]
-    llm = LLM(model=str(model), dtype="bfloat16", tensor_parallel_size=1,
-              max_model_len=512 + args.max_tokens, gpu_memory_utilization=0.6,
-              max_num_seqs=8, max_num_batched_tokens=512 + args.max_tokens,
-              enforce_eager=True, seed=args.seed, generation_config="vllm")
-    params = SamplingParams(n=2, temperature=args.temperature, top_p=1.0, top_k=-1,
-                            max_tokens=args.max_tokens, seed=args.seed)
-    outputs = llm.generate([{"prompt_token_ids": ids} for _, ids, _ in chosen], params)
+    chosen, excluded = select_rows(candidates, tokenizer, count)
+    prompt_ids = [row['extra_info']['prompt_id'] for row, _, _ in chosen]
+    if set(prompt_ids) & set(excluded_ids):
+        raise RuntimeError('Audit overlaps development prompts')
+    engine = LLM(model=str(model), dtype='bfloat16', tensor_parallel_size=1,
+                 max_model_len=2560, gpu_memory_utilization=0.6, max_num_seqs=8,
+                 max_num_batched_tokens=2560, enforce_eager=True, seed=42,
+                 generation_config='vllm')
+    params = SamplingParams(n=2, temperature=1.0, top_p=1.0, top_k=-1, max_tokens=2048, seed=42)
+    outputs = engine.generate([{'prompt_token_ids': ids} for _, _, ids in chosen], params)
     records = []
-    for (row, ids, rendered), output in zip(chosen, outputs, strict=True):
+    for (row, rendered, ids), output in zip(chosen, outputs, strict=True):
         if len(output.outputs) != 2:
-            raise RuntimeError("Expected two responses per prompt")
+            raise RuntimeError('Expected exactly two responses per prompt')
         for completion in output.outputs:
-            records.append({
-                "id": f"{row['extra_info']['prompt_id']}/{completion.index}",
-                "prompt_id": row["extra_info"]["prompt_id"],
-                "prompt": rendered,
-                "prompt_token_ids": ids,
-                "prompt_style": args.prompt_style,
-                "messages": row["prompt"],
-                "ground_truth": row["reward_model"]["ground_truth"],
-                "response": completion.text,
-                "contract": args.contract,
-                "format_valid": extract_answer(completion.text, args.contract) is not None,
-                "reward": score_contract(completion.text,
-                                         row["reward_model"]["ground_truth"], args.contract),
-                "finish_reason": completion.finish_reason,
-                "prompt_tokens": len(ids),
-                "response_tokens": len(completion.token_ids),
-            })
+            records.append(dict(id=f"{row['extra_info']['prompt_id']}/{completion.index}",
+                                prompt_id=row['extra_info']['prompt_id'], prompt=rendered,
+                                prompt_token_ids=ids, ground_truth=row['reward_model']['ground_truth'],
+                                response=completion.text, reward=None,
+                                finish_reason=completion.finish_reason,
+                                response_tokens=len(completion.token_ids)))
     args.out.mkdir(parents=True)
-    payload = "".join(json.dumps(x) + "\n" for x in records)
-    (args.out / "responses.jsonl").write_text(payload)
-    metadata = {
-        "provenance": snapshot(root),
-        "assets": assets, "seed": args.seed, "n": 2,
-        "mode": args.mode, "contract": args.contract,
-        "prompt_style": args.prompt_style,
-        "temperature": args.temperature, "top_p": 1.0, "top_k": -1,
-        "max_tokens": args.max_tokens, "dtype": "bfloat16",
-        "prompt_count": args.prompts, "excluded_overlong": excluded,
-        "eligible_count": len(eligible), "source": str(data_path), "prompt_ids": [row["extra_info"]["prompt_id"] for row, _, _ in chosen],
-        "responses_sha256": hashlib.sha256(payload.encode()).hexdigest(),
-        "data_sha256": hashlib.sha256(data_path.read_bytes()).hexdigest(),
-        "reward_sha256": hashlib.sha256((root / "src/math_rl/reward.py").read_bytes()).hexdigest(),
-        "checkpoint_note": "Initial downloaded checkpoint, never the Stage 0 RL checkpoint",
-    }
-    (args.out / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
-    print(f"Saved {len(records)} responses to {args.out}")
-    from math_rl.audit import summarize
-    report = summarize(records, [])
-    report.update(mode=args.mode, contract=args.contract,
-                  prompt_style=args.prompt_style, temperature=args.temperature,
-                  response_budget=args.max_tokens,
-                  automatic_format_rate=sum(r["format_valid"] for r in records) / len(records),
-                  mean_response_tokens=sum(r["response_tokens"] for r in records) / len(records),
-                  max_response_tokens=max(r["response_tokens"] for r in records))
-    (args.out / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps(report, indent=2))
+    payload = ''.join(json.dumps(r) + '\n' for r in records)
+    (args.out / 'responses.jsonl').write_text(payload)
+    metadata = dict(mode=args.mode, rule_version='math-verify-v1', assets=assets,
+                    prompt_style='completion', seed=42, temperature=1.0, n=2,
+                    top_p=1.0, top_k=-1, max_tokens=2048, dtype='bfloat16',
+                    source='openai/gsm8k main train', audit_offset=AUDIT_OFFSET if args.mode == 'audit' else None,
+                    excluded_development_ids=excluded_ids, prompt_ids=prompt_ids,
+                    excluded_overlong=excluded, provenance=snapshot(root),
+                    responses_sha256=hashlib.sha256(payload.encode()).hexdigest())
+    (args.out / 'metadata.json').write_text(json.dumps(metadata, indent=2)+'\n')
+    print(f'Saved {len(records)} responses to {args.out}; Math-Verify scoring is the next step.')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
