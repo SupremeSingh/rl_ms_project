@@ -51,8 +51,15 @@ def encode_prompt(tokenizer, messages, style):
             messages, tokenize=False, add_generation_prompt=True)
         ids = tokenizer.apply_chat_template(
             messages, tokenize=True, add_generation_prompt=True)
-    elif style == "completion":
-        text = (messages[0]["content"] + "\n\nQuestion: " +
+    elif style in ("completion", "completion-example-v1"):
+        example = ""
+        if style == "completion-example-v1":
+            example = (
+                "\n\nQuestion: A jar holds 2 red beads and 5 blue beads. "
+                "How many beads are in the jar?\n\nSolution: "
+                r"There are 2 + 5 = 7 beads. The answer is \boxed{7}."
+            )
+        text = (messages[0]["content"] + example + "\n\nQuestion: " +
                 messages[1]["content"] + "\n\nSolution:")
         ids = tokenizer.encode(text, add_special_tokens=False)
     else:

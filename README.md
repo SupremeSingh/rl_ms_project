@@ -1,4 +1,35 @@
-## Current next step: prompt style and sampling diagnostic
+## Current next step: teach the output format with one example
+
+Plain completion is the current candidate. Compare it with the same prompt plus
+one fixed, synthetic worked example ending in a numeric box. Both conditions use
+32 validation questions, two responses each, temperature 1.0, a 2,048 response-token
+budget, and the unchanged numeric-box-v1 verifier. Only generated text is scored;
+the example is part of the input, never part of the scored response. No weights
+are trained. This is a candidate intervention, not a guaranteed formatting fix.
+
+After pulling on Duke:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+source scripts/cluster_env.sh
+mkdir -p logs
+sbatch scripts/submit_diagnostic.sh
+```
+
+The job runs two conditions sequentially on one A5000 (128 responses). Replace JOB_ID:
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode
+cat outputs/diagnostic-JOB_ID/*/summary.json
+python3 scripts/review_stage1.py outputs/diagnostic-JOB_ID/completion-example-v1-t1.0
+```
+
+Outputs preserve old jobs and record the actual prefix and token IDs. The example
+can affect reasoning as well as format, so compare correctness too. All conditions
+use a common prompt-length eligibility check. The 200-response audit and training
+contract promotion remain pending; do not start PPO from a diagnostic result.
+
+## Previous step: prompt style and sampling diagnostic
 
 Compare chat-template versus plain completion prompts, each at temperature 1.0
 and 0.6. Both use the same numeric-box-v1 instruction/verifier, seed, 32 validation

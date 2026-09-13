@@ -18,7 +18,7 @@ def main():
     p.add_argument("--out", type=Path, default=root / "outputs/stage1")
     p.add_argument("--mode", choices=["audit", "diagnostic"], default="audit")
     p.add_argument("--contract", choices=["answer", "boxed", "numeric-box-v1"], default="answer")
-    p.add_argument("--prompt-style", choices=["chat", "completion"], default="chat")
+    p.add_argument("--prompt-style", choices=["chat", "completion", "completion-example-v1"], default="chat")
     p.add_argument("--max-tokens", type=int, default=512)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--prompts", type=int)
@@ -30,6 +30,8 @@ def main():
         p.error("Token budget, temperature, and prompt count must be positive")
     if args.mode == "audit" and args.prompts < 100:
         p.error("Stage 1 requires at least 100 pairs / 200 responses")
+    if args.prompt_style == "completion-example-v1" and args.contract != "numeric-box-v1":
+        p.error("The boxed example requires --contract numeric-box-v1")
     if args.out.exists():
         p.error("Output directory exists; choose a new --out to preserve the audit")
     assets = json.loads((root / "configs/assets.json").read_text())
@@ -44,7 +46,7 @@ def main():
         validate_prompt(row["prompt"])
         row["prompt"] = prompt_for_contract(row["prompt"][1]["content"], args.contract)
         encodings = {style: encode_prompt(tokenizer, row["prompt"], style)
-                     for style in ("chat", "completion")}
+                     for style in ("chat", "completion", "completion-example-v1")}
         rendered, ids = encodings[args.prompt_style]
         # Common eligibility preserves identical questions across prompt styles.
         if any(len(tokens) > 512 for _, tokens in encodings.values()):
