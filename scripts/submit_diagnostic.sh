@@ -12,6 +12,11 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:?Submit from the project directory}"
 export MATH_RL_GPU=1
 srun bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/preflight.py
-srun bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/generate_stage1.py \
-    --mode diagnostic --contract numeric-box-v1 --max-tokens 2048 \
-    --out "outputs/diagnostic-${SLURM_JOB_ID}/numeric-box-v1-2048"
+for style in chat completion; do
+    for temperature in 1.0 0.6; do
+        srun bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/generate_stage1.py \
+            --mode diagnostic --contract numeric-box-v1 --max-tokens 2048 \
+            --prompt-style "$style" --temperature "$temperature" \
+            --out "outputs/diagnostic-${SLURM_JOB_ID}/${style}-t${temperature}"
+    done
+done

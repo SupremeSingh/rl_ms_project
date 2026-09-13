@@ -42,3 +42,19 @@ def prompt_for_contract(question, contract):
                    "numeric-box-v1": r"Solve the math problem step by step. Put your final numeric answer inside a single \boxed{...}."}[contract]
     return [{"role": "system", "content": instruction},
             {"role": "user", "content": question}]
+
+
+def encode_prompt(tokenizer, messages, style):
+    """Return the actual generation prefix and its exact token IDs."""
+    if style == "chat":
+        text = tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True)
+        ids = tokenizer.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=True)
+    elif style == "completion":
+        text = (messages[0]["content"] + "\n\nQuestion: " +
+                messages[1]["content"] + "\n\nSolution:")
+        ids = tokenizer.encode(text, add_special_tokens=False)
+    else:
+        raise ValueError(f"Unknown prompt style: {style}")
+    return text, ids

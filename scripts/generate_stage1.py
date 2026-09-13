@@ -10,7 +10,7 @@ def main():
     from transformers import AutoTokenizer
     from vllm import LLM, SamplingParams
     from math_rl.reward import score_contract, extract_answer
-    from math_rl.prompts import validate_assets, validate_prompt, display_prompt, prompt_for_contract
+    from math_rl.prompts import validate_assets, validate_prompt, prompt_for_contract, encode_prompt
     from math_rl.provenance import snapshot
 
     root = Path(__file__).resolve().parents[1]
@@ -18,6 +18,7 @@ def main():
     p.add_argument("--out", type=Path, default=root / "outputs/stage1")
     p.add_argument("--mode", choices=["audit", "diagnostic"], default="audit")
     p.add_argument("--contract", choices=["answer", "boxed", "numeric-box-v1"], default="answer")
+    p.add_argument("--prompt-style", choices=["chat", "completion"], default="chat")
     p.add_argument("--max-tokens", type=int, default=512)
     p.add_argument("--temperature", type=float, default=1.0)
     p.add_argument("--prompts", type=int)
@@ -42,12 +43,14 @@ def main():
     for row in dataset:
         validate_prompt(row["prompt"])
         row["prompt"] = prompt_for_contract(row["prompt"][1]["content"], args.contract)
-        ids = tokenizer.apply_chat_template(row["prompt"], tokenize=True,
-                                             add_generation_prompt=True)
-        if len(ids) > 512:
+        encodings = {style: encode_prompt(tokenizer, row["prompt"], style)
+                     for style in ("chat", "completion")}
+        rendered, ids = encodings[args.prompt_style]
+        # Common eligibility preserves identical questions across prompt styles.
+        if any(len(tokens) > 512 for _, tokens in encodings.values()):
             excluded += 1
         else:
-            eligible.append((row, ids))
+            eligible.append((row, ids, rendered))
     if len(eligible) < args.prompts:
         p.error(f"Only {len(eligible)} eligible prompts; prepare more data")
     chosen = eligible[:args.prompts]
@@ -57,16 +60,18 @@ def main():
               enforce_eager=True, seed=args.seed, generation_config="vllm")
     params = SamplingParams(n=2, temperature=args.temperature, top_p=1.0, top_k=-1,
                             max_tokens=args.max_tokens, seed=args.seed)
-    outputs = llm.generate([{"prompt_token_ids": ids} for _, ids in chosen], params)
+    outputs = llm.generate([{"prompt_token_ids": ids} for _, ids, _ in chosen], params)
     records = []
-    for (row, ids), output in zip(chosen, outputs, strict=True):
+    for (row, ids, rendered), output in zip(chosen, outputs, strict=True):
         if len(output.outputs) != 2:
             raise RuntimeError("Expected two responses per prompt")
         for completion in output.outputs:
             records.append({
                 "id": f"{row['extra_info']['prompt_id']}/{completion.index}",
                 "prompt_id": row["extra_info"]["prompt_id"],
-                "prompt": display_prompt(row["prompt"]),
+                "prompt": rendered,
+                "prompt_token_ids": ids,
+                "prompt_style": args.prompt_style,
                 "messages": row["prompt"],
                 "ground_truth": row["reward_model"]["ground_truth"],
                 "response": completion.text,
@@ -85,10 +90,11 @@ def main():
         "provenance": snapshot(root),
         "assets": assets, "seed": args.seed, "n": 2,
         "mode": args.mode, "contract": args.contract,
+        "prompt_style": args.prompt_style,
         "temperature": args.temperature, "top_p": 1.0, "top_k": -1,
         "max_tokens": args.max_tokens, "dtype": "bfloat16",
         "prompt_count": args.prompts, "excluded_overlong": excluded,
-        "eligible_count": len(eligible), "source": str(data_path), "prompt_ids": [row["extra_info"]["prompt_id"] for row, _ in chosen],
+        "eligible_count": len(eligible), "source": str(data_path), "prompt_ids": [row["extra_info"]["prompt_id"] for row, _, _ in chosen],
         "responses_sha256": hashlib.sha256(payload.encode()).hexdigest(),
         "data_sha256": hashlib.sha256(data_path.read_bytes()).hexdigest(),
         "reward_sha256": hashlib.sha256((root / "src/math_rl/reward.py").read_bytes()).hexdigest(),
@@ -99,6 +105,8 @@ def main():
     from math_rl.audit import summarize
     report = summarize(records, [])
     report.update(mode=args.mode, contract=args.contract,
+                  prompt_style=args.prompt_style, temperature=args.temperature,
+                  response_budget=args.max_tokens,
                   automatic_format_rate=sum(r["format_valid"] for r in records) / len(records),
                   mean_response_tokens=sum(r["response_tokens"] for r in records) / len(records),
                   max_response_tokens=max(r["response_tokens"] for r in records))

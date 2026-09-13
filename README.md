@@ -1,5 +1,46 @@
+## Current next step: prompt style and sampling diagnostic
 
-## Current next step: aligned numeric-box diagnostic
+Compare chat-template versus plain completion prompts, each at temperature 1.0
+and 0.6. Both use the same numeric-box-v1 instruction/verifier, seed, 32 validation
+questions, two responses per question, and 2,048 response-token budget. The plain
+prefix is the instruction followed by `Question: ...` and `Solution:`; it uses no
+chat role markers. This tests a candidate prompt, not a claim that chat is broken.
+No repetition penalties or custom stopping rules are added.
+
+After pulling these changes on Duke:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+source scripts/cluster_env.sh
+mkdir -p logs
+sbatch scripts/submit_diagnostic.sh
+```
+
+One A5000 runs the four conditions sequentially (256 responses total). Replace
+JOB_ID with the returned number:
+
+```bash
+squeue -j JOB_ID
+tail -F logs/math-rl-diagnostic-JOB_ID.out
+sacct -j JOB_ID --format=JobID,State,ExitCode
+cat outputs/diagnostic-JOB_ID/*/summary.json
+```
+
+Outputs are chat-t1.0, chat-t0.6, completion-t1.0, and completion-t0.6. Each response
+stores the exact rendered generation prefix and prompt token IDs. The reviewer
+now displays that exact prefix. Inspect one condition without GPU allocation:
+
+```bash
+python3 scripts/review_stage1.py outputs/diagnostic-JOB_ID/completion-t0.6
+```
+
+Compare extraction, reward, truncation, and human coherence/correctness. No
+condition is preselected as the winner. These are development diagnostics, not
+a completed audit. The training path remains unchanged pending selection and
+fresh human audit; previous job outputs and labels remain intact.
+
+
+## Previous step: aligned numeric-box diagnostic
 
 The prompt now asks for a single boxed numeric answer. The versioned candidate
 `numeric-box-v1` accepts one numeric box inside prose, exactly like the saved-response
