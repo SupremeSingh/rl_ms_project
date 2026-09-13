@@ -29,3 +29,4 @@ ray_results/
 .vscode/
 .idea/
 .DS_Store
+.venv-verifier/

@@ -1,4 +1,45 @@
-## Current step: V3 rescore and reuse the existing human review
+## Current step: pinned Math-Verify candidate
+
+Use a separate CPU environment so installing the verifier does not alter the
+working VERL/PyTorch environment. On Duke after pulling:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+python3 -m venv .venv-verifier
+.venv-verifier/bin/python -m pip install -r requirements-verifier.txt
+.venv-verifier/bin/python scripts/rescore_stage1.py \
+  outputs/diagnostic-12585475/completion-t1.0 --rule math-verify-v1
+.venv-verifier/bin/python scripts/review_final_answers.py \
+  outputs/diagnostic-12585475/completion-t1.0 --rule math-verify-v1 --report
+```
+
+No GPU, model generation, or repeated labeling is needed. If the cluster's system
+Python lacks venv support, report that error rather than installing into the shared
+training environment. Existing format-independent human labels are reused.
+
+Math-Verify 0.9.0 and its parsing dependencies are pinned. The adapter uses boxed
+priority, library expression extraction, first-match selection, no string fallback,
+and 3-second parsing/verification timeouts. Predictions are parsed independently
+before comparison with validated numeric references. Runtime package versions,
+configuration, adapter hash, and error/timeout counts are saved. Generated Python
+is never executed by our code. Unanchored expression extraction is enabled: this
+can still select unrelated numbers, so do not assume semantic correctness or
+contradiction detection. Library numerical comparison uses 6-place float rounding
+and 15-digit precision; this is recorded rather than claimed as exact equality.
+
+New math-verify-v1-rescore.json and math-verify-v1-human-report.json files preserve
+all old scores and labels. Parsing failures/timeouts are distinct from incorrect
+answers; inspect status_counts. Dependency/configuration errors fail startup.
+The existing training reward remains unchanged until this candidate is audited.
+A development agreement score is not a fresh 200-response audit.
+
+Local library tests (in the isolated verifier environment with pytest installed):
+
+```bash
+PYTHONPATH=src .venv-verifier/bin/python -m pytest tests/test_math_verify_reward.py -q
+```
+
+## Previous candidate: V3 rescore and review
 
 On Duke after pulling, no GPU or repeated labeling is needed:
 
@@ -21,7 +62,7 @@ and labels are untouched. To continue blind review, omit --report. Scores shown
 in a partial report can influence subsequent judgments; fresh audit data is still
 required after development. Ten correct examples do not validate false acceptance.
 
-## Current step: blind V2 review (no GPU)
+## Previous candidate: blind V2 review
 
 After pulling, run on the Duke login node:
 

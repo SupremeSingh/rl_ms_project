@@ -46,7 +46,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run', type=Path)
     parser.add_argument('--report', action='store_true')
-    parser.add_argument('--rule', choices=['final-numeric-v2', 'final-numeric-v3'], default='final-numeric-v2')
+    parser.add_argument('--rule', choices=['final-numeric-v2', 'final-numeric-v3', 'math-verify-v1'], default='final-numeric-v2')
     args = parser.parse_args()
     rows, predictions, labels, digest, path = load_review(args.run, args.rule)
     if not args.report:
