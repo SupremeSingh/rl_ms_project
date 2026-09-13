@@ -1,3 +1,30 @@
+## Current next step: rescore explicit final answers
+
+No new GPU job is needed. After pulling, run on the Duke login node:
+
+```bash
+python3 scripts/rescore_stage1.py \
+  outputs/diagnostic-12585475/completion-t1.0 --rule final-numeric-v1
+```
+
+The versioned candidate accepts numeric boxes or restricted explicit final-answer
+statements (e.g. `The answer is 60 minutes.`). All extracted answer candidates must
+agree; repeated matching numeric boxes are allowed. It rejects malformed/symbolic
+boxes, conflicting extracted values, ambiguous final statements, and code-only
+output. Fenced code is not executed or used as answer evidence. It does not search
+for the reference answer. This is deliberately conservative: arbitrary natural
+language, question relevance, and every semantic contradiction are not understood.
+
+The new final-numeric-v1-rescore.json report preserves original files/labels and
+records the extractor hash and per-response decisions. Existing reports are not
+overwritten. Compare decisions to human answer correctness, not old format labels.
+Do not interpret extraction rate as true accuracy or verifier agreement.
+
+This is the explicit candidate replacement for boxed-format enforcement. Before
+promotion, audit it against human final-answer judgments on fresh responses;
+replace the boxed-format gate with an audited extraction criterion. Neither the
+training reward nor the old Stage 1 gates change just from this diagnostic.
+
 ## Current next step: teach the output format with one example
 
 Plain completion is the current candidate. Compare it with the same prompt plus

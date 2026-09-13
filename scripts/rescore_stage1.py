@@ -22,7 +22,7 @@ def extract(text):
     return number(match.group(1)) if match else None
 
 
-def rescore(run):
+def rescore(run, extractor=extract):
     payload = (run / "responses.jsonl").read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
     metadata = json.loads((run / "metadata.json").read_text())
@@ -36,7 +36,7 @@ def rescore(run):
         target = number(row["ground_truth"])
         if target is None or row["reward"] not in (0, 1):
             raise ValueError(f"Invalid reference/reward: {row['id']}")
-        predicted = extract(row["response"])
+        predicted = extractor(row["response"])
         reward = int(predicted is not None and predicted == target)
         groups.setdefault(row["prompt_id"], []).append(reward)
         details.append({"id": row["id"], "original_reward": row["reward"],
@@ -57,19 +57,29 @@ def rescore(run):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
+    parser.add_argument("--rule", choices=["numeric-box", "final-numeric-v1"], default="numeric-box")
     args = parser.parse_args()
+    extractor = extract
+    if args.rule == "final-numeric-v1":
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+        from math_rl.final_answer import extract_final_number
+        extractor = extract_final_number
     runs = ([args.root] if (args.root / "responses.jsonl").exists() else
             sorted(p.parent for p in args.root.glob("*/responses.jsonl")))
     if not runs:
         parser.error("No saved responses found")
-    output = args.root / "numeric-box-rescore.json"
+    output = args.root / f"{args.rule}-rescore.json"
     if output.exists():
         parser.error(f"Preserving existing report: {output}")
-    report = {"rule_version": "single-numeric-box-v1", "rule": "Exactly one well-formed numeric box anywhere in the response",
+    report = {"rule_version": args.rule, "rule": "Single numeric box" if args.rule == "numeric-box" else "Conservative explicit final numeric answer; matching boxes/statements permitted",
               "purpose": "Diagnostic only. Original labels do not apply to this rule.",
               "limitations": "Does not detect unrelated, quoted, or semantically contradicted answers. Human audit required.",
               "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-              "conditions": [rescore(run) for run in runs]}
+              "conditions": [rescore(run, extractor) for run in runs]}
+    if args.rule == "final-numeric-v1":
+        report["extractor_sha256"] = hashlib.sha256(
+            (Path(__file__).resolve().parents[1] / "src/math_rl/final_answer.py").read_bytes()).hexdigest()
     with output.open("x") as handle:
         json.dump(report, handle, indent=2)
         handle.write("\n")
