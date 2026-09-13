@@ -236,3 +236,21 @@ report_stage1.py command with the new path after labeling all 200 responses.
 Before PPO, promote the selected contract and length into preparation,
 preflight, and training together. This diagnostic does not yet change those
 settings. Preserve old outputs; do not reuse their labels for new responses.
+
+### Rescore saved responses without a GPU
+
+Run on the Duke login node after pulling the updated code:
+
+```bash
+python3 scripts/rescore_stage1.py outputs/diagnostic-12583711
+```
+
+This diagnostic accepts exactly one numeric box inside prose and rejects missing,
+malformed, symbolic, or multiple boxes. It checks saved response hashes, prints
+per-condition summaries, and saves numeric-box-rescore.json without overwriting
+existing reports. Original responses, scores, metadata, and labels are preserved.
+No packages or GPU allocation are needed. A single condition directory also works.
+
+Extraction does not establish that a box answers the original question or is
+uncontradicted. Human auditing remains necessary; old format/reward labels do not
+apply to this rule. Rescoring cannot pass Stage 1 or change the training reward.
