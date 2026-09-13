@@ -1,3 +1,21 @@
+## Corrected saved-response parser: final-numeric-v2
+
+Run on the Duke login node after pulling:
+
+```bash
+python3 scripts/rescore_stage1.py \
+  outputs/diagnostic-12585475/completion-t1.0 --rule final-numeric-v2
+```
+
+This box-first candidate avoids interpreting intermediate quantities as conflicting
+answers. It supports display-math wrappers, matching repeated numeric boxes, and
+supporting prose/code after a box. Explicit conflicting answers, malformed boxes,
+and detected new-question continuations remain rejected. Prose-only extraction
+is restricted; this is not a semantic judge and still needs human auditing.
+
+Results are saved separately as final-numeric-v2-rescore.json. V1, old responses,
+labels, and the training reward remain unchanged. No new GPU run is needed.
+
 ## Current next step: rescore explicit final answers
 
 No new GPU job is needed. After pulling, run on the Duke login node:

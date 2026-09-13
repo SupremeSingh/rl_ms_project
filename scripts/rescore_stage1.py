@@ -57,13 +57,16 @@ def rescore(run, extractor=extract):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
-    parser.add_argument("--rule", choices=["numeric-box", "final-numeric-v1"], default="numeric-box")
+    parser.add_argument("--rule", choices=["numeric-box", "final-numeric-v1", "final-numeric-v2"], default="numeric-box")
     args = parser.parse_args()
     extractor = extract
-    if args.rule == "final-numeric-v1":
+    if args.rule.startswith("final-numeric-"):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-        from math_rl.final_answer import extract_final_number
+        if args.rule == "final-numeric-v2":
+            from math_rl.final_answer_v2 import extract_final_number
+        else:
+            from math_rl.final_answer import extract_final_number
         extractor = extract_final_number
     runs = ([args.root] if (args.root / "responses.jsonl").exists() else
             sorted(p.parent for p in args.root.glob("*/responses.jsonl")))
@@ -77,9 +80,9 @@ def main():
               "limitations": "Does not detect unrelated, quoted, or semantically contradicted answers. Human audit required.",
               "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "conditions": [rescore(run, extractor) for run in runs]}
-    if args.rule == "final-numeric-v1":
+    if args.rule.startswith("final-numeric-"):
         report["extractor_sha256"] = hashlib.sha256(
-            (Path(__file__).resolve().parents[1] / "src/math_rl/final_answer.py").read_bytes()).hexdigest()
+            (Path(__file__).resolve().parents[1] / ("src/math_rl/final_answer_v2.py" if args.rule == "final-numeric-v2" else "src/math_rl/final_answer.py")).read_bytes()).hexdigest()
     with output.open("x") as handle:
         json.dump(report, handle, indent=2)
         handle.write("\n")
