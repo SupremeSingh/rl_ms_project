@@ -28,3 +28,16 @@ def validate_assets(assets):
         value = assets.get(key, "")
         if len(value) != 40 or any(c not in "0123456789abcdef" for c in value):
             raise ValueError(f"{key} must be an immutable commit SHA")
+
+
+BOXED_INSTRUCTION = (
+    "Solve the math problem step by step. End with a line containing only "
+    r"\boxed{<number>}, where <number> is a decimal number. "
+    "Use exactly one boxed answer; do not append units or punctuation."
+)
+
+
+def prompt_for_contract(question, contract):
+    instruction = {"answer": INSTRUCTION, "boxed": BOXED_INSTRUCTION}[contract]
+    return [{"role": "system", "content": instruction},
+            {"role": "user", "content": question}]

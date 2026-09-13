@@ -182,3 +182,57 @@ and a fresh human audit before training.
 For the underlying RL loop, read `verl/trainer/ppo/ray_trainer.py` and
 `core_algos.py` at the pinned commit. Local checks cover CPU behavior and mocked
 launching. Stage 0/1 are complete only after the Duke runs and human audit pass.
+
+### Stage 1 format/length diagnostic
+
+Run all four conditions (Answer/boxed × 512/2048 response tokens) sequentially
+on one A5000. Uses the same 32 validation prompts, two responses each, temperature
+1. Training prompts and the training reward remain unchanged.
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+source scripts/cluster_env.sh
+mkdir -p logs
+sbatch scripts/submit_diagnostic.sh
+```
+
+Replace JOB_ID with the submitted number:
+
+```bash
+squeue -j JOB_ID
+tail -F logs/math-rl-diagnostic-JOB_ID.out
+sacct -j JOB_ID --format=JobID,State,ExitCode
+cat outputs/diagnostic-JOB_ID/*/summary.json
+```
+
+Each condition saves 64 responses, metadata, and summary.json. Compare reward,
+automatic format compliance, mixed pairs, truncation, and response lengths.
+Format-independent correctness requires human review; null human metrics mean
+unreviewed, not zero. Diagnostic runs cannot pass Stage 1.
+
+Review a condition on the login node (no GPU needed):
+
+```bash
+python3 scripts/review_stage1.py outputs/diagnostic-JOB_ID/boxed-2048
+```
+
+The reviewer displays the selected contract; q pauses and labels persist.
+The boxed contract requires exactly one numeric box on the final line, no
+other boxes or Answer: markers. It does not accept arbitrary numbers in prose.
+
+After selecting a condition, generate 200 fresh audit responses from 100
+training-subset questions, disjoint from diagnostic validation prompts.
+For example, only if boxed/2048 is selected:
+
+```bash
+sbatch --gres=gpu:a5000:1 scripts/submit_stage1.sh \
+  --mode audit --contract boxed --max-tokens 2048 \
+  --out outputs/stage1-boxed-2048
+python3 scripts/review_stage1.py outputs/stage1-boxed-2048
+```
+
+Wait for generation to complete before review. Use the existing container-based
+report_stage1.py command with the new path after labeling all 200 responses.
+Before PPO, promote the selected contract and length into preparation,
+preflight, and training together. This diagnostic does not yet change those
+settings. Preserve old outputs; do not reuse their labels for new responses.

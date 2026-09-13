@@ -25,3 +25,27 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None):
         return 0.0
     predicted = parse_number(line[len("Answer:"):])
     return float(predicted is not None and predicted == target)
+
+
+def extract_answer(response, contract="answer"):
+    lines = response.strip().splitlines()
+    if not lines:
+        return None
+    final = lines[-1].strip()
+    if contract == "answer":
+        return parse_number(final[len("Answer:"):]) if final.startswith("Answer:") else None
+    if contract != "boxed":
+        raise ValueError(f"Unknown answer contract: {contract}")
+    # A single numeric box on the final line; never search arbitrary numbers.
+    if response.count(r"\boxed") != 1 or "Answer:" in response:
+        return None
+    match = re.fullmatch(r"\\boxed\{([^{}]+)\}", final)
+    return parse_number(match.group(1)) if match else None
+
+
+def score_contract(response, ground_truth, contract="answer"):
+    target = parse_number(ground_truth)
+    if target is None:
+        raise ValueError(f"Invalid ground truth: {ground_truth!r}")
+    predicted = extract_answer(response, contract)
+    return float(predicted is not None and predicted == target)

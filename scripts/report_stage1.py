@@ -24,6 +24,9 @@ def main():
     if any(x["responses_sha256"] != digest for x in labels):
         raise ValueError("Labels belong to different responses")
     report = summarize(records, labels, args.min_format, args.max_truncation)
+    if metadata.get("mode", "audit") != "audit":
+        report["gates"]["audit_mode"] = False
+        report["stage1_pass"] = False
     report["metadata"] = metadata
     text = json.dumps(report, indent=2) + "\n"
     (args.run / "report.json").write_text(text)

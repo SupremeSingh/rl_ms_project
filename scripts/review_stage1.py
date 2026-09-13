@@ -29,7 +29,10 @@ def main():
         print("MODEL RESPONSE:\n", row["response"])
         print("Enter: reward format answer_correct (three 0/1 values), or q to pause.")
         print("Reward: should our specified strict verifier accept this response?")
-        print("Format: does the final line satisfy Answer: <decimal number>?")
+        contract = metadata.get("contract", "answer")
+        rule = ("Answer: <decimal number>" if contract == "answer" else
+                r"a single \boxed{<decimal number>} on the final line, no other boxes or Answer: markers")
+        print("Format: does the response satisfy", rule + "?")
         print("Answer_correct: is its unambiguous final answer numerically correct, regardless of format?")
         while True:
             value = input("> ").strip().lower()
