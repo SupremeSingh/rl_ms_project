@@ -57,13 +57,15 @@ def rescore(run, extractor=extract):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
-    parser.add_argument("--rule", choices=["numeric-box", "final-numeric-v1", "final-numeric-v2"], default="numeric-box")
+    parser.add_argument("--rule", choices=["numeric-box", "final-numeric-v1", "final-numeric-v2", "final-numeric-v3"], default="numeric-box")
     args = parser.parse_args()
     extractor = extract
     if args.rule.startswith("final-numeric-"):
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-        if args.rule == "final-numeric-v2":
+        if args.rule == "final-numeric-v3":
+            from math_rl.final_answer_v3 import extract_final_number
+        elif args.rule == "final-numeric-v2":
             from math_rl.final_answer_v2 import extract_final_number
         else:
             from math_rl.final_answer import extract_final_number
@@ -82,7 +84,7 @@ def main():
               "conditions": [rescore(run, extractor) for run in runs]}
     if args.rule.startswith("final-numeric-"):
         report["extractor_sha256"] = hashlib.sha256(
-            (Path(__file__).resolve().parents[1] / ("src/math_rl/final_answer_v2.py" if args.rule == "final-numeric-v2" else "src/math_rl/final_answer.py")).read_bytes()).hexdigest()
+            (Path(__file__).resolve().parents[1] / ("src/math_rl/final_answer_v3.py" if args.rule == "final-numeric-v3" else "src/math_rl/final_answer_v2.py" if args.rule == "final-numeric-v2" else "src/math_rl/final_answer.py")).read_bytes()).hexdigest()
     with output.open("x") as handle:
         json.dump(report, handle, indent=2)
         handle.write("\n")

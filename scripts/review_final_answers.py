@@ -5,15 +5,15 @@ import json
 from pathlib import Path
 
 
-def load_review(run):
+def load_review(run, rule='final-numeric-v2'):
     payload = (run / 'responses.jsonl').read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
     if json.loads((run / 'metadata.json').read_text())['responses_sha256'] != digest:
         raise ValueError('Responses changed since generation')
-    report = json.loads((run / 'final-numeric-v2-rescore.json').read_text())
+    report = json.loads((run / f'{rule}-rescore.json').read_text())
     conditions = report['conditions']
-    if report['rule_version'] != 'final-numeric-v2' or len(conditions) != 1 or conditions[0]['responses_sha256'] != digest:
-        raise ValueError('Expected matching single-condition V2 report')
+    if report['rule_version'] != rule or len(conditions) != 1 or conditions[0]['responses_sha256'] != digest:
+        raise ValueError('Expected matching single-condition report')
     rows = [json.loads(line) for line in payload.decode().splitlines()]
     predictions = {r['id']: r for r in conditions[0]['results']}
     ids = {r['id'] for r in rows}
@@ -46,8 +46,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('run', type=Path)
     parser.add_argument('--report', action='store_true')
+    parser.add_argument('--rule', choices=['final-numeric-v2', 'final-numeric-v3'], default='final-numeric-v2')
     args = parser.parse_args()
-    rows, predictions, labels, digest, path = load_review(args.run)
+    rows, predictions, labels, digest, path = load_review(args.run, args.rule)
     if not args.report:
         done = {x['id'] for x in labels}
         print('Ignore boxed formatting. Judge the final answer to the original question.')
@@ -76,9 +77,10 @@ def main():
                 handle.write(json.dumps(label)+'\n')
             labels.append(label)
     result = summarize(predictions, labels, len(rows))
+    result['rule_version'] = args.rule
     result['responses_sha256'] = digest
-    result['rescore_sha256'] = hashlib.sha256((args.run / 'final-numeric-v2-rescore.json').read_bytes()).hexdigest()
-    (args.run / 'final-numeric-v2-human-report.json').write_text(json.dumps(result, indent=2)+'\n')
+    result['rescore_sha256'] = hashlib.sha256((args.run / f'{args.rule}-rescore.json').read_bytes()).hexdigest()
+    (args.run / f'{args.rule}-human-report.json').write_text(json.dumps(result, indent=2)+'\n')
     print(json.dumps(result, indent=2))
 
 

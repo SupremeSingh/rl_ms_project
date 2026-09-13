@@ -1,3 +1,26 @@
+## Current step: V3 rescore and reuse the existing human review
+
+On Duke after pulling, no GPU or repeated labeling is needed:
+
+```bash
+python3 scripts/rescore_stage1.py \
+  outputs/diagnostic-12585475/completion-t1.0 --rule final-numeric-v3
+python3 scripts/review_final_answers.py \
+  outputs/diagnostic-12585475/completion-t1.0 --rule final-numeric-v3 --report
+```
+
+V3 fixes metadiscourse (e.g. “ensure the answer is accurate”) being mistaken for
+an answer and allows explicit answers followed by supporting calculations. It
+retains conflict and continuation rejection tests. This remains a conservative
+candidate, not a general semantic verifier.
+
+V3 scores and agreement reports use separate filenames. Human labels remain in
+final-numeric-v2-human.jsonl for compatibility: these describe response correctness,
+not a parser version, so V3 reuses them after checking response hashes. Old scores
+and labels are untouched. To continue blind review, omit --report. Scores shown
+in a partial report can influence subsequent judgments; fresh audit data is still
+required after development. Ten correct examples do not validate false acceptance.
+
 ## Current step: blind V2 review (no GPU)
 
 After pulling, run on the Duke login node:

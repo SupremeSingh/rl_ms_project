@@ -36,3 +36,20 @@ def test_integrity_and_separate_labels(tmp_path):
     (tmp_path / 'responses.jsonl').write_bytes(payload + b' ')
     with pytest.raises(ValueError, match='changed'):
         module.load_review(tmp_path)
+
+
+def test_v3_reuses_existing_labels(tmp_path):
+    payload = json.dumps({'id': 'a'}).encode()
+    digest = hashlib.sha256(payload).hexdigest()
+    (tmp_path / 'responses.jsonl').write_bytes(payload)
+    (tmp_path / 'metadata.json').write_text(json.dumps({'responses_sha256': digest}))
+    label_path = tmp_path / 'final-numeric-v2-human.jsonl'
+    original = json.dumps(dict(id='a', unambiguous=1, correct=1, responses_sha256=digest))
+    label_path.write_text(original)
+    (tmp_path / 'final-numeric-v3-rescore.json').write_text(json.dumps({
+        'rule_version': 'final-numeric-v3', 'conditions': [{'responses_sha256': digest,
+        'results': [{'id': 'a', 'diagnostic_reward': 1, 'extracted': '3'}]}]}))
+    rows, predictions, labels, _, path = module.load_review(tmp_path, 'final-numeric-v3')
+    assert path == label_path
+    assert label_path.read_text() == original
+    assert module.summarize(predictions, labels, len(rows))['verifier_agreement'] == 1
