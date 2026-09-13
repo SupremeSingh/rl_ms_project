@@ -1,3 +1,28 @@
+## Current step: blind V2 review (no GPU)
+
+After pulling, run on the Duke login node:
+
+```bash
+python3 scripts/review_final_answers.py outputs/diagnostic-12585475/completion-t1.0
+```
+
+This starts a separate review of all 64 responses. Automatic scores are hidden.
+Enter TWO values: `1 1` for a clear correct final answer, `1 0` for clear but wrong,
+`0 0` for missing or ambiguous. Ignore boxed formatting. Explicit self-correction
+may resolve earlier mistakes; unrelated conclusions or unresolved competing answers
+are failures. Add notes for difficult cases. q pauses; the same command resumes.
+
+Labels go to final-numeric-v2-human.jsonl, leaving old boxed-format labels intact.
+The completed review prints agreement, false accepts, and false rejects. For a
+partial report (which reveals scores and may influence later review), run:
+
+```bash
+python3 scripts/review_final_answers.py outputs/diagnostic-12585475/completion-t1.0 --report
+```
+
+The report is saved as final-numeric-v2-human-report.json. Development review never
+passes Stage 1 by itself; freeze the rule before the separate fresh audit.
+
 ## Corrected saved-response parser: final-numeric-v2
 
 Run on the Duke login node after pulling:
