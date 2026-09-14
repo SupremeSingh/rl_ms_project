@@ -8,7 +8,9 @@ from math_rl.prompts import validate_assets, validate_prompt
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ppo", action="store_true")
+    method = parser.add_mutually_exclusive_group()
+    method.add_argument("--ppo", action="store_true")
+    method.add_argument("--grpo", action="store_true")
     parser.add_argument("--expected-gpus", type=int)
     args = parser.parse_args()
     import torch
@@ -35,19 +37,19 @@ def main():
         for row in rows:
             validate_prompt(row["prompt"])
         questions.append({" ".join(row["prompt"][1]["content"].split()) for row in rows})
-        if not args.ppo:
+        if not (args.ppo or args.grpo):
             rendered = tokenizer.apply_chat_template(rows[0]["prompt"], tokenize=False, add_generation_prompt=True)
             if "\\boxed" in rendered:
                 raise RuntimeError("Tokenizer injected a conflicting boxed-answer instruction")
     if questions[0] & questions[1]:
         raise RuntimeError("Training and validation contain overlapping questions")
-    if args.ppo:
+    if args.ppo or args.grpo:
         from math_rl.ppo_reward import compute_score
         scores = compute_score(["gsm8k", "gsm8k"], [r"Answer: \boxed{4}", "The answer is 5."], ["4", "4"])
         if [s["score"] for s in scores] != [1, 0]:
             raise RuntimeError("Math-Verify integration check failed")
-        from math_rl.ppo_checks import numerical_checks
-        numerical_checks()
+        from math_rl.ppo_checks import numerical_checks, grpo_numerical_checks
+        (grpo_numerical_checks if args.grpo else numerical_checks)()
     print(json.dumps({"gpu": torch.cuda.get_device_name(), "torch": torch.__version__,
                       "cuda": torch.version.cuda, "bf16": True}))
 

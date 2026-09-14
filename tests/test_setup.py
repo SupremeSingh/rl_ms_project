@@ -119,8 +119,10 @@ def test_container_wrapper_checks_image_and_preserves_arguments(tmp_path, valid_
     (repo / "configs").mkdir()
     digest = hashlib.sha256(image.read_bytes()).hexdigest() if valid_checksum else "0" * 64
     (repo / "configs/container.sha256").write_text(f"{digest}  {image}\n")
+    ray_tmp = tmp_path / "ray-session"
+    ray_tmp.mkdir()
     env = dict(os.environ, MATH_RL_ROOT=str(tmp_path), MATH_RL_IMAGE=str(image),
-               MATH_RL_RUNTIME=str(runtime), MATH_RL_GPU="1")
+               MATH_RL_RUNTIME=str(runtime), MATH_RL_GPU="1", RAY_TMPDIR=str(ray_tmp))
     result = subprocess.run(["bash", str(repo / "scripts/container_exec.sh"),
                              "python", "argument with spaces"], env=env, text=True, capture_output=True)
     if not valid_checksum:
@@ -131,5 +133,6 @@ def test_container_wrapper_checks_image_and_preserves_arguments(tmp_path, valid_
     output = result.stdout
     assert "--nv\n" in output
     assert f"{tmp_path}:{tmp_path}\n" in output
+    assert f"--bind\n{ray_tmp}:{ray_tmp}\n" in output
     assert f"--pwd\n{repo}\n" in output
     assert output.endswith("python\nargument with spaces\n")

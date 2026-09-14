@@ -1,13 +1,50 @@
 # Math RL
 
 Educational PPO critic experiments with **Qwen/Qwen2.5-Math-1.5B base** and pinned
-VERL. Current task: run the conventional PPO/GAE pilot.
+VERL. Both PPO/GAE and GRPO now have completion/Math-Verify training paths.
 Stage 1 is **provisionally accepted: 10/200 audit responses reviewed**, with full
 agreement on those ten. Its saved audit remains incomplete.
 The original GRPO smoke ran, but its zero-reward updates did not establish learning.
 See [the experiment plan](TOKEN_CRITIC_EXPERIMENT_PLAN.md).
 
-## Next: PPO/GAE on Duke
+## One job: try PPO and GRPO together
+
+With the existing cluster container, model, data and training environment in place,
+push these local changes to GitHub, then run on the Duke login node:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+git pull --ff-only origin main
+sbatch scripts/submit_pilots.sh
+```
+
+Expect `Submitted batch job JOB_ID`. You can disconnect SSH and turn off your
+computer. Slurm keeps the job queued or running independently.
+
+This requests **four A5000s on one node, 16 CPUs and 256 GB host RAM for up to
+three hours**. It runs shared verifier setup and checks once, then launches
+**PPO/GAE and GRPO concurrently**, each with two GPUs, eight CPUs and 128 GB RAM.
+Each runs ten updates with the base Qwen model, GSM8K and Math-Verify. Four GPUs
+may take longer to obtain than two; use the individual scripts below if needed.
+
+The two runs have separate Ray sessions, logs and checkpoints. If one fails, the
+other continues. Once both end, the job checks both results automatically.
+
+```bash
+squeue -j JOB_ID
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/pilots-JOB_ID/status.txt
+```
+
+All five exit codes should be `0`. During execution they may say `running` or
+`not_started`; before the job starts, the output directory does not exist.
+Logs are `setup.log`, `ppo.log`, `grpo.log`, `ppo-report.log` and `grpo-report.log`
+inside that directory. The Slurm log is `slurm-pilots-JOB_ID.out` in the repository.
+Checkpoints and saved answers live in `checkpoints/ppo-JOB_ID` and
+`checkpoints/grpo-JOB_ID`. A passed report establishes execution, not improved
+accuracy. These short pilots are not a matched performance comparison.
+
+## Run PPO/GAE separately
 
 After the local changes are pushed to GitHub, update the cluster checkout:
 
@@ -18,8 +55,8 @@ source scripts/cluster_env.sh
 mkdir -p logs
 ```
 
-One-time PPO setup, using a **CPU compute allocation**. This installs a small
-verifier environment inside the container and runs the PPO integration checks:
+One-time shared setup for PPO and GRPO, using a **CPU compute allocation**. This
+installs a small verifier environment and runs both algorithms' integration checks:
 
 ```bash
 srun -p compsci --cpus-per-task=2 --mem=8G --time=00:20:00 --pty bash -i
@@ -29,7 +66,7 @@ bash scripts/container_exec.sh bash scripts/setup_ppo.sh
 exit
 ```
 
-Expect passing tests and the resolved PPO configuration. The host `.venv-verifier`
+Expect passing tests and both resolved configurations. The host `.venv-verifier`
 continues to serve the audit. `.venv-ppo-verifier` serves training inside the
 container: Math-Verify and Hydra require incompatible ANTLR versions, so they
 must run in separate interpreters. Setup leaves the Torch environment intact.
@@ -77,6 +114,40 @@ Use this only after the original job ends. Resume requires the same code, data,
 runtime, settings and GPU count. It restores actor/critic optimizers, RNG and
 dataloader state through VERL. GPU continuation equivalence—including vLLM
 sampling—has not yet been established; checkpoint presence alone cannot prove it.
+
+## GRPO with the same Math-Verify reward
+
+After the shared setup above (no second verifier installation needed):
+
+```bash
+sbatch scripts/submit_grpo.sh
+```
+
+This also requests two A5000s for up to two hours. It uses **eight questions per
+update, four responses per question, and ten updates**: 320 training responses.
+The base Qwen model, GSM8K files, completion prompt, 2,048-token cap, temperature,
+Math-Verify adapter, and actor optimizer are shared with PPO via `training.yaml`.
+These are infrastructure pilots with different rollout counts, not a matched
+performance comparison. Neither new training path has been validated on Duke yet.
+
+GRPO compares rewards **within each question's four responses**. VERL subtracts
+the group mean and divides by its sample standard deviation plus 1e-6. This
+advantage applies to all valid tokens in that answer. All-correct or all-wrong
+groups contribute zero advantage. It trains the actor using the clipped policy
+objective; no critic or GAE is used, and no KL penalty is enabled in this pilot.
+
+```bash
+squeue -j JOB_ID
+tail -F logs/math-rl-grpo-JOB_ID.out
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+python3 scripts/report_ppo.py checkpoints/grpo-JOB_ID
+```
+
+The shared report detects GRPO, counts all four responses, requires at least one
+mixed-reward group with a nonzero actor gradient, and checks actor checkpoints.
+It does not require critic files. Expect `algorithm: grpo` and, after a successful
+pilot, `execution_check_pass: true`. This does not prove improved math accuracy.
+Use `submit_grpo.sh` for this path; `submit_smoke.sh` remains the old experiment.
 
 ## What the PPO pilot does
 
@@ -240,7 +311,7 @@ unrelated number. The library is not a semantic judge, and generated code is not
 executed. Fresh human agreement is the acceptance criterion.
 
 The existing Stage 0 training config/reward remains a **legacy smoke path**.
-Use `submit_ppo.sh` for the completion/Math-Verify PPO path. Memory profiling,
+Use `submit_ppo.sh` or `submit_grpo.sh` for completion/Math-Verify training. Memory profiling,
 GPU save/resume validation and evidence of learning remain to be collected.
 Old parser implementations and superseded
 review commands were removed; their source is recoverable from Git history and
@@ -264,7 +335,7 @@ python3 scripts/review_final_answers.py \
 - `review_final_answers.py` and `audit.py`: blind labels and acceptance gates.
 - `train.py`, `provenance.py`, `report_resume.py`: existing smoke/resume machinery.
 - `completion_dataset.py`, `ppo_runtime.py`: exact completion inputs and seeded initialization.
-- `ppo_reward.py`, `verifier_batch.py`: isolated batch scoring for PPO.
+- `ppo_reward.py`, `verifier_batch.py`: shared isolated batch scoring for PPO and GRPO.
 - `ppo_checks.py`, `report_ppo.py`: numerical and cluster execution checks.
 
 Run tests with Math-Verify installed so real-library tests are not skipped:

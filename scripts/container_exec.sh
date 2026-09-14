@@ -11,7 +11,10 @@ if [[ -f configs/container.sha256 ]]; then
 fi
 gpu_args=()
 if [[ "${MATH_RL_GPU:-0}" == 1 ]]; then gpu_args=(--nv); fi
+ray_args=()
+if [[ -n "${RAY_TMPDIR:-}" ]]; then ray_args=(--bind "$RAY_TMPDIR:$RAY_TMPDIR"); fi
 exec "$MATH_RL_RUNTIME" exec "${gpu_args[@]}" \
+  "${ray_args[@]}" \
   --bind "$MATH_RL_ROOT:$MATH_RL_ROOT" --bind "$repo:$repo" \
   --bind "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" \
   --pwd "$repo" "$MATH_RL_IMAGE" "$@"

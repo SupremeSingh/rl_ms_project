@@ -2,14 +2,37 @@
 from pathlib import Path
 
 
-def checkpoint_complete(path, world_size):
+def checkpoint_complete(path, world_size, roles=("actor", "critic")):
     path = Path(path)
     files = [path / "data.pt"]
-    for role in ("actor", "critic"):
+    for role in roles:
         for rank in range(world_size):
             for kind in ("model", "optim", "extra_state"):
                 files.append(path / role / f"{kind}_world_size_{world_size}_rank_{rank}.pt")
     return all(p.is_file() and p.stat().st_size > 0 for p in files)
+
+
+def grpo_numerical_checks():
+    import numpy as np
+    import torch
+    from verl.trainer.ppo.core_algos import compute_grpo_outcome_advantage
+
+    # Interleaved prompt groups: balancing across GPUs must not mix the baselines.
+    # Group A rewards [0,1,0,1]; B all correct; C all incorrect.
+    groups = np.array(["a", "b", "c"] * 4)
+    outcome = torch.tensor([0., 1., 0., 1., 1., 0., 0., 1., 0., 1., 1., 0.])
+    mask = torch.ones(12, 3)
+    mask[::2, -1] = 0
+    rewards = torch.zeros_like(mask)
+    rewards[torch.arange(12), mask.sum(-1).long() - 1] = outcome
+    advantages, _ = compute_grpo_outcome_advantage(rewards, mask, groups)
+    expected = torch.zeros_like(mask)
+    scale = .5 / (torch.tensor(1. / 3.).sqrt() + 1e-6)
+    expected[[0, 6]] = -scale * mask[[0, 6]]
+    expected[[3, 9]] = scale * mask[[3, 9]]
+    torch.testing.assert_close(advantages, expected)
+    assert not advantages.requires_grad
+    print("GRPO numerical checks passed: within-prompt normalization, mixed/equal rewards, padding")
 
 
 def numerical_checks():

@@ -9,5 +9,6 @@ PYTHONPATH=src .venv-ppo-verifier/bin/python -c \
   'from math_rl.math_verify_reward import provenance; print(provenance())'
 .venv/bin/python -m pip --python .venv-ppo-verifier/bin/python freeze > configs/ppo-verifier-environment.txt
 MATH_RL_TEST_VERIFIER="$PWD/.venv-ppo-verifier/bin/python" \
-  .venv/bin/python -m pytest -q tests/test_ppo.py
+  .venv/bin/python -m pytest -q tests/test_ppo.py tests/test_grpo.py
 .venv/bin/python -m math_rl.train --config-name ppo --cfg job --resolve
+.venv/bin/python -m math_rl.train --config-name grpo --cfg job --resolve
