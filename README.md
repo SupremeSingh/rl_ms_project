@@ -7,6 +7,58 @@ agreement on those ten. Its saved audit remains incomplete.
 The original GRPO smoke ran, but its zero-reward updates did not establish learning.
 See [the experiment plan](TOKEN_CRITIC_EXPERIMENT_PLAN.md).
 
+## Next: evaluate the saved pilots
+
+Pilot job **12589388** completed all ten PPO and GRPO updates. Both stayed at
+31/32 on the small validation set. Measure accuracy on a larger set before
+claiming improvement:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+git pull --ff-only origin main  # after these changes have been pushed
+sbatch scripts/submit_evaluation.sh 12589388
+```
+
+This requests **one A5000, eight CPUs and 96 GB RAM for up to two hours**. It
+evaluates the original Qwen model and both step-10 actors sequentially, with no
+training. The existing container, data, checkpoints and `.venv-ppo-verifier`
+are required; no new packages or setup are needed.
+
+All three models get the same **500 questions**, greedy decoding, completion
+prompt, 2,048-token response cap and Math-Verify rule. Questions are selected
+without looking at model accuracy from unused GSM8K training data; the existing
+training, validation and saved audit/diagnostic questions are excluded. The first
+1,024 positions of the pinned shuffle are reserved as an additional buffer.
+The selection is frozen in `data/gsm8k/eval-500.json` and copied into each run.
+These questions are held out from our experiments, not guaranteed unseen during
+Qwen pretraining. The official test set remains reserved for final reporting.
+
+The script exports each distributed actor checkpoint with pinned VERL and checks
+the exported tensors against its shards. Separate generation processes release
+GPU memory between models. Original checkpoints and training settings stay intact.
+
+Replace `EVAL_JOB_ID` with the newly submitted job number:
+
+```bash
+sacct -j EVAL_JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/evaluation-EVAL_JOB_ID/summary.json
+less outputs/evaluation-EVAL_JOB_ID/review.txt
+```
+
+The summary shows accuracy for all three models and, for each trained model,
+**wrong → right**, **right → wrong**, and the net change versus the base model.
+Paired p-values are descriptive; one run does not establish superiority.
+`changes.jsonl` contains questions where the models received different rewards.
+`review.txt` contains a fixed random sample of 20 questions with all three
+responses: check the verifier against the actual answers before drawing conclusions.
+Do not repeatedly tune against this set and then call it an untouched final test.
+
+You can disconnect after submission. While running, inspect
+`slurm-evaluation-EVAL_JOB_ID.out` and the model logs (`base.log`, `ppo.log`,
+`grpo.log`) under the output directory. `run.json` records the current phase.
+A failed export, incomplete output or verifier runtime error stops the job;
+`summary.json` appears only after all three evaluations finish successfully.
+
 ## One job: try PPO and GRPO together
 
 With the existing cluster container, model, data and training environment in place,
