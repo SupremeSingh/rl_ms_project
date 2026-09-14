@@ -17,11 +17,11 @@ def sha256(path):
 def snapshot(root):
     root = Path(root)
     files = {}
-    for pattern in ("src/**/*.py", "scripts/*.py", "scripts/*.sh", "configs/*.yaml", "pyproject.toml"):
+    for pattern in ("src/**/*.py", "scripts/*.py", "scripts/*.sh", "configs/*.yaml", "pyproject.toml", "requirements*.txt"):
         for path in sorted(root.glob(pattern)):
             files[str(path.relative_to(root))] = sha256(path)
     for name in ("configs/assets.json", "configs/environment.txt", "configs/container.sha256",
-                 "data/gsm8k/train.parquet", "data/gsm8k/val.parquet"):
+                 "configs/ppo-verifier-environment.txt", "data/gsm8k/train.parquet", "data/gsm8k/val.parquet"):
         path = root / name
         if path.exists():
             files[name] = sha256(path)

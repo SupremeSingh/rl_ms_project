@@ -1,4 +1,4 @@
-"""One answer contract shared by preparation, training, and human review."""
+"""Frozen Stage 1/PPO completion prefix and the preserved Stage 0 prompt."""
 MODEL_ID = "Qwen/Qwen2.5-Math-1.5B"
 INSTRUCTION = (
     "Solve the math problem step by step. End with a line containing only "

@@ -1,4 +1,5 @@
-"""Launch pinned VERL and retain evidence for smoke/resume comparisons."""
+"""Launch pinned VERL and retain evidence for smoke and PPO runs."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -16,6 +17,8 @@ def comparable_config(value):
                 "rollout_data_dir", "experiment_name", "validation_data_dir"):
         trainer.pop(key, None)
     value["actor_rollout_ref"]["actor"]["optim"].pop("total_training_steps", None)
+    if "critic" in value:
+        value["critic"]["optim"].pop("total_training_steps", None)
     return value
 
 
@@ -25,18 +28,38 @@ def main():
     env = os.environ.copy()
     env.setdefault("VLLM_USE_V1", "1")
     env.setdefault("TOKENIZERS_PARALLELISM", "false")
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--config-name", choices=("smoke", "ppo"), default="smoke")
+    args, overrides = parser.parse_known_args()
     command = [sys.executable, "-m", "verl.trainer.main_ppo",
-               "--config-dir", str(root / "configs"), "--config-name", "smoke", *sys.argv[1:]]
+               "--config-dir", str(root / "configs"), "--config-name", args.config_name, *overrides]
     if any(arg in ("--cfg", "--help", "-h") or arg.startswith("--cfg=") for arg in sys.argv[1:]):
         subprocess.run(command, cwd=root, env=env, check=True)
         return
-    subprocess.run([sys.executable, str(root / "scripts/preflight.py")], cwd=root, env=env, check=True)
     resolved = subprocess.check_output(command + ["--cfg", "job", "--resolve"], cwd=root, env=env, text=True)
     config = yaml.safe_load(resolved)
+    env["MATH_RL_SEED"] = str(config["data"].get("seed", 42))
+    preflight = [sys.executable, str(root / "scripts/preflight.py")]
+    if args.config_name == "ppo":
+        preflight.extend(["--ppo", "--expected-gpus", str(config["trainer"]["n_gpus_per_node"])])
+        if config["algorithm"]["adv_estimator"] != "gae":
+            raise ValueError("The PPO pilot requires GAE and a conventional critic")
+        rollout = config["actor_rollout_ref"]["rollout"]
+        if (rollout["n"], rollout["temperature"], rollout["top_p"], rollout["top_k"]) != (1, 1., 1., -1):
+            raise ValueError("Pilot sampling must use one response, temperature 1, top-p 1, no top-k")
+        if config["critic"]["ppo_micro_batch_size_per_gpu"] != 1 or config["critic"]["use_dynamic_bsz"]:
+            raise ValueError("Fixed-budget critic loss normalization requires one response per microbatch")
+    subprocess.run(preflight, cwd=root, env=env, check=True)
     output = Path(config["trainer"]["default_local_dir"])
     if not output.is_absolute():
         output = root / output
     provenance = snapshot(root)
+    if args.config_name == "ppo":
+        from math_rl.ppo_reward import verifier_command
+        provenance["verifier"] = json.loads(subprocess.check_output(
+            verifier_command() + ["--provenance"], cwd=root,
+            env=dict(env, PYTHONPATH=str(root / "src")), text=True))
+        provenance["stage1_status"] = "provisional; user accepted incomplete 10/200 audit"
     mode = config["trainer"]["resume_mode"]
     if mode == "disable" and output.exists() and any(output.iterdir()):
         raise ValueError("Fresh run directory is nonempty; choose a new trainer.default_local_dir")
@@ -48,11 +71,17 @@ def main():
             checkpoint = root / checkpoint
         if not (checkpoint / "data.pt").is_file() or not (checkpoint / "actor").is_dir():
             raise ValueError("Incomplete resume checkpoint")
+        if args.config_name == "ppo":
+            from math_rl.ppo_checks import checkpoint_complete
+            if not checkpoint_complete(checkpoint, config["trainer"]["n_gpus_per_node"] * config["trainer"]["nnodes"]):
+                raise ValueError("PPO resume needs actor AND critic weights, optimizer, RNG and data state")
         previous = json.loads((checkpoint.parent / "run.json").read_text())
         if comparable_config(previous["config"]) != comparable_config(config):
             raise ValueError("Resume configuration differs from original run")
         if previous["provenance"]["files"] != provenance["files"]:
             raise ValueError("Code, data, assets, or runtime manifest changed since original run")
+        if previous["provenance"].get("verifier") != provenance.get("verifier"):
+            raise ValueError("Verifier runtime changed since original run")
     output.mkdir(parents=True, exist_ok=True)
     record = {"config": config, "provenance": provenance}
     if not (output / "run.json").exists():
@@ -80,6 +109,7 @@ def main():
                     target = checkpoint / "run.json"
                     if not target.exists():
                         shutil.copy2(attempt / "run.json", target)
+    write_json(attempt / "exit.json", {"returncode": code})
     if code:
         raise subprocess.CalledProcessError(code, command)
 

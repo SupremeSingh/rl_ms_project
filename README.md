@@ -1,11 +1,124 @@
 # Math RL
 
 Educational PPO critic experiments with **Qwen/Qwen2.5-Math-1.5B base** and pinned
-VERL. Current task: audit Math-Verify on fresh GSM8K responses before building PPO.
+VERL. Current task: run the conventional PPO/GAE pilot.
+Stage 1 is **provisionally accepted: 10/200 audit responses reviewed**, with full
+agreement on those ten. Its saved audit remains incomplete.
 The original GRPO smoke ran, but its zero-reward updates did not establish learning.
 See [the experiment plan](TOKEN_CRITIC_EXPERIMENT_PLAN.md).
 
-## Next run on Duke
+## Next: PPO/GAE on Duke
+
+After the local changes are pushed to GitHub, update the cluster checkout:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+git pull --ff-only origin main
+source scripts/cluster_env.sh
+mkdir -p logs
+```
+
+One-time PPO setup, using a **CPU compute allocation**. This installs a small
+verifier environment inside the container and runs the PPO integration checks:
+
+```bash
+srun -p compsci --cpus-per-task=2 --mem=8G --time=00:20:00 --pty bash -i
+cd /usr/xtmp/ms785/rl_ms_project
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh bash scripts/setup_ppo.sh
+exit
+```
+
+Expect passing tests and the resolved PPO configuration. The host `.venv-verifier`
+continues to serve the audit. `.venv-ppo-verifier` serves training inside the
+container: Math-Verify and Hydra require incompatible ANTLR versions, so they
+must run in separate interpreters. Setup leaves the Torch environment intact.
+
+Back on the login node:
+
+```bash
+sbatch scripts/submit_ppo.sh
+```
+
+This requests **two A5000s, eight CPUs and 128 GB host RAM for up to two hours**.
+It starts ten updates, with 16 questions and one sampled answer per question.
+FSDP shards the actor and separate critic across the two GPUs; vLLM uses one
+inference replica per GPU (tensor parallel size 1). Parameters and optimizer
+state move to CPU between phases to reduce GPU memory pressure. CPUs help hold
+state and run verification; GPU memory feasibility still needs the first run.
+
+Use the returned job number:
+
+```bash
+squeue -j JOB_ID
+tail -F logs/math-rl-ppo-JOB_ID.out
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+python3 scripts/report_ppo.py checkpoints/ppo-JOB_ID
+```
+
+Expect preflight checks, initial validation, steps 1–10, and actor **and critic**
+checkpoints at steps 5 and 10. The report checks finite losses, nonzero actor and
+critic gradients, mixed rewards across the run, complete rollout files and all
+checkpoint shards. `execution_check_pass: true` means the pilot executed; it does
+not establish improved accuracy or complete Stage 2. Paste the report and final
+validation metrics before launching a longer learning experiment. Saved rollout
+and validation answers are under the checkpoint directory.
+
+To resume an interrupted pilot from its completed step-5 checkpoint:
+
+```bash
+sbatch scripts/submit_ppo.sh \
+  trainer.default_local_dir=checkpoints/ppo-OLD_JOB_ID \
+  trainer.resume_mode=resume_path \
+  trainer.resume_from_path="$PWD/checkpoints/ppo-OLD_JOB_ID/global_step_5"
+```
+
+Use this only after the original job ends. Resume requires the same code, data,
+runtime, settings and GPU count. It restores actor/critic optimizers, RNG and
+dataloader state through VERL. GPU continuation equivalence—including vLLM
+sampling—has not yet been established; checkpoint presence alone cannot prove it.
+
+## What the PPO pilot does
+
+1. Render the **same completion tokens** as Stage 1, without a chat template.
+   Sample at temperature 1, top-p 1, up to 2,048 tokens; one answer per question.
+2. Decode only the response and score it with the unchanged `math-verify-v1`
+   adapter. Correct = 1, incorrect/unparseable = 0. Put this reward on the last
+   valid response token. Runtime errors/timeouts stop training instead of silently
+   becoming wrong-answer labels. Generated Python is never executed.
+3. A separate Qwen transformer, initialized from the same base weights with a
+   fresh scalar head, predicts each prefix's value **before the next token**.
+4. Compute `delta[t] = reward[t] + gamma * V[t+1] - V[t]` and
+   `A[t] = delta[t] + gamma * lambda * A[t+1]`, backwards through the response.
+   Gamma = 1, GAE lambda = 0.95. EOS and budget exhaustion are terminal with zero
+   future value; padding carries no reward or value.
+5. Form detached critic targets `return[t] = raw_A[t] + old_V[t]`. Whiten only
+   actor advantages, using pinned VERL's sample-variance whitening. Fit the critic
+   for two epochs with value clipping 0.5, learning rate 1e-5 and persistent Adam
+   state. Critic errors weight valid tokens equally, divided by the fixed response
+   budget and batch size; keep its microbatch at one for this normalization.
+6. Update the actor for two epochs with PPO clipping 0.2 and learning rate 1e-6.
+   Old log probabilities, advantages and targets stay fixed for this batch.
+   Average actor losses within each response, then across responses. No KL reward,
+   KL loss, entropy bonus or weight decay is added. The pinned
+   implementation's extra dual clip is disabled. Log vLLM/actor probability
+   differences to expose inference/training discrepancies.
+
+Validation uses greedy decoding on the existing 32-question development split,
+before training and every five updates. Training uses the existing 128-question
+split, filtering overlong prompts. Neither uses the fresh audit questions or the
+official test set. This tiny development run tests the machinery, not research
+performance. Reward scoring runs once per batch in a separate CPU process; its
+cost is included in VERL's reward timing.
+
+Implementation follows the pinned
+[GAE and losses](https://github.com/verl-project/verl/blob/8d9e350ea58c7ad4b50dd14d9dcb50577242c55f/verl/trainer/ppo/core_algos.py),
+[pre-token critic](https://github.com/verl-project/verl/blob/8d9e350ea58c7ad4b50dd14d9dcb50577242c55f/verl/workers/critic/dp_critic.py), and
+[training loop](https://github.com/verl-project/verl/blob/8d9e350ea58c7ad4b50dd14d9dcb50577242c55f/verl/trainer/ppo/ray_trainer.py).
+Numerical tests exercise those functions directly, including a tiny causal Qwen
+critic. Full FSDP/CUDA execution and controlled learning remain cluster checks.
+
+## Stage 1 generation (already run)
 
 Pull the changes from GitHub, then submit from the repository:
 
@@ -126,10 +239,10 @@ no reference-guided search is added. Unanchored extraction can still select an
 unrelated number. The library is not a semantic judge, and generated code is not
 executed. Fresh human agreement is the acceptance criterion.
 
-The existing Stage 0 training config/reward remains a **legacy smoke path**. Do
-not launch it expecting the audited completion/Math-Verify setup: promotion into
-training, conventional PPO/GAE implementation, memory profiling and save/resume
-validation are next, after the audit. Old parser implementations and superseded
+The existing Stage 0 training config/reward remains a **legacy smoke path**.
+Use `submit_ppo.sh` for the completion/Math-Verify PPO path. Memory profiling,
+GPU save/resume validation and evidence of learning remain to be collected.
+Old parser implementations and superseded
 review commands were removed; their source is recoverable from Git history and
 saved reports remain untouched.
 
@@ -150,6 +263,9 @@ python3 scripts/review_final_answers.py \
 - `rescore_stage1.py`: immutable scoring reports.
 - `review_final_answers.py` and `audit.py`: blind labels and acceptance gates.
 - `train.py`, `provenance.py`, `report_resume.py`: existing smoke/resume machinery.
+- `completion_dataset.py`, `ppo_runtime.py`: exact completion inputs and seeded initialization.
+- `ppo_reward.py`, `verifier_batch.py`: isolated batch scoring for PPO.
+- `ppo_checks.py`, `report_ppo.py`: numerical and cluster execution checks.
 
 Run tests with Math-Verify installed so real-library tests are not skipped:
 
