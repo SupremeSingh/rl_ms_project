@@ -33,3 +33,5 @@ ray_results/
 .venv-ppo-verifier/
 
 configs/pip-check.txt
+.codex/
+.codex-build/
