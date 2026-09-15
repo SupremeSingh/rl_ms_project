@@ -1,0 +1,202 @@
+{"kind":"deck","id":"pr/oqsabf","name":"Deck"}
+{"kind":"layout","layoutId":"/ppt/slideMasters/slideMaster1.xml","name":"","type":"master","placeholders":[{"name":"title","type":"title","textPreview":"Click to edit Master title style"},{"name":"body","type":"body","textPreview":"Click to edit Master text styles | Second level | Third level | Fourth level | Fifth level"},{"name":"footer","type":"footer"},{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout1.xml","name":"Title Slide","placeholders":[{"name":"title","type":"title","textPreview":"Click to edit Master title style"},{"name":"subtitle","type":"subtitle","textPreview":"Click to edit Master subtitle style"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout2.xml","name":"Title and Content","placeholders":[{"name":"text placeholder 2","textPreview":"Click to edit Master text styles | Second level | Third level | Fourth level | Fifth level"},{"name":"footer","type":"footer"},{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"},{"name":"title","type":"title","textPreview":"Click to edit Master title style"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout3.xml","name":"Two Content","placeholders":[{"name":"text placeholder 2","textPreview":"Click to edit Master text styles | Second level | Third level | Fourth level | Fifth level"},{"name":"footer","type":"footer"},{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"},{"name":"text placeholder 2","textPreview":"Click to edit Master text styles | Second level | Third level | Fourth level | Fifth level"},{"name":"title","type":"title","textPreview":"Click to edit Master title style"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout4.xml","name":"Three Content","placeholders":[{"name":"text placeholder 2","textPreview":"Click to edit Master text styles | Second level | Third level | Fourth level | Fifth level"},{"name":"footer","type":"footer"},{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"},{"name":"text placeholder 2","textPreview":"Click to edit Master text styles | Second level | Third level | Fourth level | Fifth level"},{"name":"text placeholder 2","textPreview":"Click to edit Master text styles | Second level | Third level | Fourth level | Fifth level"},{"name":"title","type":"title","textPreview":"Click to edit Master title style"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout5.xml","name":"Four Content","placeholders":[{"name":"text placeholder 2","textPreview":"Click to edit Master"},{"name":"footer","type":"footer"},{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"},{"name":"title","type":"title","textPreview":"Click to edit Master title style"},{"name":"body","type":"body","textPreview":"Click to edit Master"},{"name":"text placeholder 2","textPreview":"Click to edit Master"},{"name":"body","type":"body","textPreview":"Click to edit Master"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout6.xml","name":"Title Only","placeholders":[{"name":"footer","type":"footer"},{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"},{"name":"title","type":"title","textPreview":"Click to edit Master title style"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout7.xml","name":"Footer Only","placeholders":[{"name":"footer","type":"footer"},{"name":"slideNumber","type":"slideNumber","textPreview":"‹#›"}]}
+{"kind":"layout","layoutId":"/ppt/slideLayouts/slideLayout8.xml","name":"Blank"}
+{"kind":"slide","id":"sl/r6tgg2","slide":1,"title":"MATH RL PROJECT","textShapes":5}
+{"kind":"textbox","id":"sh/mx0nyt07","slide":1,"text":"MATH RL PROJECT","textPreview":"MATH RL PROJECT","textChars":15,"textLines":1,"bbox":[40,32,300,22]}
+{"kind":"textbox","id":"sh/90r69oji","slide":1,"text":"Learning with the\nmodel’s own internal state","textPreview":"Learning with the | model’s own internal state","textChars":44,"textLines":2,"bbox":[40,150,920,150]}
+{"kind":"textbox","id":"sh/8zip03ix","slide":1,"text":"PPO, GRPO and lightweight token-level critics for verified math","textPreview":"PPO, GRPO and lightweight token-level critics for verified math","textChars":63,"textLines":1,"bbox":[44,335,850,34]}
+{"kind":"shape","id":"sh/v2toby1o","slide":1,"bbox":[44,414,180,4]}
+{"kind":"textbox","id":"sh/a1k72t03","slide":1,"text":"Qwen2.5-Math-1.5B  ·  GSM8K  ·  Math-Verify  ·  VERL  ·  Duke GPU cluster","textPreview":"Qwen2.5-Math-1.5B  ·  GSM8K  ·  Math-Verify  ·  VERL  ·  Duke GPU cluster","textChars":73,"textLines":1,"bbox":[44,465,930,28]}
+{"kind":"textbox","id":"sh/xob6d8ju","slide":1,"text":"Project briefing","textPreview":"Project briefing","textChars":16,"textLines":1,"bbox":[44,612,200,20]}
+{"kind":"notes","id":"nt/r6tgg2","slide":1,"text":"Source: project codebase and experiment plan. Model: Qwen/Qwen2.5-Math-1.5B base checkpoint, not the instruct variant."}
+{"kind":"slide","id":"sl/m0rwaq","slide":2,"title":"MATH RL PROJECT","textShapes":11}
+{"kind":"textbox","id":"sh/apwza5kr","slide":2,"text":"MATH RL PROJECT","textPreview":"MATH RL PROJECT","textChars":15,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/xs7i5032","slide":2,"text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/crehcv2x","slide":2,"text":"Research question","textPreview":"Research question","textChars":17,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"textbox","id":"sh/n25gzql0","slide":2,"text":"Can a language model supply the information needed for its own inexpensive critic?","textPreview":"Can a language model supply the information needed for its own inexpensive critic?","textChars":82,"textLines":1,"bbox":[72,160,1120,70]}
+{"kind":"textbox","id":"sh/21wz6lkf","slide":2,"text":"We test whether a small value head on the actor’s existing hidden states can guide PPO as well as a conventional critic, at lower fitting and memory cost.","textPreview":"We test whether a small value head on the actor’s existing hidden states can guide PPO as well as a conventional critic, at lower fitting...","textChars":154,"textLines":1,"bbox":[72,250,1030,78]}
+{"kind":"shape","id":"sh/p4ny1036","slide":2,"bbox":[72,374,1120,1]}
+{"kind":"shape","id":"sh/o3eh8v2l","slide":2,"bbox":[72,424,6,44]}
+{"kind":"textbox","id":"sh/fylgbql4","slide":2,"text":"Actor","textPreview":"Actor","textChars":5,"textLines":1,"bbox":[96,420,235,26]}
+{"kind":"textbox","id":"sh/excz2l4j","slide":2,"text":"The LLM writes a solution one token at a time.","textPreview":"The LLM writes a solution one token at a time.","textChars":46,"textLines":1,"bbox":[347,420,825,52]}
+{"kind":"shape","id":"sh/0jupsfmh","slide":2,"bbox":[72,488,6,44]}
+{"kind":"textbox","id":"sh/1knq1k32","slide":2,"text":"Critic","textPreview":"Critic","textChars":6,"textLines":1,"bbox":[96,484,235,26]}
+{"kind":"textbox","id":"sh/ehc7q54b","slide":2,"text":"A value estimate asks: “How likely is this unfinished solution to succeed?”","textPreview":"A value estimate asks: “How likely is this unfinished solution to succeed?”","textChars":75,"textLines":1,"bbox":[347,484,825,52]}
+{"kind":"shape","id":"sh/fil8zalw","slide":2,"bbox":[72,552,6,44]}
+{"kind":"textbox","id":"sh/sfupovm5","slide":2,"text":"Test","textPreview":"Test","textChars":4,"textLines":1,"bbox":[96,548,235,26]}
+{"kind":"textbox","id":"sh/dg3qx03q","slide":2,"text":"Compare semi-gradient TD and LSTD under matched data, features and compute.","textPreview":"Compare semi-gradient TD and LSTD under matched data, features and compute.","textChars":75,"textLines":1,"bbox":[347,548,825,52]}
+{"kind":"notes","id":"nt/m0rwaq","slide":2,"text":"This is a hypothesis test. A conventional critic can still win; that outcome is informative."}
+{"kind":"slide","id":"sl/i9taaj","slide":3,"title":"PRIOR WORK","textShapes":13}
+{"kind":"textbox","id":"sh/4v6lcjih","slide":3,"text":"PRIOR WORK","textPreview":"PRIOR WORK","textChars":10,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/3ux4jehw","slide":3,"text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/2943a90r","slide":3,"text":"What prior work contributes","textPreview":"What prior work contributes","textChars":27,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"textbox","id":"sh/h8vmh4z6","slide":3,"text":"Paper","textPreview":"Paper","textChars":5,"textLines":1,"bbox":[72,150,235,24]}
+{"kind":"textbox","id":"sh/g7ml8zil","slide":3,"text":"Lesson used here","textPreview":"Lesson used here","textChars":16,"textLines":1,"bbox":[330,150,560,24]}
+{"kind":"shape","id":"sh/v6d4fuh0","slide":3,"bbox":[72,182,1120,1]}
+{"kind":"textbox","id":"sh/u543690f","slide":3,"text":"PPO Algorithms\nSchulman et al., 2017","textPreview":"PPO Algorithms | Schulman et al., 2017","textChars":36,"textLines":2,"bbox":[72,208,235,62]}
+{"kind":"textbox","id":"sh/14zmt8za","slide":3,"text":"Clipped probability ratios support several updates on one sampled batch.","textPreview":"Clipped probability ratios support several updates on one sampled batch.","textChars":72,"textLines":1,"bbox":[330,208,780,56]}
+{"kind":"shape","id":"sh/03q5k3ip","slide":3,"bbox":[72,280,1120,1]}
+{"kind":"textbox","id":"sh/adk3yhcr","slide":3,"text":"Your Language Model is Its Own Critic\nChoi et al., 2026 · POISE","textPreview":"Your Language Model is Its Own Critic | Choi et al., 2026 · POISE","textChars":63,"textLines":2,"bbox":[72,300,235,62]}
+{"kind":"textbox","id":"sh/vet4rmtc","slide":3,"text":"Actor hidden states can support a low-cost value baseline for verifiable rewards.","textPreview":"Actor hidden states can support a low-cost value baseline for verifiable rewards.","textChars":81,"textLines":1,"bbox":[330,300,780,56]}
+{"kind":"shape","id":"sh/wfml0rux","slide":3,"bbox":[72,372,1120,1]}
+{"kind":"textbox","id":"sh/xgvmtcbi","slide":3,"text":"Least-Squares Policy Iteration\nLagoudakis & Parr, 2003","textPreview":"Least-Squares Policy Iteration | Lagoudakis & Parr, 2003","textChars":54,"textLines":2,"bbox":[72,392,235,62]}
+{"kind":"textbox","id":"sh/m9k3uxcv","slide":3,"text":"Least-squares Bellman evaluation motivates an LSTD critic solver.","textPreview":"Least-squares Bellman evaluation motivates an LSTD critic solver.","textChars":65,"textLines":1,"bbox":[330,392,780,56]}
+{"kind":"shape","id":"sh/nat4n2t0","slide":3,"bbox":[72,464,1120,1]}
+{"kind":"textbox","id":"sh/8b2lw7ul","slide":3,"text":"Shallow value updates\nProject synthesis","textPreview":"Shallow value updates | Project synthesis","textChars":39,"textLines":2,"bbox":[72,484,235,62]}
+{"kind":"textbox","id":"sh/9cbmpcb6","slide":3,"text":"Keep the deep representation fixed while testing cheap, controlled head fitting.","textPreview":"Keep the deep representation fixed while testing cheap, controlled head fitting.","textChars":80,"textLines":1,"bbox":[330,484,780,56]}
+{"kind":"shape","id":"sh/654n61cz","slide":3,"bbox":[72,556,1120,1]}
+{"kind":"notes","id":"nt/i9taaj","slide":3,"text":"Sources: /Users/manmit/Downloads/1707.06347v2.pdf (PPO Algorithms); /Users/manmit/Downloads/2605.07579v2.pdf (Your Language Model is Its Own Critic / POISE); project plan notes for the LSTD and shallow-update framing."}
+{"kind":"slide","id":"sl/8b8tcu","slide":4,"title":"RL SETUP","textShapes":10}
+{"kind":"textbox","id":"sh/s7618vut","slide":4,"text":"RL SETUP","textPreview":"RL SETUP","textChars":8,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/r6xkfqd8","slide":4,"text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/65oj6lc3","slide":4,"text":"The RL problem in one page","textPreview":"The RL problem in one page","textChars":26,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"shape","id":"sh/54fidgvi","slide":4,"bbox":[72,148,530,410]}
+{"kind":"textbox","id":"sh/43614vux","slide":4,"text":"One generated solution","textPreview":"One generated solution","textChars":22,"textLines":1,"bbox":[104,178,440,30]}
+{"kind":"textbox","id":"sh/j2x0bqdc","slide":4,"text":"state  sₜ = (question, tokens before t)\naction  aₜ = next token\nterminal reward  rₜ = 1 if Math-Verify says correct, else 0","textPreview":"state  sₜ = (question, tokens before t) | action  aₜ = next token | terminal reward  rₜ = 1 if Math-Verify says correct, else 0","textChars":123,"textLines":3,"bbox":[104,245,440,150]}
+{"kind":"textbox","id":"sh/i14j2lcr","slide":4,"text":"The reward arrives at the end. Every earlier token needs a credit signal.","textPreview":"The reward arrives at the end. Every earlier token needs a credit signal.","textChars":73,"textLines":1,"bbox":[104,446,430,65]}
+{"kind":"shape","id":"sh/h0vi9gv6","slide":4,"bbox":[650,148,542,410]}
+{"kind":"textbox","id":"sh/wzm10bul","slide":4,"text":"Value before the next token","textPreview":"Value before the next token","textChars":27,"textLines":1,"bbox":[682,178,460,30]}
+{"kind":"textbox","id":"sh/i58fahcf","slide":4,"text":"Vπ(sₜ) = E[r_terminal | sₜ]","textPreview":"Vπ(sₜ) = E[r_terminal | sₜ]","textChars":27,"textLines":1,"bbox":[682,250,460,46]}
+{"kind":"textbox","id":"sh/j6hg3md0","slide":4,"text":"The critic predicts the chance that the current prefix will eventually earn reward 1 under the current actor.","textPreview":"The critic predicts the chance that the current prefix will eventually earn reward 1 under the current actor.","textChars":109,"textLines":1,"bbox":[682,335,450,90]}
+{"kind":"textbox","id":"sh/krqxcrul","slide":4,"text":"Causal rule: read φθ(sₜ) before choosing aₜ.","textPreview":"Causal rule: read φθ(sₜ) before choosing aₜ.","textChars":44,"textLines":1,"bbox":[682,470,450,46]}
+{"kind":"notes","id":"nt/8b8tcu","slide":4,"text":"The value target is a success probability under the binary terminal reward, although an unconstrained linear head may predict outside [0, 1]."}
+{"kind":"slide","id":"sl/rbec4w","slide":5,"title":"SYSTEM","textShapes":15}
+{"kind":"textbox","id":"sh/5kbqtoj6","slide":5,"text":"SYSTEM","textPreview":"SYSTEM","textChars":6,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/ix0ri90f","slide":5,"text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/3y98re10","slide":5,"text":"System architecture","textPreview":"System architecture","textChars":19,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"shape","id":"sh/gvi9gzi9","slide":5,"bbox":[50,248,200,160]}
+{"kind":"textbox","id":"sh/hwrqp4ju","slide":5,"text":"Slurm","textPreview":"Slurm","textChars":5,"textLines":1,"bbox":[70,272,160,28]}
+{"kind":"textbox","id":"sh/ut0rep0j","slide":5,"text":"Allocates\nA5000 GPUs","textPreview":"Allocates | A5000 GPUs","textChars":20,"textLines":2,"bbox":[70,320,160,60]}
+{"kind":"shape","id":"sh/vu98nu1o","slide":5,"bbox":[260,328,15,2]}
+{"kind":"shape","id":"sh/0r29s3it","slide":5,"bbox":[285,248,220,160]}
+{"kind":"textbox","id":"sh/1sva18jy","slide":5,"text":"Container","textPreview":"Container","textChars":9,"textLines":1,"bbox":[305,272,180,28]}
+{"kind":"textbox","id":"sh/lkfitg3a","slide":5,"text":"Pins CUDA,\nPyTorch and VERL","textPreview":"Pins CUDA, | PyTorch and VERL","textChars":27,"textLines":2,"bbox":[305,320,180,60]}
+{"kind":"shape","id":"sh/kj610b2p","slide":5,"bbox":[515,328,15,2]}
+{"kind":"shape","id":"sh/jix0rql4","slide":5,"bbox":[540,248,220,160]}
+{"kind":"textbox","id":"sh/yh4zylkz","slide":5,"text":"VERL + Ray","textPreview":"VERL + Ray","textChars":10,"textLines":1,"bbox":[560,272,180,28]}
+{"kind":"textbox","id":"sh/xgvipg3e","slide":5,"text":"Runs the RL\ntraining loop","textPreview":"Runs the RL | training loop","textChars":25,"textLines":2,"bbox":[560,320,180,60]}
+{"kind":"shape","id":"sh/cfmhwb2t","slide":5,"bbox":[770,328,15,2]}
+{"kind":"shape","id":"sh/bed0n6l8","slide":5,"bbox":[795,248,190,160]}
+{"kind":"textbox","id":"sh/ad4zu1kn","slide":5,"text":"vLLM","textPreview":"vLLM","textChars":4,"textLines":1,"bbox":[815,272,150,28]}
+{"kind":"textbox","id":"sh/hczi103i","slide":5,"text":"Generates\nrollouts","textPreview":"Generates | rollouts","textChars":18,"textLines":2,"bbox":[815,320,150,60]}
+{"kind":"shape","id":"sh/gbq18v2x","slide":5,"bbox":[995,328,10,2]}
+{"kind":"shape","id":"sh/0ritk3el","slide":5,"bbox":[1015,248,215,160]}
+{"kind":"textbox","id":"sh/1srut8fq","slide":5,"text":"Math-Verify","textPreview":"Math-Verify","textChars":11,"textLines":1,"bbox":[1035,272,175,28]}
+{"kind":"textbox","id":"sh/epgbitwf","slide":5,"text":"Returns\n0 or 1 reward","textPreview":"Returns | 0 or 1 reward","textChars":21,"textLines":2,"bbox":[1035,320,175,60]}
+{"kind":"shape","id":"sh/fqpcryx0","slide":5,"bbox":[72,492,1120,1]}
+{"kind":"textbox","id":"sh/s3ytg3e9","slide":5,"text":"PyTorch + FSDP update the actor and PPO critic. Checkpoints, rollouts and reports remain separate for PPO and GRPO.","textPreview":"PyTorch + FSDP update the actor and PPO critic. Checkpoints, rollouts and reports remain separate for PPO and GRPO.","textChars":115,"textLines":1,"bbox":[72,528,1120,48]}
+{"kind":"textbox","id":"sh/do7up8fu","slide":5,"text":"One combined Slurm job: two GPUs for PPO, two GPUs for GRPO.","textPreview":"One combined Slurm job: two GPUs for PPO, two GPUs for GRPO.","textChars":60,"textLines":1,"bbox":[72,600,1120,32]}
+{"kind":"notes","id":"nt/rbec4w","slide":5,"text":"The architecture is an editable diagram. Slurm handles allocation; the container provides the pinned runtime; VERL owns the algorithmic loop; our code supplies prompts, rewards, configuration, launch orchestration and audits."}
+{"kind":"slide","id":"sl/zsjjei","slide":6,"title":"ALGORITHMS","textShapes":10}
+{"kind":"textbox","id":"sh/94na5ovu","slide":6,"text":"ALGORITHMS","textPreview":"ALGORITHMS","textChars":10,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/mhwra9c3","slide":6,"text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/n2583edo","slide":6,"text":"Two policy-gradient baselines","textPreview":"Two policy-gradient baselines","textChars":29,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"shape","id":"sh/w7e9gju5","slide":6,"bbox":[72,150,530,420]}
+{"kind":"textbox","id":"sh/x87a9ovq","slide":6,"text":"PPO + GAE","textPreview":"PPO + GAE","textChars":9,"textLines":1,"bbox":[104,180,430,32]}
+{"kind":"textbox","id":"sh/a5wre9cf","slide":6,"text":"δₜ = rₜ + γV(sₜ₊₁) − V(sₜ)\nAₜ = Σₗ (γλ)ˡ δₜ₊ₗ\nρₜ = πθ(aₜ|sₜ) / πold(aₜ|sₜ)\nL = min(ρₜAₜ, clip(ρₜ)Aₜ)","textPreview":"δₜ = rₜ + γV(sₜ₊₁) − V(sₜ) | Aₜ = Σₗ (γλ)ˡ δₜ₊ₗ | ρₜ = πθ(aₜ|sₜ) / πold(aₜ|sₜ) | L = min(ρₜAₜ, clip(ρₜ)Aₜ)","textChars":100,"textLines":4,"bbox":[104,250,440,190]}
+{"kind":"textbox","id":"sh/v65s7ed0","slide":6,"text":"One answer per question in this pilot. A separate critic predicts values and GAE spreads the terminal signal backward.","textPreview":"One answer per question in this pilot. A separate critic predicts values and GAE spreads the terminal signal backward.","textChars":118,"textLines":1,"bbox":[104,486,440,56]}
+{"kind":"shape","id":"sh/kby9k3uh","slide":6,"bbox":[650,150,542,420]}
+{"kind":"textbox","id":"sh/5c7ad8v2","slide":6,"text":"GRPO","textPreview":"GRPO","textChars":4,"textLines":1,"bbox":[682,180,450,32]}
+{"kind":"textbox","id":"sh/5s3itwn2","slide":6,"text":"Aᵢ = (rᵢ − mean(r₁…rₙ))\n      / (std(r₁…rₙ) + ε)","textPreview":"Aᵢ = (rᵢ − mean(r₁…rₙ)) |       / (std(r₁…rₙ) + ε)","textChars":48,"textLines":2,"bbox":[682,260,460,100]}
+{"kind":"textbox","id":"sh/4rah0r6h","slide":6,"text":"Four answers per question. Answers above their group mean get positive advantage; below-mean answers get negative advantage.","textPreview":"Four answers per question. Answers above their group mean get positive advantage; below-mean answers get negative advantage.","textChars":124,"textLines":1,"bbox":[682,405,460,90]}
+{"kind":"textbox","id":"sh/jq10rm5w","slide":6,"text":"No critic and no GAE in this baseline.","textPreview":"No critic and no GAE in this baseline.","textChars":38,"textLines":1,"bbox":[682,515,460,30]}
+{"kind":"notes","id":"nt/zsjjei","slide":6,"text":"Both methods use the same actor, prompt, reward contract and clipped policy update. Their variance-reduction mechanisms differ."}
+{"kind":"slide","id":"sl/fxyiug","slide":7,"title":"CRITIC","textShapes":13}
+{"kind":"textbox","id":"sh/ux0rapwj","slide":7,"text":"CRITIC","textPreview":"CRITIC","textChars":6,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/hkralkfa","slide":7,"text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/gzitczep","slide":7,"text":"The lightweight critic experiment","textPreview":"The lightweight critic experiment","textChars":33,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"textbox","id":"sh/7upsfax8","slide":7,"text":"Reuse the actor representation. Learn only a small head.","textPreview":"Reuse the actor representation. Learn only a small head.","textChars":56,"textLines":1,"bbox":[72,150,1100,42]}
+{"kind":"shape","id":"sh/6tgr65wn","slide":7,"bbox":[72,225,360,250]}
+{"kind":"textbox","id":"sh/tw7ahkfy","slide":7,"text":"Actor features","textPreview":"Actor features","textChars":14,"textLines":1,"bbox":[104,255,290,28]}
+{"kind":"textbox","id":"sh/svy98fet","slide":7,"text":"φθ(sₜ)\n= hidden state of the prefix\nbefore action aₜ","textPreview":"φθ(sₜ) | = hidden state of the prefix | before action aₜ","textChars":52,"textLines":3,"bbox":[104,320,290,105]}
+{"kind":"shape","id":"sh/rqtsredc","slide":7,"bbox":[454,350,88,2]}
+{"kind":"shape","id":"sh/qpkbi9wr","slide":7,"bbox":[565,225,295,250]}
+{"kind":"textbox","id":"sh/472tkfu9","slide":7,"text":"Small value head","textPreview":"Small value head","textChars":16,"textLines":1,"bbox":[595,255,240,28]}
+{"kind":"textbox","id":"sh/p8butkbu","slide":7,"text":"V̂(sₜ) = wᵀφθ(sₜ)","textPreview":"V̂(sₜ) = wᵀφθ(sₜ)","textChars":17,"textLines":1,"bbox":[595,335,240,42]}
+{"kind":"textbox","id":"sh/25kbi5c3","slide":7,"text":"Only w changes\nduring fitting","textPreview":"Only w changes | during fitting","textChars":29,"textLines":2,"bbox":[595,410,220,52]}
+{"kind":"shape","id":"sh/36tsrato","slide":7,"bbox":[885,350,88,2]}
+{"kind":"shape","id":"sh/gj2tgvux","slide":7,"bbox":[995,225,197,250]}
+{"kind":"textbox","id":"sh/h4bap0bi","slide":7,"text":"Compare solvers","textPreview":"Compare solvers","textChars":15,"textLines":1,"bbox":[1020,255,150,28]}
+{"kind":"textbox","id":"sh/uh0belc7","slide":7,"text":"TD(0)\nLSTD(0)","textPreview":"TD(0) | LSTD(0)","textChars":13,"textLines":2,"bbox":[1020,335,145,75]}
+{"kind":"shape","id":"sh/fi9snqtc","slide":7,"bbox":[72,520,1120,1]}
+{"kind":"textbox","id":"sh/sfitcvu1","slide":7,"text":"Semi-gradient TD:  w ← w + α δₜ φθ(sₜ), with the next-state prediction detached.","textPreview":"Semi-gradient TD:  w ← w + α δₜ φθ(sₜ), with the next-state prediction detached.","textChars":80,"textLines":1,"bbox":[72,554,1120,32]}
+{"kind":"textbox","id":"sh/tgral0bm","slide":7,"text":"LSTD: solve the regularized batch equations  (A + ηI)w = b.","textPreview":"LSTD: solve the regularized batch equations  (A + ηI)w = b.","textChars":59,"textLines":1,"bbox":[72,598,1120,32]}
+{"kind":"notes","id":"nt/fxyiug","slide":7,"text":"The initial comparison has fresh trajectories, no cross-policy replay, causal pre-token features, matched features/data/regularization/initialization and equal-data plus equal-fitting-time controls."}
+{"kind":"slide","id":"sl/8mm6br","slide":8,"title":"PLAN","textShapes":19}
+{"kind":"textbox","id":"sh/qls7qhsz","slide":8,"text":"PLAN","textPreview":"PLAN","textChars":4,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/dojqlcrq","slide":8,"text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/cnaps7a5","slide":8,"text":"Experimental protocol","textPreview":"Experimental protocol","textChars":21,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"textbox","id":"sh/3ihof29o","slide":8,"text":"1","textPreview":"1","textChars":1,"textLines":1,"bbox":[72,150,40,38]}
+{"kind":"textbox","id":"sh/2x87mxs3","slide":8,"text":"Reward audit","textPreview":"Reward audit","textChars":12,"textLines":1,"bbox":[142,153,250,30]}
+{"kind":"textbox","id":"sh/pkjqhcre","slide":8,"text":"Use Math-Verify; separate wrong answers, parse failures and truncation.","textPreview":"Use Math-Verify; separate wrong answers, parse failures and truncation.","textChars":71,"textLines":1,"bbox":[410,153,730,38]}
+{"kind":"shape","id":"sh/ojqpo7at","slide":8,"bbox":[72,208,1120,1]}
+{"kind":"textbox","id":"sh/nel8r69s","slide":8,"text":"2","textPreview":"2","textChars":1,"textLines":1,"bbox":[72,238,40,38]}
+{"kind":"textbox","id":"sh/mtc7y187","slide":8,"text":"PPO reference","textPreview":"PPO reference","textChars":13,"textLines":1,"bbox":[142,241,250,30]}
+{"kind":"textbox","id":"sh/k3qxkzuh","slide":8,"text":"Validate conventional PPO/GAE, critic updates and checkpoint evidence.","textPreview":"Validate conventional PPO/GAE, critic updates and checkpoint evidence.","textChars":70,"textLines":1,"bbox":[410,241,730,38]}
+{"kind":"shape","id":"sh/54jyt4v2","slide":8,"bbox":[72,296,1120,1]}
+{"kind":"textbox","id":"sh/i18fipwb","slide":8,"text":"3","textPreview":"3","textChars":1,"textLines":1,"bbox":[72,326,40,38]}
+{"kind":"textbox","id":"sh/j2hgrudw","slide":8,"text":"Frozen actor","textPreview":"Frozen actor","textChars":12,"textLines":1,"bbox":[142,329,250,30]}
+{"kind":"textbox","id":"sh/wzqxgfel","slide":8,"text":"Hold Qwen fixed; compare TD-small, TD-large, LSTD and return regression.","textPreview":"Hold Qwen fixed; compare TD-small, TD-large, LSTD and return regression.","textChars":72,"textLines":1,"bbox":[410,329,730,38]}
+{"kind":"shape","id":"sh/x0zypkv6","slide":8,"bbox":[72,384,1120,1]}
+{"kind":"textbox","id":"sh/ad8fe5wf","slide":8,"text":"4","textPreview":"4","textChars":1,"textLines":1,"bbox":[72,414,40,38]}
+{"kind":"textbox","id":"sh/vyhgnad0","slide":8,"text":"Online PPO","textPreview":"Online PPO","textChars":10,"textLines":1,"bbox":[142,417,250,30]}
+{"kind":"textbox","id":"sh/8b6xcfe9","slide":8,"text":"Connect each lightweight critic to fresh-policy PPO.","textPreview":"Connect each lightweight critic to fresh-policy PPO.","textChars":52,"textLines":1,"bbox":[410,417,730,38]}
+{"kind":"shape","id":"sh/9czelkvu","slide":8,"bbox":[72,472,1120,1]}
+{"kind":"textbox","id":"sh/pg7mtcjm","slide":8,"text":"5","textPreview":"5","textChars":1,"textLines":1,"bbox":[72,502,40,38]}
+{"kind":"textbox","id":"sh/ovy50721","slide":8,"text":"Final comparison","textPreview":"Final comparison","textChars":16,"textLines":1,"bbox":[142,505,250,30]}
+{"kind":"textbox","id":"sh/3u54r21g","slide":8,"text":"Use ≥3 seeds; report accuracy per generated token and GPU-hour.","textPreview":"Use ≥3 seeds; report accuracy per generated token and GPU-hour.","textChars":63,"textLines":1,"bbox":[410,505,730,38]}
+{"kind":"shape","id":"sh/2tw3yxkv","slide":8,"bbox":[72,560,1120,1]}
+{"kind":"textbox","id":"sh/1snmpsja","slide":8,"text":"Controls: prompt-level cross-fitting, no initial cross-policy replay, detached critic fitting, matched regularization, and honest compute accounting.","textPreview":"Controls: prompt-level cross-fitting, no initial cross-policy replay, detached critic fitting, matched regularization, and honest compute...","textChars":149,"textLines":1,"bbox":[72,620,1120,36]}
+{"kind":"notes","id":"nt/8mm6br","slide":8,"text":"If return regression predicts well but TD(0) does not, test matched TD(λ) and LSTD(λ) before concluding token-level value learning fails. Critic λ is distinct from GAE λ."}
+{"kind":"slide","id":"sl/wx6gk2","slide":9,"title":"STATUS","textShapes":24}
+{"kind":"textbox","id":"sh/xczilsra","slide":9,"text":"STATUS","textPreview":"STATUS","textChars":6,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/a98zqx8z","slide":9,"text":"09","textPreview":"09","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/vah0ji9k","slide":9,"text":"Work completed","textPreview":"Work completed","textChars":14,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"textbox","id":"sh/kzahw7q1","slide":9,"text":"Milestone","textPreview":"Milestone","textChars":9,"textLines":1,"bbox":[72,150,285,24]}
+{"kind":"textbox","id":"sh/50jipcrm","slide":9,"text":"Evidence","textPreview":"Evidence","textChars":8,"textLines":1,"bbox":[385,150,260,24]}
+{"kind":"textbox","id":"sh/idszux8v","slide":9,"text":"Result","textPreview":"Result","textChars":6,"textLines":1,"bbox":[700,150,260,24]}
+{"kind":"textbox","id":"sh/je10n29g","slide":9,"text":"Interpretation","textPreview":"Interpretation","textChars":14,"textLines":1,"bbox":[1015,150,260,24]}
+{"kind":"shape","id":"sh/036hk3qx","slide":9,"bbox":[72,182,1120,1]}
+{"kind":"textbox","id":"sh/l4fid8ri","slide":9,"text":"Stage 1 audit","textPreview":"Stage 1 audit","textChars":13,"textLines":1,"bbox":[72,212,285,58]}
+{"kind":"textbox","id":"sh/1o721g3a","slide":9,"text":"200 responses\n10 reviewed","textPreview":"200 responses | 10 reviewed","textChars":25,"textLines":2,"bbox":[385,212,260,58]}
+{"kind":"textbox","id":"sh/0ny18vmp","slide":9,"text":"100% agreement\non reviewed set","textPreview":"100% agreement | on reviewed set","textChars":30,"textLines":2,"bbox":[700,212,260,58]}
+{"kind":"textbox","id":"sh/zmpkzql4","slide":9,"text":"Audit still incomplete","textPreview":"Audit still incomplete","textChars":22,"textLines":1,"bbox":[1015,212,260,58]}
+{"kind":"shape","id":"sh/elgj6l4z","slide":9,"bbox":[72,280,1120,1]}
+{"kind":"textbox","id":"sh/9s72503m","slide":9,"text":"PPO pilot","textPreview":"PPO pilot","textChars":9,"textLines":1,"bbox":[72,302,285,58]}
+{"kind":"textbox","id":"sh/orylcvm1","slide":9,"text":"10 updates\n160 train responses","textPreview":"10 updates | 160 train responses","textChars":30,"textLines":2,"bbox":[385,302,260,58]}
+{"kind":"textbox","id":"sh/nqpk3qlg","slide":9,"text":"31/32 validation\ninitial and final","textPreview":"31/32 validation | initial and final","textChars":34,"textLines":2,"bbox":[700,302,260,58]}
+{"kind":"textbox","id":"sh/mpg3al4v","slide":9,"text":"Execution passed","textPreview":"Execution passed","textChars":16,"textLines":1,"bbox":[1015,302,260,58]}
+{"kind":"shape","id":"sh/xgr2903i","slide":9,"bbox":[72,370,1120,1]}
+{"kind":"textbox","id":"sh/wfilgfmx","slide":9,"text":"GRPO pilot","textPreview":"GRPO pilot","textChars":10,"textLines":1,"bbox":[72,392,285,58]}
+{"kind":"textbox","id":"sh/gzq5cja9","slide":9,"text":"10 updates\n320 train responses","textPreview":"10 updates | 320 train responses","textChars":30,"textLines":2,"bbox":[385,392,260,58]}
+{"kind":"textbox","id":"sh/h0zm5obu","slide":9,"text":"31/32 validation\ninitial and final","textPreview":"31/32 validation | initial and final","textChars":34,"textLines":2,"bbox":[700,392,260,58]}
+{"kind":"textbox","id":"sh/ux8na9s3","slide":9,"text":"Execution passed","textPreview":"Execution passed","textChars":16,"textLines":1,"bbox":[1015,392,260,58]}
+{"kind":"shape","id":"sh/vyh43eto","slide":9,"bbox":[72,460,1120,1]}
+{"kind":"textbox","id":"sh/4nq5gja5","slide":9,"text":"Infrastructure","textPreview":"Infrastructure","textChars":14,"textLines":1,"bbox":[72,482,285,58]}
+{"kind":"textbox","id":"sh/5ojm9obq","slide":9,"text":"Duke A5000\n4 GPUs total","textPreview":"Duke A5000 | 4 GPUs total","textChars":23,"textLines":2,"bbox":[385,482,260,58]}
+{"kind":"textbox","id":"sh/i18netsf","slide":9,"text":"Actor gradients,\ncheckpoints, reports","textPreview":"Actor gradients, | checkpoints, reports","textChars":37,"textLines":2,"bbox":[700,482,260,58]}
+{"kind":"textbox","id":"sh/3mh47etk","slide":9,"text":"Learning gain unproven","textPreview":"Learning gain unproven","textChars":22,"textLines":1,"bbox":[1015,482,260,58]}
+{"kind":"shape","id":"sh/kr6l4zu1","slide":9,"bbox":[72,550,1120,1]}
+{"kind":"textbox","id":"sh/lsfmx4bm","slide":9,"text":"Pilot reports prove that the machinery runs. They do not prove improved math accuracy or a useful critic.","textPreview":"Pilot reports prove that the machinery runs. They do not prove improved math accuracy or a useful critic.","textChars":105,"textLines":1,"bbox":[72,610,1120,34]}
+{"kind":"notes","id":"nt/wx6gk2","slide":9,"text":"Evidence from Duke job 12589388: PPO report and GRPO report both returned execution_check_pass=true; validation reward mean@1 remained 0.96875 at steps 0, 5 and 10. Stage 1 review report remains development-only and incomplete."}
+{"kind":"slide","id":"sl/54h4f1","slide":10,"title":"NEXT","textShapes":11}
+{"kind":"textbox","id":"sh/alwv654n","slide":10,"text":"NEXT","textPreview":"NEXT","textChars":4,"textLines":1,"bbox":[40,28,300,22]}
+{"kind":"textbox","id":"sh/xonu1k3y","slide":10,"text":"10","textPreview":"10","textChars":2,"textLines":1,"bbox":[1185,28,55,22]}
+{"kind":"textbox","id":"sh/cned8fmd","slide":10,"text":"Next steps","textPreview":"Next steps","textChars":10,"textLines":1,"bbox":[40,72,1160,54]}
+{"kind":"textbox","id":"sh/zq5c3al4","slide":10,"text":"1  Evaluate base, PPO and GRPO on 500 held-out questions.","textPreview":"1  Evaluate base, PPO and GRPO on 500 held-out questions.","textChars":57,"textLines":1,"bbox":[72,160,1120,38]}
+{"kind":"textbox","id":"sh/ypwva54j","slide":10,"text":"Same prompts, greedy decoding and Math-Verify. Report wrong to right and right to wrong changes.","textPreview":"Same prompts, greedy decoding and Math-Verify. Report wrong to right and right to wrong changes.","textChars":96,"textLines":1,"bbox":[98,204,1060,32]}
+{"kind":"textbox","id":"sh/lc7u5k3a","slide":10,"text":"2  Freeze the actor and benchmark the critics.","textPreview":"2  Freeze the actor and benchmark the critics.","textChars":46,"textLines":1,"bbox":[72,280,1120,38]}
+{"kind":"textbox","id":"sh/kbydcfmp","slide":10,"text":"Compare TD-small, TD-large, LSTD and return regression on held-out prefixes and continuations.","textPreview":"Compare TD-small, TD-large, LSTD and return regression on held-out prefixes and continuations.","textChars":94,"textLines":1,"bbox":[98,324,1060,32]}
+{"kind":"textbox","id":"sh/fulcrq5k","slide":10,"text":"3  Run short online PPO pilots with the best heads.","textPreview":"3  Run short online PPO pilots with the best heads.","textChars":51,"textLines":1,"bbox":[72,400,1120,38]}
+{"kind":"textbox","id":"sh/etcbyl4f","slide":10,"text":"Keep data fresh and measure whether value quality translates into policy improvement.","textPreview":"Keep data fresh and measure whether value quality translates into policy improvement.","textChars":85,"textLines":1,"bbox":[98,444,1060,32]}
+{"kind":"shape","id":"sh/gna54r2d","slide":10,"bbox":[72,520,1120,1]}
+{"kind":"textbox","id":"sh/hojmdw3y","slide":10,"text":"Deliverable","textPreview":"Deliverable","textChars":11,"textLines":1,"bbox":[72,560,170,28]}
+{"kind":"textbox","id":"sh/u1sn21k7","slide":10,"text":"A validated accuracy–compute comparison among lightweight critics, with conventional PPO as the reference.","textPreview":"A validated accuracy–compute comparison among lightweight critics, with conventional PPO as the reference.","textChars":106,"textLines":1,"bbox":[265,560,880,36]}
+{"kind":"notes","id":"nt/54h4f1","slide":10,"text":"The immediate next experiment is frozen-actor critic evaluation. A frozen-actor win does not guarantee online PPO success; the online pilots test that link directly."}

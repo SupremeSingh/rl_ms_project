@@ -1,0 +1,180 @@
+import importlib.util
+import json
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+import torch
+from torch import nn
+
+from math_rl.critic_probe import (HEADS, assessment, make_head, metrics, prefix_states,
+                                 sample_shard, transitions)
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("frozen_critics", ROOT / "scripts/frozen_critics.py")
+pipeline = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pipeline)
+
+
+def test_exact_architectures_and_linear_value_is_unbounded():
+    for kind, count in zip(HEADS, (1, 2, 10, 1)):
+        head = make_head(kind, 12, width=16)
+        assert sum(isinstance(m, nn.Linear) for m in head.modules()) == count
+        assert head(torch.ones(3, 12)).shape == (3, 1)
+    head = make_head("linear_value", 2)
+    with torch.no_grad():
+        head.weight.zero_()
+        head.bias.fill_(2)
+    assert head(torch.zeros(1, 2)).item() == 2
+
+
+def test_qwen_features_are_causal_post_norm_and_pre_action():
+    from transformers import Qwen2Config, Qwen2Model
+    torch.manual_seed(42)
+    model = Qwen2Model(Qwen2Config(vocab_size=64, hidden_size=16, intermediate_size=32,
+        num_hidden_layers=2, num_attention_heads=2, num_key_value_heads=2,
+        attention_dropout=0.)).eval().requires_grad_(False)
+    tokens = torch.tensor([[1, 2, 3, 4, 5, 6]])
+    captured = []
+    hook = model.norm.register_forward_hook(lambda _, args, output: captured.append(output.detach().clone()))
+    features = prefix_states(model, tokens, 3, 3)
+    hook.remove()
+    torch.testing.assert_close(features, captured[0][0, 2:])
+    assert features.shape == (4, 16) and not features.requires_grad
+    changed = tokens.clone()
+    changed[0, 4:] = torch.tensor([17, 18])
+    other = prefix_states(model, changed, 3, 3)
+    torch.testing.assert_close(features[:2], other[:2])
+    with torch.no_grad():
+        prompt_only = model(tokens[:, :3]).last_hidden_state[0, -1]
+    torch.testing.assert_close(features[0], prompt_only)
+    saved = [p.clone() for p in model.parameters()]
+    head = make_head("linear_value", 16)
+    head(features.clone()).sum().backward()
+    assert head.weight.grad is not None
+    assert all(p.grad is None and torch.equal(p, before) for p, before in zip(model.parameters(), saved))
+
+
+def test_transitions_and_preset_prefixes_exclude_post_terminal_state():
+    states = torch.arange(8.).reshape(4, 2)
+    current, following, rewards, done = transitions(states, 1)
+    torch.testing.assert_close(current, states[:3])
+    torch.testing.assert_close(following[:2], states[1:3])
+    assert following[-1].eq(0).all()
+    assert rewards.tolist() == [0, 0, 1] and done.tolist() == [False, False, True]
+    shard = dict(features=torch.cat([states, torch.ones(9, 2)]), offsets=torch.tensor([0, 4, 13]),
+                 rewards=torch.tensor([1, 0]))
+    samples = sample_shard(shard, 7)
+    assert samples["position"].tolist() == [0, 1, 2, 0, 1, 2, 4]
+    assert samples["y"].tolist() == [1, 1, 1, 0, 0, 0, 0]
+    assert samples["question"].tolist() == [7] * 7
+
+
+def test_probability_metrics_constant_ties_and_calibration():
+    y = np.array([0, 1, 0, 1])
+    result = metrics(y, np.full(4, .5))
+    assert result["auroc"] == .5 and result["accuracy"] == .5
+    assert result["brier"] == .25 and result["ece"] == 0
+    assert metrics(y, y)["auroc"] == 1
+    assert metrics(np.ones(4), np.ones(4))["auroc"] is None
+    assert metrics(y, np.array([-1., 2., 0., 1.]))["outside_probability_range"] == .5
+    data = dict(y=torch.tensor(y), question=torch.tensor([0, 0, 1, 1]), position=torch.tensor([0, 1, 0, 32]))
+    report = assessment(data, y.astype(float), .5)
+    assert report["question_mean_brier_difference_vs_constant"] == -.25
+    assert report["question_bootstrap_95pct_interval"] == [-.25, -.25]
+    assert report["by_prefix"]["question_only"]["n"] == 2
+
+
+def test_selection_excludes_old_data_and_splits_by_question(tmp_path, monkeypatch):
+    eval_spec = importlib.util.spec_from_file_location("evaluate_pilots", ROOT / "scripts/evaluate_pilots.py")
+    evaluation = importlib.util.module_from_spec(eval_spec)
+    eval_spec.loader.exec_module(evaluation)
+    monkeypatch.setitem(sys.modules, "evaluate_pilots", evaluation)
+
+    class Source(list):
+        def add_column(self, name, values):
+            return Source(dict(row, **{name: v}) for row, v in zip(self, values))
+        def shuffle(self, seed):
+            return self
+
+    source = Source(dict(question=f"Question {i}?", answer="work #### 4") for i in range(1050))
+    development = [{"extra_info": {"prompt_id": "gsm8k/train/1025"},
+                    "prompt": [{}, {"content": "Question 1025?"}]}]
+    monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(Dataset=SimpleNamespace(
+        from_parquet=lambda _: development), load_dataset=lambda *a, **kw: source))
+    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(AutoTokenizer=SimpleNamespace(
+        from_pretrained=lambda *a, **kw: SimpleNamespace(encode=lambda *a, **kw: [1, 2]))))
+    monkeypatch.setattr(pipeline, "ROOT", tmp_path)
+    for name in ("configs", "data/gsm8k", "outputs/audit"):
+        (tmp_path / name).mkdir(parents=True)
+    pipeline.atomic_json(tmp_path / "configs/assets.json", dict(model_id="Qwen/Qwen2.5-Math-1.5B",
+        model_revision="a" * 40, dataset_revision="b" * 40, seed=42))
+    pipeline.atomic_json(tmp_path / "data/gsm8k/eval-500.json", {"questions": [
+        {"id": "gsm8k/train/1026", "question": "Question 1026?"}]})
+    pipeline.atomic_json(tmp_path / "outputs/audit/metadata.json", {"mode": "audit"})
+    (tmp_path / "outputs/audit/responses.jsonl").write_text(json.dumps({"prompt_id": "gsm8k/train/1027"}) + "\n")
+    rows = pipeline.select_data([2, 1, 1])["questions"]
+    assert [r["id"] for r in rows] == [f"gsm8k/train/{i}" for i in (1024, 1028, 1029, 1030)]
+    assert [r["split"] for r in rows] == ["train", "train", "val", "test"]
+
+
+def test_generation_keeps_base_sampling_and_resumes_without_replacing_data(tmp_path, monkeypatch):
+    import math_rl.ppo_reward as reward
+    (tmp_path / "trajectories").mkdir()
+    calls = []
+
+    class Engine:
+        def __init__(self, **kwargs):
+            assert kwargs["model"].endswith("models/qwen-math")
+        def generate(self, prompts, params):
+            assert prompts == [{"prompt_token_ids": [1, 2]}]
+            assert (params["temperature"], params["top_p"], params["max_tokens"], params["seed"]) == (1, 1, 2048, 42)
+            calls.append(params)
+            return [SimpleNamespace(outputs=[SimpleNamespace(text="Answer 4", token_ids=[4, 5],
+                finish_reason="stop", stop_reason=5) for _ in range(params["n"])])]
+
+    monkeypatch.setitem(sys.modules, "vllm", SimpleNamespace(LLM=Engine, SamplingParams=lambda **kw: kw))
+    def score(sources, responses, gold):
+        assert sources == ["gsm8k"] * 2 and gold == ["4"] * 2
+        return [dict(score=1, verifier_status="correct", extracted="4")] * 2
+    monkeypatch.setattr(reward, "compute_score", score)
+    questions = [dict(id="q1", prompt_token_ids=[1, 2], ground_truth="4")]
+    pipeline.generate(tmp_path, dict(responses=2), questions)
+    path = pipeline.shard_path(tmp_path, 0, "trajectories")
+    frozen = path.read_bytes()
+    assert json.loads(frozen)["responses"][0]["token_ids"] == [4, 5]
+    pipeline.generate(tmp_path, dict(responses=2), questions)
+    assert path.read_bytes() == frozen and len(calls) == 1
+
+
+def test_fitting_all_four_heads_from_saved_features(tmp_path):
+    torch.set_num_threads(1)
+    torch.manual_seed(42)
+    for name in ("features", "trajectories", "heads"):
+        (tmp_path / name).mkdir()
+    questions = []
+    for i in range(12):
+        q = dict(id=f"q{i}", split=("train", "val", "test")[i // 4], question=f"Question {i}?", ground_truth="4")
+        questions.append(q)
+        path = pipeline.shard_path(tmp_path, i, "trajectories")
+        pipeline.atomic_json(path, dict(responses=[dict(score=r, finish_reason="stop", response="Example") for r in (0, 1)]))
+        features = torch.randn(10, 8) * .05
+        features[:5, 0], features[5:, 0] = -1, 1
+        pipeline.save_tensor(pipeline.shard_path(tmp_path, i, "features"), dict(features=features,
+            offsets=torch.tensor([0, 5, 10]), rewards=torch.tensor([0, 1]), question_id=q["id"],
+            trajectories_sha256=pipeline.sha256(path)))
+    pipeline.fit(tmp_path, dict(seeds=[42], epochs=2), questions)
+    report = json.loads((tmp_path / "summary.json").read_text())
+    assert report["trajectories"] == 24 and report["reward_rate"] == .5
+    assert {r["kind"] for r in report["heads"]} == set(HEADS)
+    for row in report["heads"]:
+        assert np.isfinite(row["test"]["brier"])
+        assert len(row["fitting_curves"]) == 2
+        assert (tmp_path / "heads" / f"{row['kind']}-42-predictions.npy").exists()
+    assert set(torch.load(tmp_path / "train.pt", weights_only=True)["question"].tolist()).isdisjoint(
+        torch.load(tmp_path / "test.pt", weights_only=True)["question"].tolist())
+    previous = (tmp_path / "summary.json").read_bytes()
+    pipeline.fit(tmp_path, dict(seeds=[42], epochs=2), questions)
+    assert (tmp_path / "summary.json").read_bytes() == previous
