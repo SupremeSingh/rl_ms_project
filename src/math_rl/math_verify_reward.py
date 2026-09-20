@@ -7,6 +7,7 @@ PINS = {'math-verify': '0.9.0', 'latex2sympy2_extended': '1.11.0',
         'antlr4-python3-runtime': '4.13.2', 'sympy': '1.14.0', 'mpmath': '1.3.0'}
 TIMEOUT = 3
 MAX_CHARS = 32000
+PARSE_ERROR_POLICY = 'SympifyError during extraction is parse_failure; other exceptions remain fatal in batch scoring'
 
 
 def configuration():
@@ -26,6 +27,7 @@ def provenance():
     return dict(packages=installed, extraction=[asdict(x) for x in configuration()],
                 fallback_mode='no_fallback', extraction_mode='first_match',
                 timeout_seconds=TIMEOUT, max_response_chars=MAX_CHARS,
+                parse_error_policy=PARSE_ERROR_POLICY,
                 float_rounding=6, numeric_precision=15, strict=True,
                 selection='Library priority order, boxed first, first match only; no reference-guided search',
                 limitations='May select an unrelated or contradicted expression, including an unanchored number. Human audit required.')
@@ -34,7 +36,7 @@ def provenance():
 def grade(response, ground_truth):
     from math_verify import parse, verify
     from math_verify.errors import TimeoutException
-    from sympy import Rational
+    from sympy import Rational, SympifyError
     from math_rl.reward import parse_number
     # GSM8K references are validated exact decimals, not arbitrary expressions.
     target = parse_number(ground_truth)
@@ -50,6 +52,10 @@ def grade(response, ground_truth):
                            parsing_timeout=TIMEOUT, raise_on_error=True)
     except TimeoutException:
         return dict(result, status='parse_timeout')
+    except SympifyError as exc:
+        # An expression could not be converted by SymPy: no extracted answer.
+        # Handle only this known conversion failure, not arbitrary runtime errors.
+        return dict(result, error=type(exc).__name__)
     except Exception as exc:
         return dict(result, status='parse_error', error=type(exc).__name__)
     if not prediction:

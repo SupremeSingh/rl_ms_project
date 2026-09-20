@@ -117,3 +117,24 @@ run two jobs against the same output directory. Keep code unchanged during a run
 The report will tell us whether small nonlinear heads improve on a constant,
 whether direct linear regression is competitive, and whether fitting hit its
 budget. Review reward examples in `review.txt` before drawing conclusions.
+
+## Recovering job 12654337's parser failure
+
+This job saved 408 batches before extraction raised `SympifyError` on the next
+question. The parser fix classifies that known expression-conversion error as
+unparseable (reward 0). Other runtime errors and timeouts remain fatal.
+
+After publishing and pulling this fix, migrate the stopped run on the login node:
+
+```bash
+python3 scripts/migrate_critic_parser.py outputs/critics-12654337
+sbatch --time=2-00:00:00 scripts/submit_critics.sh --full \
+  --out outputs/critics-12654337
+```
+
+The migration checks the exact old grader hash, unchanged tracked files and
+questions, and saved batch structure; it refuses unrelated changes. It backs up
+the original manifest and records the new parser policy and saved batch hashes.
+Existing answers and scores are unchanged. Normal resume checks still apply.
+The new Slurm job writes its log under its new ID; experiment outputs stay in
+`outputs/critics-12654337`. Keep code unchanged while the resumed job runs.

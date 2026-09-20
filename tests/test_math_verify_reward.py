@@ -72,3 +72,36 @@ def test_verification_timeout_is_not_a_wrong_answer(monkeypatch):
     assert result['status'] == 'verify_timeout'
     assert result['diagnostic_reward'] == 0
     assert result['extracted'] == '4'
+
+
+def test_sympify_extraction_error_is_unparseable_but_other_errors_still_abort(monkeypatch):
+    import math_verify
+    from sympy import SympifyError
+    from math_rl.verifier_batch import score_batch
+
+    def malformed(*args, **kwargs):
+        raise SympifyError('malformed generated expression')
+    monkeypatch.setattr(math_verify, 'parse', malformed)
+    result = grade('malformed generated expression', '4')
+    assert result['status'] == 'parse_failure'
+    assert result['error'] == 'SympifyError' and result['extracted'] is None
+    scores = score_batch([dict(response='malformed generated expression', ground_truth='4')])
+    assert scores == [dict(score=0, verifier_status='parse_failure', extracted='')]
+
+    def broken(*args, **kwargs):
+        raise RuntimeError('unexpected backend error')
+    monkeypatch.setattr(math_verify, 'parse', broken)
+    with pytest.raises(RuntimeError, match='parse_error'):
+        score_batch([dict(response='4', ground_truth='4')])
+
+
+def test_sympify_error_during_equivalence_check_still_aborts(monkeypatch):
+    import math_verify
+    from sympy import SympifyError
+    from math_rl.verifier_batch import score_batch
+
+    def broken(*args, **kwargs):
+        raise SympifyError('verification failed after successful extraction')
+    monkeypatch.setattr(math_verify, 'verify', broken)
+    with pytest.raises(RuntimeError, match='verify_error'):
+        score_batch([dict(response=r'\boxed{4}', ground_truth='4')])
