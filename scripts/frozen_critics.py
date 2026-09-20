@@ -28,7 +28,7 @@ def save_tensor(path, value):
     temporary.replace(path)
 
 
-def select_data(counts):
+def select_data(counts, current_out=None):
     from datasets import Dataset, load_dataset
     from transformers import AutoTokenizer
     from evaluate_pilots import normalize, select_questions
@@ -50,7 +50,12 @@ def select_data(counts):
                 row = json.loads(line)
                 excluded.add(row["prompt_id"] if "prompt_id" in row else row["id"].rsplit("/", 1)[0])
     # Preserve every previously frozen evaluation set, including the 500-question run.
-    for path in list((ROOT / "data/gsm8k").glob("eval-*.json")) + list((ROOT / "outputs").glob("evaluation-*/questions.json")):
+    old_sets = (list((ROOT / "data/gsm8k").glob("eval-*.json"))
+                + list((ROOT / "outputs").glob("evaluation-*/questions.json"))
+                + list((ROOT / "outputs").glob("critics-*/questions.json")))
+    for path in old_sets:
+        if current_out is not None and path.parent.resolve() == current_out.resolve():
+            continue
         for row in json.loads(path.read_text())["questions"]:
             excluded.add(row["id"])
             wording.add(normalize(row["question"]))
@@ -147,7 +152,7 @@ def prepare_probes(out, questions):
 def fit(out, config, questions):
     import torch
     import numpy as np
-    from math_rl.critic_probe import HEADS, assessment, fit_trial, make_head, predict
+    from math_rl.critic_probe import HEADS, PREFIX_SAMPLING, assessment, fit_ridge, fit_trial, make_head, predict
     if (out / "summary.json").exists() and (out / "report.txt").exists():
         return
     prepare_probes(out, questions)
@@ -163,12 +168,20 @@ def fit(out, config, questions):
             path = out / "heads" / f"{kind}-{seed}.pt"
             if path.exists():
                 continue
-            trials = [fit_trial(kind, train, val, mean, scale, device, seed, lr, config["epochs"])
-                      for lr in (1e-3, 1e-4)]
+            trials = []
+            for lr in config["learning_rates"]:
+                print(f"Fitting {kind}, seed {seed}, lr {lr}", flush=True)
+                trials.append(fit_trial(kind, train, val, mean, scale, device, seed, lr, config["epochs"],
+                                        patience=config["patience"], min_epochs=config["min_epochs"]))
             winner = min(trials, key=lambda t: t["validation_brier"])
             winner["trials"] = [{k: v for k, v in t.items() if k != "state"} for t in trials]
             save_tensor(path, winner)
             print(f"Selected {kind} seed {seed}: validation Brier {winner['validation_brier']:.5f}", flush=True)
+    ridge_path = out / "heads/ridge_value.pt"
+    if not ridge_path.exists():
+        print("Fitting direct ridge return regression (not LSTD)", flush=True)
+        save_tensor(ridge_path, fit_ridge(train, val, mean, scale))
+    # Test data never determines fitting duration, learning rate or regularization.
     test = torch.load(out / "test.pt", weights_only=True)
     results = []
     for kind in HEADS:
@@ -187,7 +200,16 @@ def fit(out, config, questions):
                 total_tuning_seconds=sum(t["fitting_seconds"] for t in saved["trials"]),
                 prediction_seconds=elapsed, prediction_count=len(prediction),
                 peak_gpu_bytes=max(t["peak_gpu_bytes"] or 0 for t in saved["trials"]),
+                best_epoch=saved["best_epoch"], epochs_run=saved["epochs_run"],
+                best_at_budget_limit=saved["best_at_budget_limit"],
                 test=assessment(test, prediction, baseline), fitting_curves=saved["trials"]))
+    ridge = torch.load(ridge_path, weights_only=True)
+    ridge_head = make_head("linear_value", train["x"].shape[1]).to(device)
+    ridge_head.load_state_dict(ridge["state"])
+    ridge_prediction = predict(ridge_head, "linear_value", test, mean, scale, device)
+    np.save(out / "heads/ridge_value-predictions.npy", ridge_prediction)
+    ridge_result = dict(kind="ridge_value", **{k: v for k, v in ridge.items() if k != "state"},
+                        test=assessment(test, ridge_prediction, baseline))
     trajectory_count = correct = truncated = 0
     review, rng = [], random.Random(42)
     for i in range(len(questions)):
@@ -207,15 +229,21 @@ def fit(out, config, questions):
                          f"RESPONSE: {response['response']}\n")
     summary = dict(scope="Frozen base-policy supervised value prediction; no LSTD or PPO updates.",
         metrics_note="Brier uses raw predictions. CE clips predictions to (0,1); linear-value out-of-range rate is reported.",
-        weighting="Equal weight per retained preset prefix; uncertainty clustered by question.",
-        budget_note="Same epochs, LR grid and seeds for every head; curves expose fitting-time tradeoffs, not parameter-matched depth effects.",
+        prefix_sampling=PREFIX_SAMPLING,
+        weighting="Eight examples per response, including question-only. Random interior lengths depend on realized T; "
+                  "this is a trajectory-weighted supervised diagnostic, not an unbiased on-policy TD state distribution.",
+        budget_note="Same maximum epochs, early stopping, LR grid and seeds for gradient heads. "
+                    "Ridge is a separate direct-solver diagnostic, not matched to AdamW regularization or fitting time.",
         trajectories=trajectory_count, reward_rate=correct / trajectory_count,
         truncation_rate=truncated / trajectory_count,
         prefix_counts={s: len(d["y"]) for s, d in (("train", train), ("val", val), ("test", test))},
-        constant=assessment(test, np.full(len(test["y"]), baseline), baseline), heads=results)
+        question_counts={s: sum(q["split"] == s for q in questions) for s in ("train", "val", "test")},
+        constant=assessment(test, np.full(len(test["y"]), baseline), baseline), heads=results, ridge=ridge_result)
     lines = ["Frozen base-policy critic comparison (test set)",
-             f"Trajectories: {trajectory_count}; fixed-prefix examples: {summary['prefix_counts']}",
+             f"Trajectories: {trajectory_count}; random-prefix examples: {summary['prefix_counts']}",
+             f"Distinct questions: {summary['question_counts']}",
              f"Constant baseline Brier: {summary['constant']['brier']:.5f}",
+             f"Question-only constant Brier: {summary['constant']['by_prefix']['question_only']['brier']:.5f}",
              "head          Brier mean/std       question-only Brier   accuracy   total tuning seconds"]
     for kind in HEADS:
         rows = [r for r in results if r["kind"] == kind]
@@ -224,6 +252,13 @@ def fit(out, config, questions):
         accuracy = np.mean([r["test"]["accuracy"] for r in rows])
         lines.append(f"{kind:13} {np.mean(scores):.5f} / {np.std(scores):.5f}       {early:.5f}              "
                      f"{accuracy:.3f}      {sum(r['total_tuning_seconds'] for r in rows):.1f}")
+    lines.append(f"Ridge (direct): Brier {ridge_result['test']['brier']:.5f}; "
+                 f"accuracy {ridge_result['test']['accuracy']:.3f}; alpha {ridge['alpha']}; "
+                 f"total tuning seconds {ridge['fitting_seconds']:.1f}")
+    for row in results:
+        if row["best_at_budget_limit"]:
+            lines.append(f"FITTING WARNING: {row['kind']} seed {row['seed']} was best at the epoch limit; "
+                         "do not assume convergence.")
     lines += ["Lower Brier is better. Std is across head seeds, not independent datasets.",
               "See summary.json for calibration, AUROC, intervals, fitting curves and costs.",
               "Inspect review.txt for verifier errors. No LSTD or PPO learning claim follows from this report."]
@@ -245,11 +280,13 @@ def main():
         return
     import torch
     from math_rl.ppo_reward import verifier_command
-    from math_rl.critic_probe import PREFIX_POSITIONS
+    from math_rl.critic_probe import PREFIX_SAMPLING
     if not torch.cuda.is_available() or torch.cuda.device_count() != 1 or not torch.cuda.is_bf16_supported():
         raise RuntimeError("Run inside the container with one BF16-capable GPU")
     config = dict(counts=[4000, 500, 500] if args.full else [128, 32, 32], responses=16 if args.full else 8,
-                  seeds=[42, 43, 44], epochs=10, prefix_positions=list(PREFIX_POSITIONS),
+                  protocol="frozen-critics-v2", seeds=[42, 43, 44], epochs=200,
+                  min_epochs=30, patience=30, learning_rates=[1e-2, 1e-3, 1e-4],
+                  prefix_sampling=PREFIX_SAMPLING,
                   feature="Qwen2Model.last_hidden_state: final RMSNorm, last prefix position, all dimensions; no added budget feature",
                   sampling=dict(temperature=1., top_p=1., top_k=-1, max_tokens=2048, seed="42 + question index"),
                   terminal="EOS or cap; last action gets outcome reward; post-terminal value zero")
@@ -278,7 +315,7 @@ def main():
             raise ValueError("Nonempty directory without a manifest; choose a new output path")
         atomic_json(out / "manifest.json", manifest)
     if not (out / "questions.json").exists() or question_hash is None:
-        selected = select_data(config["counts"])
+        selected = select_data(config["counts"], current_out=out)
         if (out / "questions.json").exists() and json.loads((out / "questions.json").read_text()) != selected:
             raise ValueError("Unsealed questions differ from deterministic selection")
         atomic_json(out / "questions.json", selected)

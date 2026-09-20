@@ -10,6 +10,8 @@
 #SBATCH --output=slurm-critics-%j.out
 
 set -euo pipefail
+# Large run: sbatch --time=2-00:00:00 scripts/submit_critics.sh --full
+# The default remains the smaller check; see docs/frozen-critics.md for resume.
 cd "${SLURM_SUBMIT_DIR:?Submit from the repository}"
 source scripts/cluster_env.sh
 export MATH_RL_GPU=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONUNBUFFERED=1

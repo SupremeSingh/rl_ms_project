@@ -7,8 +7,9 @@ import torch
 from torch import nn
 
 HEADS = ("linear_logit", "mlp2", "resnet10", "linear_value")
-# Fixed before observing a trajectory's length or outcome. Include only reached states.
-PREFIX_POSITIONS = (0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024)
+PREFIX_SAMPLING = dict(version="random-prefix-v1", seed=1729, per_response=8,
+    rule="L=0 once; seven iid uniform draws with replacement from 1..T-1 (0 if T=1). "
+         "T is realized response length; no terminal state. Equal response weight; reward-blind.")
 
 
 class ResidualBlock(nn.Module):
@@ -59,13 +60,16 @@ def transitions(states, reward):
 
 
 def sample_shard(shard, question_index):
+    """Stratified random prefixes; repeatable per question/response, independent of rewards."""
     xs, ys, positions = [], [], []
     for i, reward in enumerate(shard["rewards"]):
         start, stop = shard["offsets"][i:i + 2].tolist()
         length = stop - start - 1
-        selected = [p for p in PREFIX_POSITIONS if p < length]
-        if not selected:
+        if length < 1:
             raise ValueError("Empty trajectory")
+        rng = np.random.default_rng(np.random.SeedSequence([PREFIX_SAMPLING["seed"], question_index, i]))
+        draws = PREFIX_SAMPLING["per_response"] - 1
+        selected = [0] + (rng.integers(1, length, size=draws).tolist() if length > 1 else [0] * draws)
         xs.append(shard["features"][start + torch.tensor(selected)])
         ys.extend([float(reward)] * len(selected))
         positions.extend(selected)
@@ -109,9 +113,11 @@ def metrics(y, prediction):
 def assessment(data, prediction, baseline):
     y, q, pos = (data[k].numpy() for k in ("y", "question", "position"))
     result = metrics(y, prediction)
-    result["by_prefix"] = {name: metrics(y[mask], prediction[mask]) for name, mask in
-        {"question_only": pos == 0, "early_1_32": (pos > 0) & (pos <= 32),
-         "middle_33_128": (pos > 32) & (pos <= 128), "late_129_plus": pos > 128}.items() if mask.any()}
+    masks = {"question_only": pos == 0, "early_1_32": (pos > 0) & (pos <= 32),
+         "middle_33_128": (pos > 32) & (pos <= 128), "late_129_plus": pos > 128}
+    result["by_prefix"] = {name: metrics(y[mask], prediction[mask]) for name, mask in masks.items() if mask.any()}
+    result["constant_by_prefix"] = {name: metrics(y[mask], np.full(mask.sum(), baseline))
+                                     for name, mask in masks.items() if mask.any()}
     # Cluster uncertainty by question: all its responses and prefixes move together.
     losses = (prediction - y) ** 2 - (baseline - y) ** 2
     _, group = np.unique(q, return_inverse=True)
@@ -133,18 +139,31 @@ def predict(head, kind, data, mean, scale, device, batch_size=512):
     return torch.cat(values).numpy()
 
 
-def fit_trial(kind, train, val, mean, scale, device, seed, lr, epochs, width=256):
+def fit_trial(kind, train, val, mean, scale, device, seed, lr, epochs, width=256, patience=30, min_epochs=30):
+    if epochs < 1 or patience < 1 or min_epochs < 1 or lr <= 0:
+        raise ValueError("Fitting budgets and learning rate must be positive")
     torch.manual_seed(seed)
     head = make_head(kind, train["x"].shape[1], width).to(device)
+    # Start every output at the empirical training prior, not near zero success.
+    prior = float(train["y"].mean().clamp(1e-5, 1 - 1e-5))
+    output = [m for m in head.modules() if isinstance(m, nn.Linear)][-1]
+    with torch.no_grad():
+        output.weight.zero_()
+        output.bias.fill_(prior if kind == "linear_value" else math.log(prior / (1 - prior)))
     optimizer = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=1e-4)
     criterion = nn.MSELoss() if kind == "linear_value" else nn.BCEWithLogitsLoss()
     rng = torch.Generator().manual_seed(seed)
-    best, best_state, curve = math.inf, None, []
+    initial = predict(head, kind, val, mean, scale, device)
+    best = float(np.mean((initial - val["y"].numpy()) ** 2))
+    best_state = {k: v.detach().cpu().clone() for k, v in head.state_dict().items()}
+    curve = [dict(epoch=0, seconds=0., validation_brier=best)]
+    best_epoch, stale = 0, 0
     started = time.perf_counter()
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats()
     for epoch in range(epochs):
         head.train()
+        total_loss = torch.zeros((), device=device)
         for indices in torch.randperm(len(train["y"]), generator=rng).split(512):
             x, y = train["x"][indices].to(device).float(), train["y"][indices].to(device)
             loss = criterion(head((x - mean) / scale).flatten(), y)
@@ -153,15 +172,68 @@ def fit_trial(kind, train, val, mean, scale, device, seed, lr, epochs, width=256
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
+            total_loss += loss.detach() * len(indices)
         prediction = predict(head, kind, val, mean, scale, device)
         if not np.isfinite(prediction).all():
             raise RuntimeError(f"Nonfinite validation predictions in {kind}")
         error = float(np.mean((prediction - val["y"].numpy()) ** 2))
-        curve.append(dict(epoch=epoch + 1, seconds=time.perf_counter() - started, validation_brier=error))
-        if error < best:
+        curve.append(dict(epoch=epoch + 1, seconds=time.perf_counter() - started, validation_brier=error,
+                          train_loss=float(total_loss.cpu()) / len(train["y"])))
+        stale += 1
+        if error < best - 1e-6:
+            best_epoch, stale = epoch + 1, 0
             best = error
             best_state = {k: v.detach().cpu().clone() for k, v in head.state_dict().items()}
+        if (epoch + 1) % 10 == 0 or epoch + 1 == epochs:
+            print(f"{kind} seed={seed} lr={lr}: epoch={epoch + 1}, "
+                  f"validation Brier={error:.5f}, best={best:.5f} at epoch {best_epoch}", flush=True)
+        if epoch + 1 >= min_epochs and stale >= patience:
+            break
     return dict(state=best_state, kind=kind, seed=seed, lr=lr, width=width, validation_brier=best,
+                best_epoch=best_epoch, epochs_run=len(curve) - 1,
+                stopped_early=len(curve) - 1 < epochs, best_at_budget_limit=best_epoch == epochs,
                 curve=curve, fitting_seconds=time.perf_counter() - started,
                 parameters=sum(p.numel() for p in head.parameters()),
                 peak_gpu_bytes=torch.cuda.max_memory_allocated() if device.type == "cuda" else None)
+
+
+def fit_ridge(train, val, mean, scale, alphas=(1e-5, 1e-4, 1e-3, .01, .1, 1., 10.)):
+    """Direct float64 solve of mean squared return error + alpha*||w||^2; bias unpenalized.
+
+    Supervised Monte Carlo regression, NOT LSTD. Accumulate on CPU in batches to
+    avoid a full float64 copy of a large feature cache. Select alpha on validation.
+    """
+    started = time.perf_counter()
+    mean, scale = mean.cpu().double(), scale.cpu().double()
+    dimension = train["x"].shape[1]
+    gram = torch.zeros(dimension + 1, dimension + 1, dtype=torch.float64)
+    rhs = torch.zeros(dimension + 1, dtype=torch.float64)
+    for start in range(0, len(train["y"]), 4096):
+        x = (train["x"][start:start + 4096].double() - mean) / scale
+        design = torch.cat([x, torch.ones(len(x), 1, dtype=x.dtype)], dim=1)
+        gram += design.T @ design
+        rhs += design.T @ train["y"][start:start + 4096].double()
+    gram /= len(train["y"])
+    rhs /= len(train["y"])
+    penalty = torch.eye(dimension + 1, dtype=gram.dtype)
+    penalty[-1, -1] = 0
+    trials, best = [], None
+    for alpha in alphas:
+        if alpha <= 0:
+            raise ValueError("Ridge regularization must be positive")
+        system = gram + alpha * penalty
+        weights = torch.linalg.solve(system, rhs)
+        head = make_head("linear_value", dimension)
+        with torch.no_grad():
+            head.weight.copy_(weights[:-1].float()[None])
+            head.bias.copy_(weights[-1:].float())
+        prediction = predict(head, "linear_value", val, mean.float(), scale.float(), torch.device("cpu"))
+        error = float(np.mean((prediction - val["y"].numpy()) ** 2))
+        if not np.isfinite(error):
+            raise RuntimeError("Nonfinite ridge result")
+        trial = dict(alpha=alpha, validation_brier=error,
+                     equation_residual=float(torch.linalg.vector_norm(system @ weights - rhs)))
+        trials.append(trial)
+        if best is None or error < best["validation_brier"]:
+            best = dict(**trial, state=head.state_dict())
+    return dict(**best, trials=trials, fitting_seconds=time.perf_counter() - started)

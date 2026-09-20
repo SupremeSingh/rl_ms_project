@@ -168,3 +168,6 @@ cat outputs/evaluation-EVAL_JOB_ID/summary.json
 We now have functioning training and evaluation pipelines. The next research step
 is to measure how accurately and cheaply small heads can predict returns from the
 frozen base model's features, before testing LSTD and integrating critics into PPO.
+
+The [frozen critic run guide](docs/frozen-critics.md) documents the current sampling,
+fitting protocol and commands for the 80,000-answer experiment.

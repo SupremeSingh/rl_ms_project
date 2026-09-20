@@ -10,7 +10,7 @@ import torch
 from torch import nn
 
 from math_rl.critic_probe import (HEADS, assessment, make_head, metrics, prefix_states,
-                                 sample_shard, transitions)
+                                 fit_ridge, fit_trial, predict, sample_shard, transitions)
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("frozen_critics", ROOT / "scripts/frozen_critics.py")
@@ -57,7 +57,7 @@ def test_qwen_features_are_causal_post_norm_and_pre_action():
     assert all(p.grad is None and torch.equal(p, before) for p, before in zip(model.parameters(), saved))
 
 
-def test_transitions_and_preset_prefixes_exclude_post_terminal_state():
+def test_transitions_and_random_prefixes_exclude_post_terminal_state():
     states = torch.arange(8.).reshape(4, 2)
     current, following, rewards, done = transitions(states, 1)
     torch.testing.assert_close(current, states[:3])
@@ -67,9 +67,26 @@ def test_transitions_and_preset_prefixes_exclude_post_terminal_state():
     shard = dict(features=torch.cat([states, torch.ones(9, 2)]), offsets=torch.tensor([0, 4, 13]),
                  rewards=torch.tensor([1, 0]))
     samples = sample_shard(shard, 7)
-    assert samples["position"].tolist() == [0, 1, 2, 0, 1, 2, 4]
-    assert samples["y"].tolist() == [1, 1, 1, 0, 0, 0, 0]
-    assert samples["question"].tolist() == [7] * 7
+    assert samples["position"][[0, 8]].tolist() == [0, 0]
+    assert samples["position"][1:8].ge(1).all() and samples["position"][:8].lt(3).all()
+    assert samples["position"][9:].ge(1).all() and samples["position"][8:].lt(8).all()
+    assert samples["y"].tolist() == [1] * 8 + [0] * 8
+    assert samples["question"].tolist() == [7] * 16
+    repeat = sample_shard(shard, 7)
+    torch.testing.assert_close(samples["x"], repeat["x"])
+    flipped = sample_shard(dict(shard, rewards=1 - shard["rewards"]), 7)
+    torch.testing.assert_close(samples["position"], flipped["position"])
+    torch.testing.assert_close(samples["x"][:8], states[samples["position"][:8]])
+    single = sample_shard(dict(features=states[:2], offsets=torch.tensor([0, 2]), rewards=torch.tensor([1])), 7)
+    assert single["position"].tolist() == [0] * 8
+
+
+def test_random_prefixes_cover_the_interior_uniformly():
+    shard = dict(features=torch.arange(11.).reshape(-1, 1).repeat(1000, 1),
+                 offsets=torch.arange(1001) * 11, rewards=torch.zeros(1000))
+    sampled = sample_shard(shard, 42)["position"].reshape(-1, 8)
+    counts = torch.bincount(sampled[:, 1:].flatten(), minlength=10)[1:]
+    assert counts.min() > 650 and counts.max() < 900
 
 
 def test_probability_metrics_constant_ties_and_calibration():
@@ -107,7 +124,7 @@ def test_selection_excludes_old_data_and_splits_by_question(tmp_path, monkeypatc
     monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(AutoTokenizer=SimpleNamespace(
         from_pretrained=lambda *a, **kw: SimpleNamespace(encode=lambda *a, **kw: [1, 2]))))
     monkeypatch.setattr(pipeline, "ROOT", tmp_path)
-    for name in ("configs", "data/gsm8k", "outputs/audit"):
+    for name in ("configs", "data/gsm8k", "outputs/audit", "outputs/critics-old"):
         (tmp_path / name).mkdir(parents=True)
     pipeline.atomic_json(tmp_path / "configs/assets.json", dict(model_id="Qwen/Qwen2.5-Math-1.5B",
         model_revision="a" * 40, dataset_revision="b" * 40, seed=42))
@@ -115,8 +132,10 @@ def test_selection_excludes_old_data_and_splits_by_question(tmp_path, monkeypatc
         {"id": "gsm8k/train/1026", "question": "Question 1026?"}]})
     pipeline.atomic_json(tmp_path / "outputs/audit/metadata.json", {"mode": "audit"})
     (tmp_path / "outputs/audit/responses.jsonl").write_text(json.dumps({"prompt_id": "gsm8k/train/1027"}) + "\n")
+    pipeline.atomic_json(tmp_path / "outputs/critics-old/questions.json", {"questions": [
+        {"id": "gsm8k/train/1028", "question": "Question 1028?", "split": "test"}]})
     rows = pipeline.select_data([2, 1, 1])["questions"]
-    assert [r["id"] for r in rows] == [f"gsm8k/train/{i}" for i in (1024, 1028, 1029, 1030)]
+    assert [r["id"] for r in rows] == [f"gsm8k/train/{i}" for i in (1024, 1029, 1030, 1031)]
     assert [r["split"] for r in rows] == ["train", "train", "val", "test"]
 
 
@@ -165,10 +184,14 @@ def test_fitting_all_four_heads_from_saved_features(tmp_path):
         pipeline.save_tensor(pipeline.shard_path(tmp_path, i, "features"), dict(features=features,
             offsets=torch.tensor([0, 5, 10]), rewards=torch.tensor([0, 1]), question_id=q["id"],
             trajectories_sha256=pipeline.sha256(path)))
-    pipeline.fit(tmp_path, dict(seeds=[42], epochs=2), questions)
+    config = dict(seeds=[42], epochs=2, min_epochs=1, patience=2, learning_rates=[1e-3, 1e-4])
+    pipeline.fit(tmp_path, config, questions)
     report = json.loads((tmp_path / "summary.json").read_text())
     assert report["trajectories"] == 24 and report["reward_rate"] == .5
     assert {r["kind"] for r in report["heads"]} == set(HEADS)
+    assert report["prefix_counts"] == {s: 64 for s in ("train", "val", "test")}
+    assert report["ridge"]["test"]["brier"] < report["constant"]["brier"]
+    assert report["ridge"]["equation_residual"] < 1e-10
     for row in report["heads"]:
         assert np.isfinite(row["test"]["brier"])
         assert len(row["fitting_curves"]) == 2
@@ -176,5 +199,39 @@ def test_fitting_all_four_heads_from_saved_features(tmp_path):
     assert set(torch.load(tmp_path / "train.pt", weights_only=True)["question"].tolist()).isdisjoint(
         torch.load(tmp_path / "test.pt", weights_only=True)["question"].tolist())
     previous = (tmp_path / "summary.json").read_bytes()
-    pipeline.fit(tmp_path, dict(seeds=[42], epochs=2), questions)
+    pipeline.fit(tmp_path, config, questions)
     assert (tmp_path / "summary.json").read_bytes() == previous
+
+
+def test_linear_fit_has_prior_checkpoint_and_stops_on_validation():
+    x = torch.zeros(64, 2)
+    y = torch.tensor([0., 1., 1., 1.] * 16)
+    data = dict(x=x, y=y)
+    mean, scale = torch.zeros(2), torch.ones(2)
+    for kind in HEADS:
+        fit = fit_trial(kind, data, data, mean, scale, torch.device("cpu"), 42, .001,
+                        epochs=100, width=4, min_epochs=4, patience=3)
+        assert fit["curve"][0]["validation_brier"] == pytest.approx(.1875)
+        assert fit["best_epoch"] == 0 and fit["epochs_run"] == 4 and fit["stopped_early"]
+        head = make_head(kind, 2, width=4)
+        head.load_state_dict(fit["state"])
+        np.testing.assert_allclose(predict(head, kind, data, mean, scale, torch.device("cpu")), .75)
+
+
+def test_ridge_matches_regularized_equations_and_preserves_bias():
+    torch.manual_seed(1)
+    x = torch.randn(100, 3)
+    # Deliberately nonzero offset to test unpenalized intercept.
+    y = .7 + x @ torch.tensor([.1, -.2, .3])
+    data = dict(x=x, y=y)
+    mean, scale = torch.zeros(3), torch.ones(3)
+    fit = fit_ridge(data, data, mean, scale, alphas=(.2,))
+    design = torch.cat([x.double(), torch.ones(100, 1)], dim=1)
+    penalty = torch.diag(torch.tensor([.2, .2, .2, 0.], dtype=torch.float64))
+    expected = torch.linalg.solve(design.T @ design / 100 + penalty, design.T @ y.double() / 100)
+    actual = torch.cat([fit["state"]["weight"].flatten(), fit["state"]["bias"]])
+    torch.testing.assert_close(actual.double(), expected, atol=1e-7, rtol=1e-7)
+    assert fit["equation_residual"] < 1e-12
+    zero = dict(x=torch.zeros_like(x), y=torch.full_like(y, .7))
+    constant = fit_ridge(zero, zero, mean, scale, alphas=(1.,))
+    assert constant["state"]["bias"].item() == pytest.approx(.7)
