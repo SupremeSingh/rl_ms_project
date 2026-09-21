@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
+EXCLUSION_POLICY = 'Only correct/incorrect verifier statuses with nonempty tokens enter critic fitting; all others excluded, not zero-labelled'
 
 
 def verifier_command():
@@ -14,7 +15,7 @@ def verifier_command():
     return [str(python), "-m", "math_rl.verifier_batch"]
 
 
-def compute_score(data_sources, solution_strs, ground_truths, extra_infos=None):
+def compute_score(data_sources, solution_strs, ground_truths, extra_infos=None, *, exclude_errors=False):
     if not (len(data_sources) == len(solution_strs) == len(ground_truths)):
         raise ValueError("Reward batch lengths differ")
     if any(source != "gsm8k" for source in data_sources):
@@ -25,11 +26,20 @@ def compute_score(data_sources, solution_strs, ground_truths, extra_infos=None):
     env = dict(os.environ, PYTHONPATH=str(ROOT / "src"))
     # One child per batch, not per token/answer. Library timeouts remain per answer.
     try:
-        result = subprocess.run(verifier_command(), input=json.dumps(rows), text=True,
+        command = verifier_command() + (["--exclude-errors"] if exclude_errors else [])
+        result = subprocess.run(command, input=json.dumps(rows), text=True,
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
                                 timeout=15 + 8 * len(rows), cwd=ROOT, env=env)
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"Isolated verifier failed:\n{exc.stderr[-4000:]}") from exc
+    except subprocess.TimeoutExpired:
+        if not exclude_errors:
+            raise
+        if len(rows) == 1:
+            return [dict(score=None, verifier_status='worker_timeout', extracted='', verifier_error='TimeoutExpired')]
+        # Isolate the slow answer; don't discard the rest of its batch.
+        return [compute_score([source], [text], [gold], exclude_errors=True)[0]
+                for source, text, gold in zip(data_sources, solution_strs, ground_truths)]
     scores = json.loads(result.stdout)
     if len(scores) != len(rows):
         raise RuntimeError("Verifier returned an incomplete batch")

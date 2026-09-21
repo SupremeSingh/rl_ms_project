@@ -155,12 +155,21 @@ def test_generation_keeps_base_sampling_and_resumes_without_replacing_data(tmp_p
                 finish_reason="stop", stop_reason=5) for _ in range(params["n"])])]
 
     monkeypatch.setitem(sys.modules, "vllm", SimpleNamespace(LLM=Engine, SamplingParams=lambda **kw: kw))
-    def score(sources, responses, gold):
+    def score(sources, responses, gold, **kwargs):
+        assert kwargs['exclude_errors'] is True
         assert sources == ["gsm8k"] * 2 and gold == ["4"] * 2
         return [dict(score=1, verifier_status="correct", extracted="4")] * 2
-    monkeypatch.setattr(reward, "compute_score", score)
     questions = [dict(id="q1", prompt_token_ids=[1, 2], ground_truth="4")]
+    def failed_score(*args, **kwargs):
+        raise RuntimeError("scorer subprocess failed")
+    monkeypatch.setattr(reward, "compute_score", failed_score)
+    with pytest.raises(RuntimeError, match="scorer subprocess"):
+        pipeline.generate(tmp_path, dict(responses=2), questions)
+    assert (tmp_path / "pending/00000.json").exists()
+    assert not pipeline.shard_path(tmp_path, 0, "trajectories").exists()
+    monkeypatch.setattr(reward, "compute_score", score)
     pipeline.generate(tmp_path, dict(responses=2), questions)
+    assert not (tmp_path / "pending/00000.json").exists()
     path = pipeline.shard_path(tmp_path, 0, "trajectories")
     frozen = path.read_bytes()
     assert json.loads(frozen)["responses"][0]["token_ids"] == [4, 5]
@@ -178,18 +187,23 @@ def test_fitting_all_four_heads_from_saved_features(tmp_path):
         q = dict(id=f"q{i}", split=("train", "val", "test")[i // 4], question=f"Question {i}?", ground_truth="4")
         questions.append(q)
         path = pipeline.shard_path(tmp_path, i, "trajectories")
-        pipeline.atomic_json(path, dict(responses=[dict(score=r, finish_reason="stop", response="Example") for r in (0, 1)]))
+        pipeline.atomic_json(path, dict(responses=[dict(score=r, finish_reason="stop", response="Example", token_ids=[1, 2, 3, 4],
+            verifier_status="verify_timeout" if i == 0 and r == 0 else ("correct" if r else "incorrect")) for r in (0, 1)]))
         features = torch.randn(10, 8) * .05
         features[:5, 0], features[5:, 0] = -1, 1
-        pipeline.save_tensor(pipeline.shard_path(tmp_path, i, "features"), dict(features=features,
-            offsets=torch.tensor([0, 5, 10]), rewards=torch.tensor([0, 1]), question_id=q["id"],
+        pipeline.save_tensor(pipeline.shard_path(tmp_path, i, "features"), dict(features=features[5:] if i == 0 else features,
+            offsets=torch.tensor([0, 5] if i == 0 else [0, 5, 10]), rewards=torch.tensor([1] if i == 0 else [0, 1]), question_id=q["id"],
+            response_indices=torch.tensor([1] if i == 0 else [0, 1]), exclusion_policy=pipeline.EXCLUSION_POLICY,
             trajectories_sha256=pipeline.sha256(path)))
     config = dict(seeds=[42], epochs=2, min_epochs=1, patience=2, learning_rates=[1e-3, 1e-4])
     pipeline.fit(tmp_path, config, questions)
     report = json.loads((tmp_path / "summary.json").read_text())
-    assert report["trajectories"] == 24 and report["reward_rate"] == .5
+    assert report["trajectories"] == 24 and report["reward_rate"] == pytest.approx(12 / 23)
+    assert report['retained_trajectories'] == 23 and report['excluded_trajectories'] == 1
+    assert report["verifier_timeouts"] == 1 and report["verifier_timeout_rate"] == pytest.approx(1 / 24)
+    assert len(json.loads((tmp_path / "verifier-timeouts.json").read_text())) == 1
     assert {r["kind"] for r in report["heads"]} == set(HEADS)
-    assert report["prefix_counts"] == {s: 64 for s in ("train", "val", "test")}
+    assert report["prefix_counts"] == dict(train=56, val=64, test=64)
     assert report["ridge"]["test"]["brier"] < report["constant"]["brier"]
     assert report["ridge"]["equation_residual"] < 1e-10
     for row in report["heads"]:
@@ -201,6 +215,42 @@ def test_fitting_all_four_heads_from_saved_features(tmp_path):
     previous = (tmp_path / "summary.json").read_bytes()
     pipeline.fit(tmp_path, config, questions)
     assert (tmp_path / "summary.json").read_bytes() == previous
+
+
+def test_feature_extraction_excludes_failures_and_handles_empty_question(tmp_path, monkeypatch):
+    from math_rl import critic_probe
+    for name in ('features', 'trajectories'):
+        (tmp_path / name).mkdir()
+    class Backbone:
+        config = SimpleNamespace(hidden_size=2)
+        def to(self, *args): return self
+        def eval(self): return self
+        def requires_grad_(self, *args): return self
+    monkeypatch.setitem(sys.modules, 'transformers', SimpleNamespace(AutoModel=SimpleNamespace(
+        from_pretrained=lambda *args, **kwargs: Backbone())))
+    original_tensor = torch.tensor
+    def cpu_tensor(*args, **kwargs):
+        kwargs.pop('device', None)
+        return original_tensor(*args, **kwargs)
+    monkeypatch.setattr(torch, 'tensor', cpu_tensor)
+    calls = []
+    def states(model, tokens, prompt_length, response_length):
+        calls.append(tokens.tolist())
+        return torch.ones(response_length + 1, 2)
+    monkeypatch.setattr(critic_probe, 'prefix_states', states)
+    bad = dict(response='bad', token_ids=[3], score=None, verifier_status='verify_error')
+    good = dict(response='good', token_ids=[4, 5], score=1, verifier_status='correct')
+    questions = [dict(id=f'q{i}', prompt_token_ids=[1, 2]) for i in range(2)]
+    for i, rows in enumerate(([bad, good], [bad, bad])):
+        pipeline.atomic_json(pipeline.shard_path(tmp_path, i, 'trajectories'), dict(question_id=f'q{i}', responses=rows))
+    pipeline.extract(tmp_path, dict(responses=2), questions)
+    assert calls == [[[1, 2, 4, 5]]]
+    kept = torch.load(pipeline.shard_path(tmp_path, 0, 'features'), weights_only=True)
+    assert kept['response_indices'].tolist() == [1] and kept['rewards'].tolist() == [1]
+    empty = torch.load(pipeline.shard_path(tmp_path, 1, 'features'), weights_only=True)
+    assert empty['features'].shape == (0, 2) and len(empty['rewards']) == 0
+    with pytest.raises(ValueError, match='No usable answers'):
+        pipeline.prepare_probes(tmp_path, [dict(q, split='train') for q in questions])
 
 
 def test_linear_fit_has_prior_checkpoint_and_stops_on_validation():

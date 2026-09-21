@@ -67,7 +67,8 @@ def sample_shard(shard, question_index):
         length = stop - start - 1
         if length < 1:
             raise ValueError("Empty trajectory")
-        rng = np.random.default_rng(np.random.SeedSequence([PREFIX_SAMPLING["seed"], question_index, i]))
+        response_index = int(shard['response_indices'][i]) if 'response_indices' in shard else i
+        rng = np.random.default_rng(np.random.SeedSequence([PREFIX_SAMPLING["seed"], question_index, response_index]))
         draws = PREFIX_SAMPLING["per_response"] - 1
         selected = [0] + (rng.integers(1, length, size=draws).tolist() if length > 1 else [0] * draws)
         xs.append(shard["features"][start + torch.tensor(selected)])

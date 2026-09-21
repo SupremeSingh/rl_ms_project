@@ -11,7 +11,11 @@ Qwen does not train. This is supervised return prediction; LSTD and PPO come lat
 | Default | 128 / 32 / 32 | 8 | 1,536 | 12,288 |
 | `--full` | 4,000 / 500 / 500 | 16 | 80,000 | 640,000 |
 
-Questions are split before generation. Previous audits, evaluation sets and
+Prefix counts are upper bounds: responses without a reliable verifier label are
+saved but excluded from feature extraction, fitting and test metrics. Wrong
+answers successfully verified as incorrect remain in the dataset with target 0.
+
+Counts above are planned totals before exclusions. Questions are split before generation. Previous audits, evaluation sets and
 `outputs/critics-*/questions.json` are excluded, including the earlier critic
 experiment. Keep those manifests in place. The official GSM8K test set is unused.
 If too few eligible questions remain, selection fails rather than reusing them.
@@ -26,7 +30,7 @@ For each response of realized length `T`, sample eight states:
 normalized hidden state at the end of the question plus those `L` tokens,
 before choosing the next token. The sampler uses seed 1729 plus question and
 response indices, independently of reward. All heads see the same saved samples.
-Duplicates are intentional; every response has equal total weight.
+Duplicates are intentional; every retained response has equal total weight.
 
 This rule weights trajectories equally and depends on their realized length.
 It changes the sampling distribution relative to the old fixed grid and to
@@ -109,7 +113,9 @@ sbatch --time=2-00:00:00 scripts/submit_critics.sh --full \
   --out outputs/critics-OLD_JOB_ID
 ```
 
-Completed question shards and selected heads are reused; an interrupted head's
+Raw answers are now saved in `pending/` before scoring. A scoring failure leaves
+them available for diagnosis and reuse; a successful scored batch replaces them
+in `trajectories/`. Completed question shards and selected heads are reused; an interrupted head's
 tuning restarts. Resuming requires identical code, model, verifier, runtime and
 settings. Do not point this new protocol at the old fixed-prefix experiment or
 run two jobs against the same output directory. Keep code unchanged during a run.
@@ -118,11 +124,34 @@ The report will tell us whether small nonlinear heads improve on a constant,
 whether direct linear regression is competitive, and whether fitting hit its
 budget. Review reward examples in `review.txt` before drawing conclusions.
 
-## Recovering job 12654337's parser failure
+## Answer failures and resuming outputs/critics-12654337
 
-This job saved 408 batches before extraction raised `SympifyError` on the next
-question. The parser fix classifies that known expression-conversion error as
-unparseable (reward 0). Other runtime errors and timeouts remain fatal.
+The original job saved 408 batches before answer extraction raised `SympifyError`.
+Resume job 12658994 later failed on a per-answer symbolic verification timeout.
+The critic experiment now excludes unverifiable answers rather than assigning
+them incorrect labels. Only `correct` and `incorrect` statuses with nonempty
+generated tokens enter feature extraction and fitting. Unparseable expressions,
+timeouts, overlong inputs, parser/verification errors and other per-answer grader
+exceptions are saved with a null score and skipped. Genuine verified wrong answers
+still receive 0. Historical failed-status rows may retain their old numeric score
+on disk, but their status excludes them from fitting as well.
+
+A whole-batch verifier timeout triggers individual retries; a response whose
+worker still times out is excluded. Invalid references, missing dependencies,
+memory/I/O failures and crashed workers remain fatal. GPU failures and invalid
+model/configuration state also remain fatal; ignoring these cannot produce a
+valid dataset. A split with no usable answers cannot be fitted.
+
+This mode is specific to the frozen critic experiment. PPO/GRPO continue to use
+the numeric reward hook; they are not passed null rewards.
+
+Reports include retained/excluded counts, exclusion rates by split, actual
+retained question counts and verifier status counts. `excluded-responses.json`
+contains excluded answers; `verifier-timeouts.json` lists timeout cases separately.
+During generation, statuses and details are already saved in `trajectories/`.
+Metrics are conditional on the retained, verifiable answers. Exclusion can select
+an easier subset, so inspect coverage before making accuracy claims. The
+three-second per-answer limits have not been increased.
 
 After publishing and pulling this fix, migrate the stopped run on the login node:
 
@@ -132,9 +161,11 @@ sbatch --time=2-00:00:00 scripts/submit_critics.sh --full \
   --out outputs/critics-12654337
 ```
 
-The migration checks the exact old grader hash, unchanged tracked files and
-questions, and saved batch structure; it refuses unrelated changes. It backs up
-the original manifest and records the new parser policy and saved batch hashes.
+The migration checks known prior hashes for affected code, unchanged remaining tracked files and questions, and saved
+batch structure. It refuses unrelated changes. It backs up the prior manifest
+as `manifest.before-exclusion-fix.json` and writes `exclusion-fix-migration.json`,
+retaining earlier fix history. It prints the current preserved count. It applies
+only to stopped generation-only runs with no feature/fitting caches yet.
 Existing answers and scores are unchanged. Normal resume checks still apply.
 The new Slurm job writes its log under its new ID; experiment outputs stay in
 `outputs/critics-12654337`. Keep code unchanged while the resumed job runs.

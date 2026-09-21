@@ -8,6 +8,7 @@ PINS = {'math-verify': '0.9.0', 'latex2sympy2_extended': '1.11.0',
 TIMEOUT = 3
 MAX_CHARS = 32000
 PARSE_ERROR_POLICY = 'SympifyError during extraction is parse_failure; other exceptions remain fatal in batch scoring'
+TIMEOUT_POLICY = 'Per-answer parse_timeout and verify_timeout receive reward 0 with status preserved; not proven incorrect'
 
 
 def configuration():
@@ -28,6 +29,7 @@ def provenance():
                 fallback_mode='no_fallback', extraction_mode='first_match',
                 timeout_seconds=TIMEOUT, max_response_chars=MAX_CHARS,
                 parse_error_policy=PARSE_ERROR_POLICY,
+                timeout_policy=TIMEOUT_POLICY,
                 float_rounding=6, numeric_precision=15, strict=True,
                 selection='Library priority order, boxed first, first match only; no reference-guided search',
                 limitations='May select an unrelated or contradicted expression, including an unanchored number. Human audit required.')
@@ -56,6 +58,8 @@ def grade(response, ground_truth):
         # An expression could not be converted by SymPy: no extracted answer.
         # Handle only this known conversion failure, not arbitrary runtime errors.
         return dict(result, error=type(exc).__name__)
+    except (MemoryError, OSError, ImportError):
+        raise
     except Exception as exc:
         return dict(result, status='parse_error', error=type(exc).__name__)
     if not prediction:
@@ -69,6 +73,8 @@ def grade(response, ground_truth):
                          strict=True, timeout_seconds=TIMEOUT, raise_on_error=True)
     except TimeoutException:
         return dict(result, status='verify_timeout')
+    except (MemoryError, OSError, ImportError):
+        raise
     except Exception as exc:
         return dict(result, status='verify_error', error=type(exc).__name__)
     return dict(result, diagnostic_reward=int(correct), status='correct' if correct else 'incorrect')

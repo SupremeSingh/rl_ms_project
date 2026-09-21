@@ -72,6 +72,9 @@ def test_verification_timeout_is_not_a_wrong_answer(monkeypatch):
     assert result['status'] == 'verify_timeout'
     assert result['diagnostic_reward'] == 0
     assert result['extracted'] == '4'
+    from math_rl.verifier_batch import score_batch
+    assert score_batch([dict(response=r'\boxed{4}', ground_truth='4')]) == [
+        dict(score=0, verifier_status='verify_timeout', extracted='4')]
 
 
 def test_sympify_extraction_error_is_unparseable_but_other_errors_still_abort(monkeypatch):
