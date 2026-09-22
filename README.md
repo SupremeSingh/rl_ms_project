@@ -165,9 +165,22 @@ sbatch scripts/submit_evaluation.sh PILOT_JOB_ID
 cat outputs/evaluation-EVAL_JOB_ID/summary.json
 ```
 
-We now have functioning training and evaluation pipelines. The next research step
-is to measure how accurately and cheaply small heads can predict returns from the
-frozen base model's features, before testing LSTD and integrating critics into PPO.
+### Stage 4 — Frozen-model value prediction
 
-The [frozen critic run guide](docs/frozen-critics.md) documents the current sampling,
-fitting protocol and commands for the 80,000-answer experiment.
+The large critic run generated 80,000 answers and retained 77,351. On unseen
+questions, the one-layer sigmoid head reached 71.3% correctness-prediction
+accuracy, the two-layer MLP 71.8%, and the deeper residual network 71.6%.
+Direct ridge regression reached 71.2% with 32 seconds of fitting/tuning.
+These are predictions of answer success, not improvements in Qwen's math accuracy.
+Results exclude parsing failures and require that qualification.
+
+The [frozen critic guide](docs/frozen-critics.md) documents the completed study.
+Next, compare LSTD(0) with matched ridge using the same single linear value head
+and cached consecutive token features:
+
+```bash
+sbatch scripts/submit_lstd.sh outputs/critics-12654337
+```
+
+See the [LSTD guide](docs/lstd.md) for equations, monitoring, resume and limitations.
+This fits critics only; integrating a useful critic into PPO comes afterward.
