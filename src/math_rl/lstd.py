@@ -1,6 +1,6 @@
-"""Frozen-policy LSTD(0), following Lagoudakis & Parr (2003).
+"""Frozen-policy LSTD(lambda), following Lagoudakis & Parr (2003) and Boyan (2002).
 
-A = mean(phi_t (phi_t - phi_next)^T), b = mean(phi_t r_t).
+z_t = lambda*z_{t-1} + phi_t; A = mean(z_t (phi_t - phi_next)^T), b = mean(z_t r_t).
 Gamma=1 for finite capped responses. Terminal next features, including bias, are zero.
 """
 import torch
@@ -19,7 +19,20 @@ def empty_statistics(dimension):
                 transitions=0, trajectories=0)
 
 
-def accumulate(stats, states, outcome, mean, scale, batch_size=4096):
+def eligibility(phi, trace_lambda, previous):
+    """Parallel prefix scan of the trace recurrence; carry only within one episode."""
+    if not 0 <= trace_lambda <= 1:
+        raise ValueError('Trace lambda must be in [0, 1]')
+    z = phi.clone()
+    offset = 1
+    while offset < len(z):
+        z[offset:] = z[offset:] + trace_lambda ** offset * z[:-offset]
+        offset *= 2
+    powers = trace_lambda ** torch.arange(1, len(z) + 1, dtype=phi.dtype)
+    return z + powers[:, None] * previous
+
+
+def accumulate(stats, states, outcome, mean, scale, batch_size=4096, trace_lambda=0., include_ridge=True):
     """Every pre-action state once; ridge uses identical state weighting.
 
     T+1 vectors include terminal context, which is never a training input.
@@ -29,6 +42,9 @@ def accumulate(stats, states, outcome, mean, scale, batch_size=4096):
         raise ValueError('Invalid trajectory or batch size')
     if not torch.isfinite(states).all() or not torch.isfinite(scale).all() or (scale <= 0).any():
         raise ValueError('Nonfinite features or invalid normalization')
+    if not 0 <= trace_lambda <= 1:
+        raise ValueError('Trace lambda must be in [0, 1]')
+    trace = torch.zeros(len(mean) + 1, dtype=torch.float64)
     count = len(states) - 1
     for start in range(0, count, batch_size):
         stop = min(start + batch_size, count)
@@ -38,10 +54,13 @@ def accumulate(stats, states, outcome, mean, scale, batch_size=4096):
         if stop == count:
             following[-1] = 0
             reward[-1] = outcome
-        stats['a'] += phi.T @ (phi - following)
-        stats['b'] += phi.T @ reward
-        stats['gram'] += phi.T @ phi
-        stats['returns_rhs'] += phi.sum(0) * outcome
+        z = phi if trace_lambda == 0 else eligibility(phi, trace_lambda, trace)
+        trace = z[-1].clone()
+        stats['a'] += z.T @ (phi - following)
+        stats['b'] += z.T @ reward
+        if include_ridge:
+            stats['gram'] += phi.T @ phi
+            stats['returns_rhs'] += phi.sum(0) * outcome
     stats['transitions'] += count
     stats['trajectories'] += 1
 

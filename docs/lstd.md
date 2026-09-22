@@ -1,4 +1,4 @@
-# Frozen-policy LSTD with a one-layer critic
+# Frozen-policy LSTD(lambda) with a one-layer critic
 
 Fit `V(h) = wᵀ normalized(h) + b` to the cached base-Qwen trajectories.
 This is the **raw linear value head**, not the sigmoid/BCE probe. LSTD fits new
@@ -28,9 +28,13 @@ sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
 cat outputs/lstd-JOB_ID/report.txt
 ```
 
-Expect progress every 25 training questions, then a comparison of LSTD and ridge.
-A lower test Brier is better; a negative paired LSTD-minus-ridge difference favors
-LSTD. Inspect calibration, out-of-range predictions, conditioning and costs in
+Expect progress every 25 training questions, then all five lambda results and ridge.
+The default sweep is `--lambdas 0 0.9 0.99 0.999 1`. This requires more accumulation
+work than the earlier lambda=0 run (about 32 minutes of shared accumulation).
+Do not reuse the earlier `outputs/lstd-12686052` directory: the protocol changed.
+A lower test Brier is better; a negative paired selected-LSTD-minus-ridge difference
+favors LSTD. Select lambda on validation Brier, not the displayed test scores.
+Inspect calibration, out-of-range predictions, conditioning and costs in
 `summary.json`. There is no automatic promotion to PPO.
 
 If interrupted, resume with the **old output directory**:
@@ -51,14 +55,26 @@ The paper also develops LSTDQ/LSPI for action values and policy improvement.
 Here we use its **fixed-policy state-value prediction** formulation, not the
 LSPI control loop or a vocabulary-sized action-value function.
 
+The trace extension follows [Boyan (2002)](https://www.cs.cmu.edu/afs/cs/user/jab/web/cv/pubs/boyan.lstdl-mlj.pdf).
 For each pre-token feature vector `phi`, append a constant intercept. With
-`gamma = 1` and `lambda = 0`, accumulate in float64:
+`gamma = 1`, accumulate in float64:
 
 ```text
-A = mean(phi_t (phi_t - phi_next)^T)
-b = mean(phi_t reward_t)
+z_t = lambda * z_previous + phi_t
+A = mean(z_t (phi_t - phi_next)^T)
+b = mean(z_t reward_t)
 (A + alpha D) w = b
 ```
+
+Reset `z_previous` to zero at every new answer; retain it across computation
+chunks within that answer. Lambda=0 is the original LSTD(0) experiment. Lambda=1
+recovers return regression over complete capped episodes. A parallel prefix scan
+computes traces without an expensive Python loop over every token.
+
+The run checks lambda=1 against ridge's accumulated matrix and right-hand side
+(relative error <= 1e-9), and validation predictions at ridge's chosen alpha
+(max absolute difference <= 1e-6). It fails explicitly if these checks do not hold.
+This is an implementation check, not independent evidence that lambda=1 beats ridge.
 
 `D` is identity except for the unpenalized intercept. Regularization shifts the
 empirical TD fixed point. We solve the nonsymmetric system with
@@ -87,21 +103,26 @@ it is not vendored code or a claim to use either package directly.
   quietly change their rewards. Results are conditional on this selected dataset.
   Audit exclusions before interpreting the critic as the value of the full policy.
 - Fit a new ridge comparator on exactly the same pre-action states and weighting,
-  with final outcome as its target. Both methods tune the same positive alpha grid
-  using validation Brier. Adding alpha has different mathematical effects in the
+  with final outcome as its target. All methods tune the same alpha grid, including zero,
+  using validation Brier. Singular or inaccurate solves are recorded and rejected.
+  Then select the LSTD lambda on validation Brier before loading test tensors. Adding alpha has different mathematical effects in
+  the
   two objectives; this is a method comparison, not identical regularized losses.
-- Select both methods before loading test tensors. Evaluate with the existing
+- Evaluate all candidates with the existing
   random-prefix protocol, not all-transition weighting. The test set has already
   been inspected in the supervised study, so this is exploratory comparison.
-- Report a paired question-bootstrap interval, raw Brier, accuracy, AUROC,
-  calibration, out-of-range rate, solver diagnostics and shared accumulation cost.
-- Save normalized-coordinate weights/bias and normalization in `lstd.pt` and
+- Report a paired question-bootstrap interval for the validation-selected LSTD
+  against ridge, raw Brier, accuracy, AUROC, prediction spread, calibration,
+  out-of-range rate, solver diagnostics and shared accumulation cost. Per-lambda
+  test results are exploratory; do not pick a different winner using them.
+- Save normalized-coordinate weights/bias and normalization in per-lambda
+  checkpoints (`lstd.pt` for zero, `lstd-0.9.pt`, etc.), `selected-lstd.pt`, and
   `ridge.pt`. No sigmoid or clipping is applied to reported predictions.
 
 The normalization comes from sampled training prefixes, but both solvers use it
 identically. A hidden vector need not be a sufficient Markov state. The terminal
 cap's remaining budget is not an explicit feature. These are approximation limits.
-If return regression works but LSTD(0) does not, inspect conditioning and then
-consider LSTD(lambda) for long sparse-reward sequences, rather than concluding
-that token-level critics cannot work. Online PPO is a later experiment using
+If only lambda=1 performs well, that favors supervised return fitting in this
+setting; it does not establish a benefit from bootstrapping. Intermediate lambdas
+may or may not improve the tradeoff. Online PPO is a later experiment using
 fresh data as the actor changes; this run makes no online learning claim.

@@ -128,3 +128,72 @@ def test_bad_alignment_rejected(tmp_path):
     torch.save(shard, path)
     with pytest.raises(ValueError, match='alignment'):
         runner.read_shard(tmp_path / 'source', 0, questions[0])
+
+
+@pytest.mark.parametrize('trace_lambda', [0., .9, .99, .999, 1.])
+def test_traces_against_sequential_reference(trace_lambda):
+    generator = torch.Generator().manual_seed(1729)
+    mean, scale = torch.tensor([1., 2., -3.]), torch.tensor([2., 4., 1.])
+    episodes = [(torch.randn(18, 3, generator=generator).double(), 1),
+                (torch.randn(8, 3, generator=generator).double(), 0)]
+    a, b = torch.zeros(4, 4, dtype=torch.float64), torch.zeros(4, dtype=torch.float64)
+    for states, outcome in episodes:
+        phi = design(states[:-1], mean, scale)
+        z = torch.zeros(4, dtype=torch.float64)
+        for t in range(len(phi)):
+            z = trace_lambda * z + phi[t]
+            next_phi = phi[t + 1] if t + 1 < len(phi) else torch.zeros_like(z)
+            a += torch.outer(z, phi[t] - next_phi)
+            if t + 1 == len(phi):
+                b += z * outcome
+    for batch_size in (1, 3, 4096):
+        stats = empty_statistics(3)
+        for states, outcome in episodes:
+            accumulate(stats, states, outcome, mean, scale, batch_size, trace_lambda)
+        torch.testing.assert_close(stats['a'], a, atol=1e-11, rtol=1e-11)
+        torch.testing.assert_close(stats['b'], b, atol=1e-11, rtol=1e-11)
+        if trace_lambda == 1:
+            torch.testing.assert_close(stats['a'], stats['gram'], atol=1e-11, rtol=1e-11)
+            torch.testing.assert_close(stats['b'], stats['returns_rhs'], atol=1e-11, rtol=1e-11)
+            for alpha in (0., 1e-6, .1):
+                left, _ = solve(stats, 'lstd', alpha)
+                right, _ = solve(stats, 'ridge', alpha)
+                torch.testing.assert_close(left, right, atol=1e-10, rtol=1e-10)
+
+
+def test_long_trace_does_not_overflow_or_leak_between_episodes():
+    generator = torch.Generator().manual_seed(42)
+    stats = empty_statistics(4)
+    mean, scale = torch.zeros(4), torch.ones(4)
+    for length, reward in ((2048, 1), (1, 0), (777, 0)):
+        states = torch.randn(length + 1, 4, generator=generator).double()
+        accumulate(stats, states, reward, mean, scale, batch_size=127, trace_lambda=1.)
+    torch.testing.assert_close(stats['a'], stats['gram'], atol=1e-9, rtol=1e-11)
+    torch.testing.assert_close(stats['b'], stats['returns_rhs'], atol=1e-10, rtol=1e-11)
+
+
+def test_lambda_sweep_endpoint_and_resume(tmp_path):
+    runner = load_runner()
+    source, out = tmp_path / 'source', tmp_path / 'out'
+    fixture_source(source)
+    lambdas = [0., .9, .99, .999, 1.]
+    runner.run(source, out, [0., .001, .01], lambdas)
+    summary = json.loads((out / 'summary.json').read_text())
+    assert len(summary['methods']) == 6
+    assert summary['lambda_one_ridge_check']['validation_prediction_max_difference'] < 1e-6
+    candidates = {k: v for k, v in summary['methods'].items() if k != 'ridge'}
+    chosen = min(candidates, key=lambda k: candidates[k]['validation_brier'])
+    assert summary['selected_lstd'] == chosen
+    assert summary['methods'][chosen]['prediction_spread']['std'] >= 0
+    saved = torch.load(out / 'selected-lstd.pt', weights_only=True)
+    assert saved['method'] == chosen
+    runner.run(source, out, [0., .001, .01], lambdas)
+    assert json.loads((out / 'summary.json').read_text())['training_transitions'] == 4
+    with pytest.raises(ValueError, match='Resume'):
+        runner.run(source, out, [0., .001, .01], [0., 1.])
+
+
+@pytest.mark.parametrize('values', [[], [-.1], [1.1], [float('nan')], [0., 0.]])
+def test_invalid_lambda_grid(tmp_path, values):
+    with pytest.raises(ValueError, match='lambda'):
+        load_runner().run(tmp_path, tmp_path / 'out', [.1], values)

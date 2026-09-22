@@ -175,12 +175,47 @@ These are predictions of answer success, not improvements in Qwen's math accurac
 Results exclude parsing failures and require that qualification.
 
 The [frozen critic guide](docs/frozen-critics.md) documents the completed study.
-Next, compare LSTD(0) with matched ridge using the same single linear value head
-and cached consecutive token features:
+
+### Stage 5 — Frozen-policy LSTD comparison
+
+Job **12686052** fitted a single linear value head using **61,876 retained training
+answers and 20,931,480 token transitions**. Qwen stayed frozen. We cached a hidden
+vector at every response-prefix boundary, including the question-only state;
+LSTD used consecutive pairs, not just the eight randomly sampled probe prefixes.
+The next-state value is zero after EOS or the response-length cap.
+
+| Method | Test Brier (lower is better) | Correctness-prediction accuracy |
+|---|---:|---:|
+| LSTD(0) | 0.22889 | 64.0% |
+| Matched ridge | 0.19845 | 70.9% |
+
+Ridge performed better with the same features and training transitions. The paired
+question-level Brier difference, LSTD minus ridge, was **+0.03038**, with a 95%
+bootstrap interval of **[+0.02624, +0.03483]**. LSTD was close to the earlier constant
+baseline (0.23054). This does not establish that all LSTD variants fail, or that
+lightweight critics cannot help PPO. Excluded answers still limit both results.
+
+The detailed diagnostics showed an accurate matrix solve but nearly constant
+predictions: 61,837 of 61,912 test prefixes fell in the 0.6–0.7 probability bin.
+LSTD's AUROC was 0.654 versus ridge's 0.728. Solving these same equations longer
+will not fix that result.
+
+### Next — Give LSTD(lambda) a fair comparison
+
+The next job tests **lambda = 0, 0.9, 0.99, 0.999 and 1** on the same saved token
+transitions and single linear head. Larger lambda uses longer-return information.
+Lambda=1 must recover matched ridge's equations and predictions; the run checks
+this automatically. Lambda and regularization are selected on validation data,
+not test performance. A zero-regularization candidate is included as a diagnostic.
 
 ```bash
 sbatch scripts/submit_lstd.sh outputs/critics-12654337
+# After completion, replace JOB_ID with the new job number:
+cat outputs/lstd-JOB_ID/report.txt
 ```
 
-See the [LSTD guide](docs/lstd.md) for equations, monitoring, resume and limitations.
-This fits critics only; integrating a useful critic into PPO comes afterward.
+This is a new experiment directory: do not resume into `outputs/lstd-12686052`.
+It uses CPUs and cached features; no answers are regenerated and Qwen is unchanged.
+The sweep is implemented but has not yet been run on the full cluster dataset.
+See the [LSTD guide](docs/lstd.md) for monitoring, resume, equations and limitations.
+A useful critic will next be tested in PPO; online benefits remain unproven.
