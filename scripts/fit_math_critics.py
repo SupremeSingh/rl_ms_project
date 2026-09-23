@@ -100,6 +100,21 @@ def split_questions(rows, transfer_rows, tokenizer, limits=LIMITS):
         reserved_math500_questions=len(blocked))
 
 
+def normalize_row(row, subject, split, index):
+    """Unknown difficulty stays unknown; never infer it from the problem or answer."""
+    raw_level = row.get('level')
+    if type(raw_level) is int and 1 <= raw_level <= 5:
+        level = raw_level
+    elif isinstance(raw_level, str):
+        match = re.fullmatch(r'(?:Level\s+)?([1-5])', raw_level.strip())
+        level = int(match[1]) if match else None
+    else:
+        level = None
+    return dict(row, unique_id=f'{split}/{subject}/{index}', official_split=split,
+                subject=subject, level=level, raw_level=raw_level,
+                answer=last_box(row['solution']))
+
+
 def download_questions():
     from datasets import load_dataset
     from huggingface_hub import HfApi
@@ -111,13 +126,12 @@ def download_questions():
         for split in ('train', 'test'):
             dataset = load_dataset(FULL_DATASET, subject, split=split, revision=revisions[FULL_DATASET])
             for i, row in enumerate(dataset):
-                match = re.fullmatch(r'Level ([1-5])', row['level'])
-                if not match:
-                    raise ValueError('Unexpected MATH difficulty label')
-                rows.append(dict(row, unique_id=f'{split}/{subject}/{i}', official_split=split,
-                    subject=subject, level=int(match[1]), answer=last_box(row['solution'])))
+                rows.append(normalize_row(row, subject, split, i))
     tokenizer = AutoTokenizer.from_pretrained(ROOT / 'models/qwen-math', local_files_only=True)
     selected = split_questions(rows, reserved, tokenizer)
+    selected['unknown_difficulty'] = [dict(id=r['unique_id'], raw_level=r['raw_level'])
+                                      for r in rows if r['level'] is None]
+    print(f"Excluded {len(selected['unknown_difficulty'])} rows with unknown difficulty labels", flush=True)
     selected['dataset_revisions'] = revisions
     return selected
 

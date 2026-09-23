@@ -79,3 +79,26 @@ def test_prepare_fit_report_and_resume_use_only_training_normalization(tmp_path)
     assert 'held out' in report['evaluation']
     runner.fit_and_report(tmp_path, manifest, questions)
     assert json.loads((tmp_path / 'summary.json').read_text())['training_transitions'] == 4
+
+
+@pytest.mark.parametrize('label,expected', [('Level 4', 4), (' Level   5 ', 5),
+    ('5', 5), (4, 4), ('Level 3', 3), ('Level ?', None), ('', None),
+    (None, None), ('Level 6', None), (True, None), (4.5, None)])
+def test_dataset_difficulty_normalization(label, expected):
+    row = runner.normalize_row(dict(level=label, problem='Problem', solution=r'\boxed{2}'),
+                               'geometry', 'train', 7)
+    assert row['level'] == expected
+    assert row['raw_level'] == label
+    assert row['unique_id'] == 'train/geometry/7'
+
+
+def test_unknown_difficulty_excluded_without_losing_known_levels():
+    from math_hard import select
+    rows = [runner.normalize_row(dict(level=level, problem=f'Problem {i}', solution=r'\boxed{2}'),
+                                 'geometry', 'train', i)
+            for i, level in enumerate(('Level ?', 'Level 4', 'Level 5', 'Level 2'))]
+    tokenizer = SimpleNamespace(encode=lambda *a, **kw: [1])
+    selected, info = select(rows, tokenizer)
+    assert [q['level'] for q in selected] == [4, 5]
+    assert len(info['excluded']) == 2
+    assert info['excluded'][0]['level'] is None
