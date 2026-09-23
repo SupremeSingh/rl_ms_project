@@ -108,7 +108,7 @@ def generate(out, config, questions):
             atomic_json(pending, raw)
         if raw["question_id"] != q["id"] or len(raw["responses"]) != config["responses"]:
             raise RuntimeError("Incomplete generation")
-        scores = compute_score(["gsm8k"] * len(raw["responses"]), [r["response"] for r in raw["responses"]],
+        scores = compute_score([config.get("data_source", "gsm8k")] * len(raw["responses"]), [r["response"] for r in raw["responses"]],
                                [q["ground_truth"]] * len(raw["responses"]), exclude_errors=True)
         rows = [dict(r, **score) for r, score in zip(raw["responses"], scores, strict=True)]
         for row in rows:

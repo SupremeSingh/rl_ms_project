@@ -219,30 +219,64 @@ advantage over ridge was **0.00095**, with a descriptive 95% interval for
 LSTD-minus-ridge of **[-0.00140, -0.00047]**. Lambda=1 matched ridge, as expected.
 The improvement is small and this test set has been inspected repeatedly.
 
-### Next — Length diagnostics and generation-seed confirmation
+### Stage 7 — Stability checks
 
-After updating the cluster checkout, submit these independent jobs:
+The length analysis (**12688086**) found the small LSTD advantage mainly on
+129–512-token answers, not the longest answers. A second generation seed on the
+same 500 questions (**12688087**) reproduced it: Brier **0.19790 vs 0.19887**,
+paired difference **−0.00098**, 95% interval **[−0.00146, −0.00050]**.
+These are frozen-critic results, not evidence of better PPO learning.
+
+### Next — Harder MATH questions
+
+Evaluate the locked GSM8K critics on **MATH-500 levels 4 and 5 only**. Use every
+eligible text-only problem with a plain integer/decimal answer; save exclusions.
+Generate 16 answers each, with the same 2,048-token budget. No refitting or tuning.
+This tests transfer to harder math, not whether long reasoning causes an advantage.
+
+After publishing these changes and pulling them on the cluster:
 
 ```bash
-# CPU only: analyze the existing saved predictions.
-sbatch scripts/submit_lstd_analysis.sh outputs/lstd-12687136
-
-# One A5000: generate new answers on the same 500 test questions.
-# Keeps both critics and their settings fixed; no training or retuning.
-sbatch scripts/submit_lstd_validation.sh outputs/lstd-12687136
+source scripts/cluster_env.sh
+sbatch scripts/submit_lstd_math.sh outputs/lstd-12687136
 ```
 
-After completion, use each returned job number:
+Use the returned job number:
 
 ```bash
-cat outputs/lstd-analysis-ANALYSIS_JOB_ID/report.txt
-cat outputs/lstd-validation-VALIDATION_JOB_ID/report.txt
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/lstd-math-JOB_ID/report.txt
 ```
 
-The first groups errors by answer length, prefix position and tokens remaining.
-Future length is analysis metadata only, never a critic input. The second tests
-another generation seed, not new-question generalization. Both preserve exclusions.
-See the [LSTD guide](docs/lstd.md) for protocol details, monitoring and resume.
-These checks are implemented; their cluster results are pending. PPO integration
-comes afterward, comparing conventional, ridge and LSTD critics on learning and
-total cost. Online benefits remain unproven.
+The report compares Brier errors overall and by difficulty level, with paired
+question confidence intervals, success rates, exclusions and truncation. Inspect
+`review.jsonl` before claiming improvement. This subset excludes symbolic answers,
+fractions and diagrams; difficulty labels do not guarantee reasoning depth.
+See the [LSTD guide](docs/lstd.md) for resume and interpretation. PPO integration
+follows with conventional, ridge and LSTD critics compared on learning and total cost.
+
+
+### MATH-specific fitting — submit alongside the transfer check
+
+```bash
+sbatch scripts/submit_math_fit.sh
+```
+
+One job generates data, caches features, fits LSTD(lambda) and matched ridge, then
+writes `outputs/math-fit-JOB_ID/report.txt`. It uses up to **1,000 train / 200
+validation / 300 test questions**, all level 4/5, with **16 answers each** (up to
+24,000 answers). MATH-500 is excluded; the official test split never enters fitting.
+Only integer/decimal, text-only questions qualify. Actual counts are saved.
+
+The actor stays frozen. Lambda and regularization are selected on validation;
+test results are reported overall and by level. This asks whether **MATH-trained**
+LSTD beats MATH-trained ridge; the other job tests **GSM8K-to-MATH transfer**.
+Neither job updates PPO. Both need a verifier audit before interpreting an advantage.
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/math-fit-JOB_ID/status.json
+cat outputs/math-fit-JOB_ID/report.txt
+# Resume an interrupted fitting pipeline:
+sbatch scripts/submit_math_fit.sh --out outputs/math-fit-OLD_JOB_ID
+```

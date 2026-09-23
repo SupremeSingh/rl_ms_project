@@ -18,8 +18,8 @@ def verifier_command():
 def compute_score(data_sources, solution_strs, ground_truths, extra_infos=None, *, exclude_errors=False):
     if not (len(data_sources) == len(solution_strs) == len(ground_truths)):
         raise ValueError("Reward batch lengths differ")
-    if any(source != "gsm8k" for source in data_sources):
-        raise ValueError("This reward contract has only been checked on numeric GSM8K")
+    if any(source not in {"gsm8k", "math_numeric"} for source in data_sources):
+        raise ValueError("Expected GSM8K or the explicit decimal-only MATH evaluation subset")
     if not solution_strs:
         return []
     rows = [dict(response=text, ground_truth=gold) for text, gold in zip(solution_strs, ground_truths)]

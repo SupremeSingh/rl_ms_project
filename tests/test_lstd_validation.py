@@ -145,6 +145,62 @@ def test_seed_manifest_locks_inputs_and_rejects_original_seed(tmp_path, monkeypa
         validation.initialize(fit, tmp_path / 'bad-seed', 42)
     with pytest.raises(ValueError, match='Resume'):
         validation.initialize(fit, out, 314160)
+    import math_hard
+    hard_questions = [dict(id='math500/hard', split='test', level=5, source_index=0)]
+    monkeypatch.setattr(math_hard, 'load_questions', lambda _: (hard_questions, dict(revision='locked')))
+    hard_out = tmp_path / 'math'
+    hard = validation.initialize(fit, hard_out, 314159, math_hard=True)
+    assert hard['protocol'] == 'lstd-math-hard-v1'
+    assert hard['config']['data_source'] == 'math_numeric'
+    assert hard['questions'] == hard_questions
+    assert hard == validation.initialize(fit, hard_out, 314159, math_hard=True)
     (fit / 'ridge.pt').write_bytes(b'changed')
     with pytest.raises(ValueError, match='Resume'):
         validation.initialize(fit, out, 314159)
+
+
+def test_math_selection_is_label_based_numeric_and_no_gold_in_prompt():
+    import math_hard
+    tokenizer = SimpleNamespace(encode=lambda text, **kw: list(range(len(text.split()))))
+    def row(i, **kw):
+        return dict(unique_id=str(i), problem='Compute the requested quantity.',
+                    answer='123456', solution='SECRET reference reasoning', subject='Algebra', level=4) | kw
+    questions, info = math_hard.select([row(0), row(1, level=5), row(2, level=3),
+        row(3, answer=r"\frac{1}{2}"), row(4, problem='See [asy] image'),
+        row(5, problem='word ' * 600)], tokenizer)
+    assert [q['level'] for q in questions] == [4, 5]
+    assert len(info['excluded']) == 4
+    assert all('123456' not in q['prompt'] and 'SECRET' not in q['prompt'] for q in questions)
+    assert [q['source_index'] for q in questions] == [0, 1]
+    with pytest.raises(ValueError, match='Duplicate'):
+        math_hard.select([row(0), row(0)], tokenizer)
+
+
+def test_math_evaluation_preserves_locked_heads_and_reports_exclusions(tmp_path):
+    out = tmp_path / 'hard'
+    questions, _ = fixture_data(out)
+    questions[0].update(level=4, question='Question', ground_truth='1', source_index=0)
+    path = out / 'trajectories/00000.json'
+    raw = json.loads(path.read_text())
+    for response in raw['responses']:
+        response['response'] = 'Answer text'
+    write_json(path, raw)
+    shard_path = out / 'features/00000.pt'
+    shard = torch.load(shard_path, weights_only=True)
+    shard['trajectories_sha256'] = sha256(path)
+    torch.save(shard, shard_path)
+    fit, source = fixture_heads(tmp_path)
+    locked = {str(p): sha256(p) for p in fit.iterdir()}
+    manifest = dict(protocol='lstd-math-hard-v1', fit=str(fit), source=str(source),
+                    selected_lstd='lstd-0.999', dataset={'revision': 'fixed'},
+                    files=locked, config=dict(generation_seed=314159))
+    validation.evaluate(out, manifest, questions)
+    report = json.loads((out / 'summary.json').read_text())
+    level = report['difficulty']['4']
+    assert level['total_answers'] == 3
+    assert level['statuses']['parse_failure'] == 1
+    assert level['truncation_rate'] == pytest.approx(1 / 3)
+    assert level['mixed_question_rate'] == 1
+    assert report['difficulty']['5']['questions'] == 0
+    assert len((out / 'review.jsonl').read_text().splitlines()) == 3
+    assert locked == {str(p): sha256(p) for p in fit.iterdir()}

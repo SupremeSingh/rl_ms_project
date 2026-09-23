@@ -57,6 +57,14 @@ def evaluate(out, manifest, questions):
         answers=diagnostic['provenance'], feature_hashes=hashes,
         limitations='Conditional on verifiable answers. One additional generation seed, not fresh questions '
                     'or independent training seeds. Different exclusions may change the evaluated population.')
+    if manifest.get('protocol') == 'lstd-math-hard-v1':
+        from math_hard import supplement
+        report['scope'] = 'MATH-500 levels 4/5 numeric subset; locked GSM8K critics; no fitting or retuning.'
+        report['limitations'] = ('Transfer evaluation, not a within-MATH fitting comparison. Difficulty labels do not prove reasoning depth. '
+            'Conditional on verifiable answers; inspect review.jsonl before claiming an advantage. '
+            'Pretraining overlap unknown. 2048-token budget fixed; high truncation limits conclusions.')
+        report['dataset'] = manifest['dataset']
+        report['difficulty'] = supplement(out, questions, data, predictions)
     atomic_json(out / 'summary.json', report)
     paired = report['paired']
     lines = [report['scope'], f"Generation seed {report['seed']}; {len(questions)} questions; selected {report['selected_lstd']}",
@@ -67,11 +75,14 @@ def evaluate(out, manifest, questions):
     lines += [f"Paired question difference: {paired['question_mean_difference']:+.6f}; 95% interval {paired['question_bootstrap_95pct_interval']}",
               'Negative favors LSTD. Original difference: ' + str(report['original_paired_difference']),
               'See length-report.txt for length/position groups.', report['limitations']]
+    if 'difficulty' in report:
+        for level, row in report['difficulty'].items():
+            lines.append(f"Level {level}: {json.dumps(row)}")
     (out / 'report.txt').write_text('\n'.join(lines) + '\n')
     print('\n'.join(lines))
 
 
-def initialize(fit, out, seed):
+def initialize(fit, out, seed, math_hard=False):
     fit, out = fit.resolve(), out.resolve()
     fitted = json.loads((fit / 'manifest.json').read_text())
     results = json.loads((fit / 'summary.json').read_text())
@@ -97,6 +108,10 @@ def initialize(fit, out, seed):
     old_seeds = {original['config'].get('generation_seed', 42) + q['source_index'] for q in questions}
     if old_seeds.intersection(range(seed, seed + len(questions))):
         raise ValueError('New generation seeds overlap the original test run')
+    dataset = None
+    if math_hard:
+        from math_hard import load_questions
+        questions, dataset = load_questions(out)
     # Require the same model bytes, verifier and generation/extraction libraries.
     for name, expected in original['files'].items():
         if name.startswith('models/qwen-math/') and sha256(ROOT / name) != expected:
@@ -118,11 +133,16 @@ def initialize(fit, out, seed):
         'scripts/fit_lstd.py', 'scripts/frozen_critics.py', 'src/math_rl/critic_probe.py',
         'src/math_rl/lstd.py', 'src/math_rl/ppo_reward.py', 'src/math_rl/verifier_batch.py',
         'src/math_rl/math_verify_reward.py')]
+    if math_hard:
+        tracked.extend([ROOT / 'scripts/math_hard.py', ROOT / 'src/math_rl/prompts.py'])
     manifest = dict(protocol='lstd-seed-validation-v1', fit=str(fit), source=str(source),
         selected_lstd=results['selected_lstd'], versions=versions, verifier=verifier,
         config=dict(responses=original['config']['responses'], generation_seed=seed,
                     sampling=expected_sampling, prefix_sampling=PREFIX_SAMPLING),
         questions=questions, files={str(p): sha256(p) for p in tracked})
+    if math_hard:
+        manifest.update(protocol='lstd-math-hard-v1', dataset=dataset)
+        manifest['config']['data_source'] = 'math_numeric'
     out.mkdir(parents=True, exist_ok=True)
     if (out / 'manifest.json').exists():
         if json.loads((out / 'manifest.json').read_text()) != manifest:
@@ -142,6 +162,7 @@ def main():
     parser.add_argument('fit', type=Path)
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--seed', type=int, default=314159)
+    parser.add_argument('--math-hard', action='store_true', help='Locked-critic transfer on numeric MATH-500 levels 4/5')
     parser.add_argument('--stage', choices=('generate', 'extract', 'evaluate'))
     args = parser.parse_args()
     out = args.out.resolve()
@@ -157,7 +178,7 @@ def main():
         else:
             {'generate': generate, 'extract': extract}[args.stage](out, manifest['config'], questions)
         return
-    manifest = initialize(args.fit, out, args.seed)
+    manifest = initialize(args.fit, out, args.seed, args.math_hard)
     for stage in ('generate', 'extract', 'evaluate'):
         started = time.monotonic()
         atomic_json(out / 'status.json', dict(stage=stage, state='running'))

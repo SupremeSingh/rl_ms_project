@@ -76,8 +76,8 @@ def run(source, out, alphas, lambdas=(0.,)):
     source_manifest = json.loads((source / 'manifest.json').read_text())
     if source_manifest['questions_sha256'] != hashes['questions.json']:
         raise ValueError('Question manifest changed')
-    if source_manifest['config']['protocol'] != 'frozen-critics-v2':
-        raise ValueError('Expected frozen-critics-v2 feature cache')
+    if source_manifest['config']['protocol'] not in {'frozen-critics-v2', 'frozen-math-critics-v1'}:
+        raise ValueError('Expected a supported frozen-critic feature cache')
     questions = json.loads((source / 'questions.json').read_text())['questions']
     ids = [q['id'] for q in questions]
     if len(ids) != len(set(ids)) or set(q['split'] for q in questions) != {'train', 'val', 'test'}:
@@ -221,7 +221,9 @@ def run(source, out, alphas, lambdas=(0.,)):
         shared_accumulation_seconds=saved['seconds'], methods=results,
         paired_question_brier_selected_lstd_minus_ridge=float(per_question.mean()), paired_95pct_interval=interval,
         evaluation='Existing eight-prefix-per-answer held-out protocol; training uses all transitions. '
-                   'Conditional on retained answers. This test set was already inspected in the earlier study.',
+                   'Conditional on retained answers. ' + ('MATH test questions held out from fitting and tuning.'
+                   if source_manifest['config']['protocol'] == 'frozen-math-critics-v1'
+                   else 'This test set was already inspected in the earlier study.'),
         limitations='Exclusion selection bias; cap treated as terminal; regularization shifts the TD fixed point; '
                     'a hidden vector need not be Markov. No online learning claim.')
     write_json(out / 'summary.json', report)

@@ -183,3 +183,105 @@ sbatch scripts/submit_lstd_validation.sh outputs/lstd-12687136 \
 A consistent advantage supports stability but does not prove superiority or
 cheaper PPO. Compare exclusion rates too: missing answers can change the evaluated
 population. Preserve all original and new results.
+
+
+## MATH level 4/5 transfer check
+
+```bash
+sbatch scripts/submit_lstd_math.sh outputs/lstd-12687136
+# If interrupted, preserve the output directory:
+sbatch scripts/submit_lstd_math.sh outputs/lstd-12687136 --out outputs/lstd-math-OLD_JOB_ID
+```
+
+Uses `HuggingFaceH4/MATH-500`, test split, all eligible level 4/5 questions.
+First initialization resolves an immutable dataset commit and saves it, selected
+questions, reference solutions, tokenized prompts, and all exclusion reasons in
+`manifest.json`. Resume uses that snapshot and checks model, critic, code, verifier
+and runtime provenance. Downloading the dataset requires network access on first run.
+
+Selection happens before generation: reject diagram/figure markers, non-decimal
+reference answers, and prompts exceeding 512 tokens. No selection on model success.
+Plain integers/decimals retain the existing exact numeric gold contract; fractions,
+radicals, tuples and expressions are excluded rather than converted approximately.
+Only questions enter the prompt; reference solutions and levels never enter features.
+This is a restricted MATH subset, not the full benchmark. Level is a difficulty
+proxy, not an annotation of required reasoning steps or a guarantee that each
+problem is harder for Qwen than every GSM8K problem.
+
+Generate 16 answers per question, seed 314159 + question index, temperature 1,
+top-p 1, top-k disabled, maximum 2048 response tokens. Extract the same causal
+last-layer prefix vectors; use the original normalization and locked LSTD(0.999)
+and ridge weights. No fitting, tuning, or PPO updates. Retain the original eight
+random-prefix rule and length diagnostics. Terminal caps remain recorded as caps.
+
+`report.txt` / `summary.json` give the overall comparison and per-level comparisons;
+`difficulty-summary.json` includes selected/evaluated counts, observed success,
+mixed-answer questions, exclusions and truncation. Brier is primary, accuracy
+secondary. Intervals bootstrap questions, not individual prefixes; per-level and
+length intervals are descriptive. `review.jsonl` contains every generated answer
+and scorer output, including excluded answers, for a manual verifier audit.
+
+Check the verifier on this new domain before making claims. If truncation exceeds
+5%, treat the comparison as budget-limited and plan a separately labelled longer
+budget replication; do not silently discard capped answers. Very low success or
+few retained questions also weakens the test. Report exclusion rates by level:
+metrics remain conditional on parseable answers. A failed transfer check does not
+establish that fitting LSTD on MATH would fail; that needs a separate train/validation/
+test experiment. Pretraining contamination and reasoning depth are not controlled.
+
+
+## Separate MATH-specific fitting pipeline
+
+Submit independently of the transfer evaluation:
+
+```bash
+sbatch scripts/submit_math_fit.sh
+```
+
+This requests one A5000, eight CPUs, 96 GB host memory and a 48-hour time limit.
+It runs generation, feature extraction, data preparation, and LSTD/ridge fitting
+sequentially, freeing model processes between stages. The GPU allocation remains
+reserved during the CPU solve to keep submission and resumption simple. The time
+limit is not an expected runtime. Each stage writes a log and updates `status.json`.
+
+Source: `EleutherAI/hendrycks_math`, all seven subjects, immutable revision resolved
+at initialization. All 500 `HuggingFaceH4/MATH-500` question texts are reserved,
+regardless of their level or eligibility. Whitespace/Unicode-normalized text matching
+also removes duplicates across official train/test (test takes precedence).
+This is exact normalized deduplication, not semantic paraphrase detection.
+
+Apply the same level 4/5, diagram, 512-token prompt and decimal-only selection rule.
+The original dataset stores answers inside solutions: extract the final balanced
+box and retain it only if its entire contents are a plain integer/decimal. Save
+original answers and reference solutions for inspection; neither enters the model.
+No broad symbolic conversion or reference-guided extraction of generated answers.
+
+Split eligible official-training questions 80/20 within level/subject strata using
+stable SHA256 ordering seeded by `math-split-271828`. Cap train at 1,000 and validation
+at 200, without looking at outcomes. Use up to 300 eligible official-test questions;
+record every exclusion and actual counts in `data/questions.json`. These are different
+questions from the MATH-500 transfer experiment. Do not retune after inspecting test.
+
+Generate 16 answers each, seed 161803 + question index, temperature 1, top-p 1,
+top-k disabled, 2048 response tokens. Cache all causal hidden states for retained
+answers and sample the same eight prefix probes per answer. Fit normalization from
+training probes only. LSTD/ridge both fit on all retained training transitions with
+identical features and weighting. Sweep lambda [0, .9, .99, .999, 1] and alpha
+[0, 1e-6, 1e-5, 1e-4, .001, .01, .1, 1] using validation Brier only. Preserve the
+lambda=1/ridge equivalence check. No MLP retraining, actor update, or PPO here.
+
+Outputs under `outputs/math-fit-JOB_ID/`:
+- `report.txt`, `summary.json`: fitted methods, validation selection, test comparison,
+  paired question intervals and level-specific diagnostics.
+- `data/questions.json`: split, reference and selection provenance.
+- `data/review.jsonl`: test responses including exclusions for verifier review.
+- `data/trajectories/`, `data/features/`: resumable generation and full feature caches.
+- `fit/`: weights, statistics checkpoints, trials, solver checks and fitting costs.
+- `length-report.txt`: exploratory length/position diagnostics.
+
+Resume with `sbatch scripts/submit_math_fit.sh --out outputs/math-fit-OLD_JOB_ID`.
+Keep model/code/runtime unchanged while either experiment runs. Interpret results
+conditional on exclusions; audit scoring and inspect truncation and observed success.
+A high cap rate calls for a new, separately labelled longer-budget study. Difficulty
+levels do not prove reasoning depth. Independent fitting seeds/datasets and online
+PPO tests remain necessary before claiming a generally better cheap critic.
