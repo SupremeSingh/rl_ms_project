@@ -126,3 +126,60 @@ If only lambda=1 performs well, that favors supervised return fitting in this
 setting; it does not establish a benefit from bootstrapping. Intermediate lambdas
 may or may not improve the tradeoff. Online PPO is a later experiment using
 fresh data as the actor changes; this run makes no online learning claim.
+
+## Length diagnostics and seed replication
+
+Run `outputs/lstd-12687136` selected lambda=0.999, alpha=0.001. Its test Brier was
+0.19751 versus ridge 0.19845. These checks keep both fitted critics fixed.
+
+```bash
+sbatch scripts/submit_lstd_analysis.sh outputs/lstd-12687136
+sbatch scripts/submit_lstd_validation.sh outputs/lstd-12687136
+```
+
+**Existing data (2 CPUs, 4 GB, 30 minutes):** compare saved predictions in fixed
+1–128, 129–512 and 513+ token bins, by total answer length, prefix position and
+remaining actions T-L. Position zero is separate. Also report position crossed
+with remaining length, and capped/uncapped answers. Length is analysis metadata
+only; it never enters the critic. Reconstruct sampled-prefix ordering and check
+it against saved question IDs, positions and labels before comparing predictions.
+
+Report pooled-prefix Brier for each head, outcome rates, answer/question counts,
+and equal-question paired differences with 2,000 question-bootstrap samples.
+Groups with fewer than 20 questions are flagged sparse. Intervals are descriptive,
+not multiplicity-adjusted. Differences in difficulty, question mix and survival
+mean these are not causal effects of reasoning length.
+
+**New generation seed (one A5000, 64 GB, 24 hours):** generate 16 new answers on
+each of the same 500 test questions, 8,000 total, using seed 314159 plus local
+question index. Preserve prompts, sampling settings, model bytes, runtime versions,
+verifier and exclusions. Evaluate the previously selected LSTD and ridge heads
+without refitting or retuning. Checkpoints and normalization are locked by hashes.
+
+Generation, extraction and evaluation run in separate processes. Per-question
+outputs are resumable. New answers and features live in a separate directory;
+original data and fitted critics are unchanged. The fixed prefix-sampling rule
+is reward-blind; realized length is used only for evaluation diagnostics.
+This tests sensitivity to sampled continuations on the SAME questions, not fresh
+questions or independent training fits. Novel-question confirmation is future work.
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/lstd-analysis-ANALYSIS_JOB_ID/report.txt
+cat outputs/lstd-validation-VALIDATION_JOB_ID/status.json
+cat outputs/lstd-validation-VALIDATION_JOB_ID/report.txt
+cat outputs/lstd-validation-VALIDATION_JOB_ID/length-report.txt
+```
+
+Logs: `slurm-lstd-analysis-JOB_ID.out`, `slurm-lstd-validation-JOB_ID.out`, and
+`generate.log`, `extract.log`, `evaluate.log` inside the validation output.
+Resume an interrupted validation run with its original output directory:
+
+```bash
+sbatch scripts/submit_lstd_validation.sh outputs/lstd-12687136 \
+  --out outputs/lstd-validation-OLD_JOB_ID
+```
+
+A consistent advantage supports stability but does not prove superiority or
+cheaper PPO. Compare exclusion rates too: missing answers can change the evaluated
+population. Preserve all original and new results.

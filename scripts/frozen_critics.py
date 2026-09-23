@@ -100,7 +100,7 @@ def generate(out, config, questions):
             raw = json.loads(pending.read_text())
         else:
             params = SamplingParams(n=config["responses"], temperature=1., top_p=1., top_k=-1,
-                                    max_tokens=2048, seed=42 + i)
+                                    max_tokens=2048, seed=config.get("generation_seed", 42) + i)
             generated = engine.generate([{"prompt_token_ids": q["prompt_token_ids"]}], params)[0].outputs
             raw = dict(question_id=q["id"], responses=[dict(response=r.text, token_ids=list(r.token_ids),
                 finish_reason=r.finish_reason, stop_reason=r.stop_reason) for r in generated])

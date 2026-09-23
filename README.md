@@ -200,22 +200,49 @@ predictions: 61,837 of 61,912 test prefixes fell in the 0.6–0.7 probability bi
 LSTD's AUROC was 0.654 versus ridge's 0.728. Solving these same equations longer
 will not fix that result.
 
-### Next — Give LSTD(lambda) a fair comparison
+### Stage 6 — LSTD(lambda) sweep
 
-The next job tests **lambda = 0, 0.9, 0.99, 0.999 and 1** on the same saved token
-transitions and single linear head. Larger lambda uses longer-return information.
-Lambda=1 must recover matched ridge's equations and predictions; the run checks
-this automatically. Lambda and regularization are selected on validation data,
-not test performance. A zero-regularization candidate is included as a diagnostic.
+Job **12687136** completed in **1 hour 39 minutes**, using the same 20.9 million
+training transitions and one-layer head. Lambda and regularization were selected
+on validation data; Qwen stayed frozen.
+
+| Method | Test Brier | Correctness-prediction accuracy |
+|---|---:|---:|
+| LSTD(0) | 0.22889 | 64.0% |
+| LSTD(0.9) | 0.22124 | 64.0% |
+| LSTD(0.99) | 0.20222 | 69.5% |
+| **LSTD(0.999)** | **0.19751** | **71.2%** |
+| LSTD(1) / matched ridge | 0.19845 | 70.9% |
+
+Validation selected lambda=0.999 and regularization=0.001. Its paired Brier
+advantage over ridge was **0.00095**, with a descriptive 95% interval for
+LSTD-minus-ridge of **[-0.00140, -0.00047]**. Lambda=1 matched ridge, as expected.
+The improvement is small and this test set has been inspected repeatedly.
+
+### Next — Length diagnostics and generation-seed confirmation
+
+After updating the cluster checkout, submit these independent jobs:
 
 ```bash
-sbatch scripts/submit_lstd.sh outputs/critics-12654337
-# After completion, replace JOB_ID with the new job number:
-cat outputs/lstd-JOB_ID/report.txt
+# CPU only: analyze the existing saved predictions.
+sbatch scripts/submit_lstd_analysis.sh outputs/lstd-12687136
+
+# One A5000: generate new answers on the same 500 test questions.
+# Keeps both critics and their settings fixed; no training or retuning.
+sbatch scripts/submit_lstd_validation.sh outputs/lstd-12687136
 ```
 
-This is a new experiment directory: do not resume into `outputs/lstd-12686052`.
-It uses CPUs and cached features; no answers are regenerated and Qwen is unchanged.
-The sweep is implemented but has not yet been run on the full cluster dataset.
-See the [LSTD guide](docs/lstd.md) for monitoring, resume, equations and limitations.
-A useful critic will next be tested in PPO; online benefits remain unproven.
+After completion, use each returned job number:
+
+```bash
+cat outputs/lstd-analysis-ANALYSIS_JOB_ID/report.txt
+cat outputs/lstd-validation-VALIDATION_JOB_ID/report.txt
+```
+
+The first groups errors by answer length, prefix position and tokens remaining.
+Future length is analysis metadata only, never a critic input. The second tests
+another generation seed, not new-question generalization. Both preserve exclusions.
+See the [LSTD guide](docs/lstd.md) for protocol details, monitoring and resume.
+These checks are implemented; their cluster results are pending. PPO integration
+comes afterward, comparing conventional, ridge and LSTD critics on learning and
+total cost. Online benefits remain unproven.
