@@ -285,3 +285,45 @@ conditional on exclusions; audit scoring and inspect truncation and observed suc
 A high cap rate calls for a new, separately labelled longer-budget study. Difficulty
 levels do not prove reasoning depth. Independent fitting seeds/datasets and online
 PPO tests remain necessary before claiming a generally better cheap critic.
+
+## Matched trace comparison: 0.85, 0.90, 0.95 versus ridge
+
+One CPU-only job fits the three requested traces on the original GSM8K training
+trajectories, then scores the existing new-seed GSM8K and harder MATH transfer
+caches. Nothing is generated again and the original artifacts are read-only.
+
+```bash
+sbatch scripts/submit_lstd_traces.sh \
+  outputs/critics-12654337 \
+  outputs/lstd-validation-12688087 \
+  outputs/lstd-math-12688713
+```
+
+Read `outputs/lstd-traces-JOB_ID/report.txt` afterward. Each method gets the same
+alpha grid, selected by original GSM8K validation Brier only. All requested lambdas
+are reported; neither evaluation set selects alpha or a winning lambda. The fitter
+also retains its standard original-GSM8K-test report in `fit/`; the top-level report
+contains the two requested evaluation sets. Ridge uses identical features, training
+transitions and regularization convention. No MATH-specific fitting occurs here.
+
+Each evaluation cache is checked against its original feature/trajectory hashes,
+its saved probe tensors, and the original training-source hashes. Test IDs must not
+overlap fitting/validation IDs. The new manifest locks inputs, code and versions;
+resumption rejects mismatches. Matched raw Brier, correctness-prediction accuracy,
+paired question intervals, MATH level comparisons and per-method length diagnostics
+are saved. Original verifier exclusions and token caps remain in force.
+
+These are exploratory comparisons on already-inspected sets, not a fresh confirmatory
+test. The GSM8K cache has fresh **answers to the same 500 questions**, not new questions.
+Intervals are descriptive, without multiplicity adjustment. A separate new-question
+experiment would need its own reserved split and generation run.
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/lstd-traces-JOB_ID/status.json
+cat outputs/lstd-traces-JOB_ID/report.txt
+# Resume, retaining the same three input arguments:
+sbatch scripts/submit_lstd_traces.sh \
+  outputs/critics-12654337 outputs/lstd-validation-12688087 outputs/lstd-math-12688713 \
+  --out outputs/lstd-traces-OLD_JOB_ID
+```

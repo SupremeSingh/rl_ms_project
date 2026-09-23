@@ -280,3 +280,21 @@ cat outputs/math-fit-JOB_ID/report.txt
 # Resume an interrupted fitting pipeline:
 sbatch scripts/submit_math_fit.sh --out outputs/math-fit-OLD_JOB_ID
 ```
+
+### Compare additional LSTD traces on saved answers
+
+CPU-only: fit **lambda 0.85, 0.90, 0.95 and ridge** on the same GSM8K training data,
+then evaluate on the saved new-seed GSM8K answers and harder MATH transfer answers.
+Regularization is selected on GSM8K validation only. Existing runs stay unchanged.
+
+```bash
+sbatch scripts/submit_lstd_traces.sh \
+  outputs/critics-12654337 \
+  outputs/lstd-validation-12688087 \
+  outputs/lstd-math-12688713
+# After completion:
+cat outputs/lstd-traces-JOB_ID/report.txt
+```
+
+The GSM8K evaluation uses new answers to the same test questions. These sets have
+already been inspected, so this is an exploratory comparison, not fresh confirmation.
