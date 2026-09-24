@@ -12,6 +12,8 @@ def main():
     method.add_argument("--ppo", action="store_true")
     method.add_argument("--grpo", action="store_true")
     parser.add_argument("--expected-gpus", type=int)
+    parser.add_argument("--train-file", type=Path, default=Path('data/gsm8k/train.parquet'))
+    parser.add_argument("--val-file", type=Path, default=Path('data/gsm8k/val.parquet'))
     args = parser.parse_args()
     import torch
     from datasets import Dataset
@@ -32,8 +34,8 @@ def main():
         raise RuntimeError("Visible GPU count differs from trainer.n_gpus_per_node")
     tokenizer = AutoTokenizer.from_pretrained(root / "models/qwen-math", local_files_only=True)
     questions = []
-    for split in ("train", "val"):
-        rows = Dataset.from_parquet(str(root / f"data/gsm8k/{split}.parquet"))
+    for path in (args.train_file, args.val_file):
+        rows = Dataset.from_parquet(str(root / path))
         for row in rows:
             validate_prompt(row["prompt"])
         questions.append({" ".join(row["prompt"][1]["content"].split()) for row in rows})

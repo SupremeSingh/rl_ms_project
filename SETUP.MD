@@ -249,6 +249,65 @@ CPU-only. Fits lambda 0.85, 0.90, 0.95 and ridge on GSM8K training transitions,
 selecting regularization on GSM8K validation only. Scores the same saved answers;
 no generation, actor updates or MATH-specific fitting.
 
+## Phase 11 — Online PPO-LSTD, ridge, conventional PPO and GRPO
+
+Publish these changes, then pull them into the cluster checkout. Reuse the
+completed Phase 9 directory; this reads its question split and leaves it unchanged.
+Replace `MATH_FIT_JOB_ID` with that run's ID:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+git pull --ff-only origin main
+source scripts/cluster_env.sh
+sbatch scripts/submit_math_comparison.sh outputs/math-fit-MATH_FIT_JOB_ID
+```
+
+One job requests **two A5000 GPUs, eight CPUs and 128 GB RAM**, with a two-day time
+limit. It installs/checks the existing isolated verifier and runs numerical and
+integration tests first, then trains PPO, PPO-ridge, PPO-LSTD(0.99) and GRPO
+sequentially. Each starts from the base model: **30 updates × 64 answers**, seed 42.
+There is no new dependency to install manually. The new GPU path is not yet
+cluster-validated; use `--steps 2` for a shorter first execution if desired.
+
+Monitor and read the result (the new submission prints `JOB_ID`):
+
+```bash
+squeue -j JOB_ID
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/math-online-JOB_ID/status.json
+cat outputs/math-online-JOB_ID/report.txt
+```
+
+Detailed results are in `summary.json`; each method has its own log, actor
+checkpoint, and base/final test answers. Linear-critic parameters and fitting
+diagnostics are saved for each update. Training time includes feature transfer,
+CPU fitting, validation and checkpointing; environment setup is excluded, and
+model initialization and test times are recorded separately. GPU-hours count GPUs
+allocated while CPU fitting runs too.
+
+The online reward policy is identical across methods: correct = 1; incorrect,
+ordinary parse failure or verifier timeout = 0. Other runtime failures stop that
+method and remain visible. Independent methods still run; any failed method makes
+the overall job fail. Nothing is silently excluded from the online sample budget.
+
+After the first comparison succeeds, repeat with several training seeds:
+
+```bash
+sbatch scripts/submit_math_comparison.sh outputs/math-fit-MATH_FIT_JOB_ID \
+  --steps 30 --seeds 42 43 44
+```
+
+This triples the work; the time limit remains two days. For an individual retry,
+use a **new** job/output and `--methods lstd` (or `ppo`, `ridge`, `grpo`). Resume
+within a partially trained actor run is deliberately unsupported. Never mix
+results with different training budgets, seeds or configurations.
+
+The offline heads are not loaded. Ridge/LSTD refit current actor features on each
+fresh batch, using two question folds. LSTD lambda=0.99, linear regularization=0.01,
+actor GAE lambda=0.95; no historical replay or separate transformer critic for the
+linear methods. This first comparison tests the complete systems, including
+these fitting differences, on previously inspected questions.
+
 ## If something fails
 
 For the recent experiment pipelines:
@@ -261,10 +320,10 @@ tail -n 100 outputs/math-fit-JOB_ID/generate.log
 ```
 
 Other log prefixes are `slurm-critics`, `slurm-lstd`, `slurm-lstd-analysis`,
-`slurm-lstd-validation`, `slurm-lstd-math` and `slurm-lstd-traces`.
+`slurm-lstd-validation`, `slurm-lstd-math`, `slurm-lstd-traces` and `slurm-math-online`.
+For online failures, inspect `outputs/math-online-JOB_ID/METHOD-seed42.log`.
 Initialization can fail before `status.json` exists; the Slurm log then contains
 the cause. Read the error before resubmitting. Never remove original caches to
 silence a provenance mismatch.
 
-The next research phase—PPO with ridge/LSTD critics—is not implemented yet.
 See [docs/lstd.md](docs/lstd.md) for equations, controls and limitations.

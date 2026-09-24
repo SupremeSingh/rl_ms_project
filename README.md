@@ -47,8 +47,9 @@ without training a critic.
 
 In online pilots, ordinary unparseable outputs receive zero reward. Offline critic
 studies exclude answers without a usable verifier label. Thus their metrics are
-**conditional on retained answers**; this difference must be addressed before
-online integration.
+**conditional on retained answers**. The online comparison scores ordinary parse
+failures and verifier timeouts as zero for every method, retaining their status for
+audit; infrastructure errors fail the run.
 
 ## Results so far
 
@@ -142,13 +143,26 @@ predictions showed no clear advantage.
 not proof that deeper reasoning causes the benefit. Level-5 truncation was 7.6%;
 90 answers were excluded, and reward auditing remains necessary.
 
-### Phase 9: MATH-specific fitting — results awaited
+### Phase 9: fitting directly on MATH
 
-A separate pipeline fits critics on up to **1,000 train / 200 validation / 300 test
-MATH level 4/5 questions**, excluding MATH-500, with 16 answers each. Qwen stays
-frozen. This tests fitting on MATH rather than transferring a GSM8K-trained head.
-Unknown difficulty labels initially stopped loading; they are now recorded and
-excluded. The replacement run was submitted; no final report has been provided yet.
+With the actor frozen, we fitted on **15,346 retained training answers / 11,685,978
+token transitions** and evaluated on **300 MATH level 4/5 test questions**. MATH-500
+was excluded; lambda and regularization were selected on validation only.
+
+| Critic | Test Brier ↓ | Correctness-prediction accuracy |
+|---|---:|---:|
+| LSTD(0) | 0.22304 | 66.1% |
+| LSTD(0.90) | 0.21715 | 66.1% |
+| LSTD(0.99) | 0.19716 | 69.0% |
+| LSTD(0.999) | 0.18574 | 71.4% |
+| **LSTD(1) / ridge** | **0.18566** | **71.6%** |
+
+**Interpretation:** validation selected lambda=1 and zero regularization. The two
+fits then match algebraically, not just statistically. LSTD's earlier transfer
+advantage did not translate into an advantage when fitting directly on MATH.
+Ridge remains a strong, simpler candidate. Level-5 truncation was 6.9%, and the
+metrics exclude unparseable answers. Unknown difficulty labels initially stopped
+loading; recording and excluding those labels fixed the loader.
 
 ### Phase 10: lower-lambda stress test
 
@@ -171,6 +185,46 @@ promising variant; stronger short-range bootstrapping was harmful here. These
 are exploratory results on repeatedly inspected sets. Intervals are descriptive,
 not adjusted for multiple comparisons. Raw Brier across datasets also depends on
 their success rates; compare methods within each dataset.
+
+### Phase 11: compare the critics inside PPO — implemented, results pending
+
+We now test whether the small critics help **learning**, not just prediction.
+All four methods start from the same base Qwen and use the saved MATH level 4/5
+numeric question splits, Math-Verify reward and token budgets.
+
+| Method | How it produces advantages |
+|---|---|
+| Conventional PPO | Separate trainable transformer critic + GAE |
+| PPO-ridge | Linear return regression on actor features + GAE |
+| PPO-LSTD(0.99) | Linear TD trace solve on actor features + GAE |
+| GRPO | Relative rewards among four answers to each question |
+
+Each update generates **16 questions × 4 answers = 64 answers** for every method.
+The default pilot is 30 updates (1,920 training answers per method), one seed, and
+runs sequentially on the same two GPUs. Greedy test evaluation happens before and
+after training. Reports include paired accuracy changes, per-level results,
+truncation, critic fitting time, training time and allocated GPU-hours.
+
+For the two linear methods, each iteration captures detached, pre-token features
+from the actor's existing log-probability forward pass. Two question folds ensure
+an answer's own reward is never used to fit its value predictions. We fit new
+heads on the current batch and discard them after the update: **no replay buffer
+and no reuse of the offline weights**. The saved offline run supplies the question
+split and model identity, not old-policy training answers.
+
+LSTD's trace is **0.99**, as requested; all PPO variants use actor GAE lambda=0.95.
+Both linear fits use fixed regularization 0.01 because these batches are much
+smaller than the offline dataset; this is a declared pilot setting, not a tuned
+winner. Conventional PPO keeps its critic optimizer across updates. All actors
+use the same PPO loss and optimizer settings.
+
+**Interpretation:** this is a comparison of complete critic systems, not an
+isolated test of the solver against conventional PPO. The test questions were
+already inspected offline, the reward audit remains incomplete, and a short
+single-seed pilot cannot establish superiority. LSTD(0.99) lost to ridge offline;
+we keep that result visible while testing its online behavior. GPU execution of
+this new integration still needs cluster validation. Commands are in
+[SETUP.MD](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
 
 We aim to turn an LLM's own hidden representations into a lightweight critic that makes PPO learning more compute-efficient.
 The next step is to test whether ridge or LSTD can preserve or improve math-solving performance while reducing total training cost.
