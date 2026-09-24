@@ -1,300 +1,176 @@
-# Math RL
+# Math RL: can PPO use a cheaper critic?
 
-Can a small critic built from an LLM's existing hidden features make PPO cheaper
-without hurting learning?
+We want to improve a math-solving LLM with reinforcement learning while avoiding
+PPO's usual second, large neural network for value prediction. Our candidate is a
+small linear critic fitted to hidden features the actor already computes.
 
-This project explores that question with **Qwen/Qwen2.5-Math-1.5B (base)** and
-**GSM8K** math problems. We first establish working RL training and evaluation,
-then compare lightweight value predictors, investigate LSTD, and bring the useful
-critics back into PPO.
+**So far: useful small critics, a narrow LSTD advantage, and no demonstrated PPO
+cost saving yet.** [SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands,
+monitoring and resumption. This page explains the experiment and results.
 
-A critic estimates how likely an unfinished answer is to succeed. Reusing features
-already computed by the actor could avoid running a separate large critic model.
-That potential saving is the research question—not an established result.
+## One example, from tokens to reinforcement learning
 
-## Tools
+Suppose the question is: **“I have 5 avocados and buy 4 more. Each serving needs 3.
+How many servings can I make?”**
 
-- **VERL** coordinates PPO/GAE and GRPO training.
-- **vLLM** generates answers; **PyTorch/FSDP** handles gradients and distributed training.
-- **Math-Verify** scores final answers: correct = 1, incorrect or unparseable = 0.
-- **Slurm** reserves Duke's GPUs and runs jobs independently of your SSH connection.
-- **Our code** supplies prompts, reward integration, experiment settings and result checks.
+1. **Actor:** Qwen generates the answer one token at a time. Its action is the next
+   token; its state is the question plus the answer written so far.
+2. **Reward:** after generation, Math-Verify checks the final answer. A correct
+   answer, 3, earns 1; an incorrect answer earns 0. It does not check every step.
+3. **Critic:** after a prefix such as “There are 9 avocados…”, estimate the expected
+   final reward if this policy continues. For binary outcomes this is a success
+   probability, not a verdict on whether that particular sentence is correct.
+4. **PPO:** combines rewards and value estimates into advantages using GAE, then
+   adjusts the actor's token probabilities with a clipped policy objective.
 
-## Setup on Duke
+Ordinary PPO trains a separate transformer critic. We instead take Qwen's final
+normalized hidden vector at the last prefix token, **before the next action**, and
+fit a small head. The final answer and future tokens never enter that state vector.
 
-You need a Duke cluster account, access to this GitHub repository, and
-Singularity or Apptainer available on the cluster. If neither is available,
-load the site's container module before continuing.
+**Ridge** fits each prefix directly to the eventual outcome. **LSTD(lambda)** fits
+linear value-consistency equations across consecutive states using eligibility
+traces. Both use the same features in our matched comparison. At lambda=1, our
+complete episodic, gamma=1 setup matches ridge with the same regularization.
+Solving TD equations accurately does not guarantee accurate values.
 
-### 1. Get the repository
+LSTD's critic-fitting lambda is separate from PPO's actor GAE lambda. GRPO, our
+other infrastructure baseline, compares rewards across answers to the same prompt
+without training a critic.
 
-On the login node:
+## What runs the experiment
 
-```bash
-mkdir -p /usr/xtmp/ms785
-cd /usr/xtmp/ms785
-git clone git@github.com:SupremeSingh/rl_ms_project.git
-cd rl_ms_project
-```
+- **Qwen/Qwen2.5-Math-1.5B base:** the actor, not the instruct model.
+- **VERL + vLLM + PyTorch/FSDP:** RL coordination, generation and distributed updates.
+- **Math-Verify:** final-answer scoring in a separate environment.
+- **Duke Slurm:** GPU/CPU allocations and unattended jobs.
+- **Our code:** prompts, reward integration, feature caches, critic fits and reports.
 
-If you already have the repository, update it instead:
+In online pilots, ordinary unparseable outputs receive zero reward. Offline critic
+studies exclude answers without a usable verifier label. Thus their metrics are
+**conditional on retained answers**; this difference must be addressed before
+online integration.
 
-```bash
-cd /usr/xtmp/ms785/rl_ms_project
-git pull --ff-only origin main
-```
+## Results so far
 
-### 2. Prepare the environments once
+### Phases 0–3: working RL, not proven improvement
 
-Skip this step if your existing cluster setup works. Obtain a CPU compute
-allocation for installation and downloads:
+We established generation, backpropagation and checkpoint saving. Plain completion
+prompts worked better than chat prompts for this base model. Replacing our strict
+format parser with Math-Verify recovered credit for correct answers. The fresh
+200-answer audit remains incomplete: only 10 were reviewed, all in agreement.
+Checkpoint save/resume equivalence is also not yet established.
 
-```bash
-srun -p compsci --cpus-per-task=8 --mem=128G --time=02:00:00 --pty bash -i
-cd /usr/xtmp/ms785/rl_ms_project
-source scripts/cluster_env.sh
+The PPO and GRPO pilots each ran ten training iterations: **160 generated answers
+for PPO, 320 for GRPO**. These were not equal sampling budgets. On the same 500
+held-out questions with greedy decoding:
 
-# Download the training container and record its checksum.
-"$MATH_RL_RUNTIME" pull "$MATH_RL_IMAGE" \
-  docker://verlai/verl:app-verl0.4-vllm0.8.5-mcore0.12.2-te2.2
-sha256sum "$MATH_RL_IMAGE" > configs/container.sha256
-
-# Install the project, download Qwen/GSM8K, and check PPO/GRPO integration.
-bash scripts/container_exec.sh bash scripts/setup_environment.sh
-bash scripts/container_exec.sh bash scripts/setup_ppo.sh
-
-# Separate host environment for the answer audit.
-python3 -m venv .venv-verifier
-.venv-verifier/bin/python -m pip install -r requirements-verifier.txt
-exit
-```
-
-Expect passing checks and resolved training configurations. The container and
-caches live under `/usr/xtmp/ms785`; the model, data and environments live in the
-repository. Training and mathematical parsing use separate environments because
-their dependencies conflict.
-
-### 3. Submit and check jobs
-
-Submit jobs from the repository on the login node. `sbatch` returns a job number;
-you can then disconnect or turn off your computer.
-
-```bash
-squeue -j JOB_ID
-sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
-```
-
-`PD` means queued; `R` means running. After a job leaves the queue, use `sacct`.
-A successful process reports `COMPLETED` and `0:0`; its experiment report tells
-you whether the scientific checks passed.
-
-## Stages completed so far
-
-### Stage 0 — Working cluster infrastructure
-
-We can load Qwen, generate answers, run backpropagation across A5000 GPUs and save
-training checkpoints. The code uses a fixed VERL revision and records the model,
-data and environment versions. Checkpoint save/resume equivalence has not yet
-been established.
-
-### Stage 1 — Usable prompts and rewards (provisional)
-
-Plain completion prompts worked better than chat-style prompts for this base
-model. Math-Verify replaced our overly strict answer-format parser, allowing
-correct answers to receive credit without one rigid final-line format.
-
-The fresh audit contains 200 responses. **10 were manually reviewed, with full
-agreement on those ten.** We provisionally proceeded; the full audit is incomplete.
-Math-Verify checks extracted answers, not the validity of every reasoning step.
-
-To repeat generation and review:
-
-```bash
-mkdir -p logs
-sbatch scripts/submit_stage1.sh
-# After completion, replace JOB_ID with the returned number:
-python3 scripts/review_final_answers.py outputs/stage1-JOB_ID
-```
-
-### Stage 2 — PPO and GRPO training pilots
-
-Job **12589388** completed both methods in **21 minutes 35 seconds**, using two
-A5000s per method concurrently.
-
-| Method | Updates | Training answers | What ran |
-|---|---:|---:|---|
-| PPO/GAE | 10 | 160 | Actor and separate critic training |
-| GRPO | 10 | 320 | Actor training from within-question reward comparisons |
-
-Both passed the execution checks: finite training metrics, nonzero gradients,
-informative rewards, saved responses and complete final checkpoints.
-
-To repeat the combined pilot:
-
-```bash
-sbatch scripts/submit_pilots.sh
-# After completion:
-cat outputs/pilots-JOB_ID/status.txt
-```
-
-All five status codes should be `0`. This establishes working training, not an
-accuracy improvement.
-
-### Stage 3 — Evaluation on 500 held-out questions
-
-Job **12592051** evaluated the original model and both step-10 checkpoints on the
-same 500 questions, with identical greedy decoding and Math-Verify scoring.
-These questions were held out from our experiments, not necessarily from Qwen's
-pretraining. The official GSM8K test set remains reserved.
-
-| Model | Correct | Accuracy | Mistakes fixed vs. base | New mistakes vs. base |
-|---|---:|---:|---:|---:|
-| Original Qwen | 423/500 | 84.6% | — | — |
-| PPO | 424/500 | 84.8% | 10 | 9 |
-| GRPO | 424/500 | 84.8% | 13 | 12 |
-
-Both gained just one correct answer overall. **These short runs show no convincing
-accuracy improvement**, and do not establish that one algorithm is better.
-The scores are automated; sample-answer review remains important.
-
-To evaluate another completed pilot, supply its training job number:
-
-```bash
-sbatch scripts/submit_evaluation.sh PILOT_JOB_ID
-# After completion, use the new evaluation job number:
-cat outputs/evaluation-EVAL_JOB_ID/summary.json
-```
-
-### Stage 4 — Frozen-model value prediction
-
-The large critic run generated 80,000 answers and retained 77,351. On unseen
-questions, the one-layer sigmoid head reached 71.3% correctness-prediction
-accuracy, the two-layer MLP 71.8%, and the deeper residual network 71.6%.
-Direct ridge regression reached 71.2% with 32 seconds of fitting/tuning.
-These are predictions of answer success, not improvements in Qwen's math accuracy.
-Results exclude parsing failures and require that qualification.
-
-The [frozen critic guide](docs/frozen-critics.md) documents the completed study.
-
-### Stage 5 — Frozen-policy LSTD comparison
-
-Job **12686052** fitted a single linear value head using **61,876 retained training
-answers and 20,931,480 token transitions**. Qwen stayed frozen. We cached a hidden
-vector at every response-prefix boundary, including the question-only state;
-LSTD used consecutive pairs, not just the eight randomly sampled probe prefixes.
-The next-state value is zero after EOS or the response-length cap.
-
-| Method | Test Brier (lower is better) | Correctness-prediction accuracy |
+| Model | Correct | Accuracy |
 |---|---:|---:|
-| LSTD(0) | 0.22889 | 64.0% |
-| Matched ridge | 0.19845 | 70.9% |
+| Base Qwen | 423/500 | 84.6% |
+| PPO/GAE | 424/500 | 84.8% |
+| GRPO | 424/500 | 84.8% |
 
-Ridge performed better with the same features and training transitions. The paired
-question-level Brier difference, LSTD minus ridge, was **+0.03038**, with a 95%
-bootstrap interval of **[+0.02624, +0.03483]**. LSTD was close to the earlier constant
-baseline (0.23054). This does not establish that all LSTD variants fail, or that
-lightweight critics cannot help PPO. Excluded answers still limit both results.
+**Interpretation:** the machinery works; one extra correct answer is not convincing
+learning evidence. These questions were held out from our training, not necessarily
+from Qwen's pretraining.
 
-The detailed diagnostics showed an accurate matrix solve but nearly constant
-predictions: 61,837 of 61,912 test prefixes fell in the 0.6–0.7 probability bin.
-LSTD's AUROC was 0.654 versus ridge's 0.728. Solving these same equations longer
-will not fix that result.
+### Phase 4: do hidden states contain useful value information?
 
-### Stage 6 — LSTD(lambda) sweep
+We froze Qwen and generated **80,000 answers** across 4,000 training, 500 validation
+and 500 test questions. We retained **77,351** and cached every response-prefix
+state. Supervised heads used eight sampled prefixes per retained answer, including
+the question-only state. Splits were by question, not by answer.
 
-Job **12687136** completed in **1 hour 39 minutes**, using the same 20.9 million
-training transitions and one-layer head. Lambda and regularization were selected
-on validation data; Qwen stayed frozen.
-
-| Method | Test Brier | Correctness-prediction accuracy |
+| Head | Test Brier ↓ | Correctness-prediction accuracy |
 |---|---:|---:|
-| LSTD(0) | 0.22889 | 64.0% |
-| LSTD(0.9) | 0.22124 | 64.0% |
-| LSTD(0.99) | 0.20222 | 69.5% |
-| **LSTD(0.999)** | **0.19751** | **71.2%** |
-| LSTD(1) / matched ridge | 0.19845 | 70.9% |
+| Constant baseline | 0.23054 | — |
+| One-layer sigmoid head | 0.19268 | 71.3% |
+| Two-layer MLP | **0.18888** | **71.8%** |
+| Ten-layer residual network | 0.18977 | 71.6% |
+| Raw linear head, gradient fitted | 0.19521 | 71.1% |
+| Direct ridge | 0.19419 | 71.2% |
 
-Validation selected lambda=0.999 and regularization=0.001. Its paired Brier
-advantage over ridge was **0.00095**, with a descriptive 95% interval for
-LSTD-minus-ridge of **[-0.00140, -0.00047]**. Lambda=1 matched ridge, as expected.
-The improvement is small and this test set has been inspected repeatedly.
+Brier is mean squared error against binary outcomes; lower is better. These accuracy
+numbers measure **prediction of answer correctness**, not Qwen's math accuracy.
 
-### Stage 7 — Stability checks
+**Interpretation:** linear features are useful and close to larger heads. Ridge
+fitting/tuning took about 32 seconds, but that excludes generation and feature
+extraction. An early undertrained linear head performed badly; longer fitting and
+validation-based stopping corrected that. Parser failures later interrupted data
+collection; resumable caches and explicit answer exclusions preserved progress.
 
-The length analysis (**12688086**) found the small LSTD advantage mainly on
-129–512-token answers, not the longest answers. A second generation seed on the
-same 500 questions (**12688087**) reproduced it: Brier **0.19790 vs 0.19887**,
-paired difference **−0.00098**, 95% interval **[−0.00146, −0.00050]**.
-These are frozen-critic results, not evidence of better PPO learning.
+### Phases 5–7: LSTD needs a long trace in this setting
 
-### Next — Harder MATH questions
+We fitted LSTD and matched ridge on **61,876 training answers / 20,931,480 token
+transitions**. Both used all consecutive training states; evaluation kept the same
+sampled prefixes. Regularization and lambda were selected on validation only.
 
-Evaluate the locked GSM8K critics on **MATH-500 levels 4 and 5 only**. Use every
-eligible text-only problem with a plain integer/decimal answer; save exclusions.
-Generate 16 answers each, with the same 2,048-token budget. No refitting or tuning.
-This tests transfer to harder math, not whether long reasoning causes an advantage.
+| Method | Original GSM8K test Brier ↓ |
+|---|---:|
+| LSTD(0) | 0.22889 |
+| LSTD(0.90) | 0.22124 |
+| LSTD(0.99) | 0.20222 |
+| **LSTD(0.999)** | **0.19751** |
+| LSTD(1) / matched ridge | 0.19845 |
 
-After publishing these changes and pulling them on the cluster:
+**Interpretation:** LSTD(0) solved its equations accurately but predicted poorly.
+Lambda=0.999 offered a small advantage; lambda=1 matched ridge as expected. This
+ridge result differs from Phase 4 because the fitting weights/protocol differ.
 
-```bash
-source scripts/cluster_env.sh
-sbatch scripts/submit_lstd_math.sh outputs/lstd-12687136
-```
+A new generation seed on the **same 500 test questions** reproduced the advantage:
+0.19790 versus 0.19887; paired question difference **−0.00098**, descriptive 95%
+interval **[−0.00146, −0.00050]**. GSM8K length diagnostics favored medium-length
+answers, not the longest.
 
-Use the returned job number:
+### Phase 8: transfer to harder MATH
 
-```bash
-sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
-cat outputs/lstd-math-JOB_ID/report.txt
-```
+Without refitting, the GSM8K critics were evaluated on **148 MATH-500 level 4/5
+questions**, restricted to text-only integer/decimal answers. Of 2,368 answers,
+2,278 were retained.
 
-The report compares Brier errors overall and by difficulty level, with paired
-question confidence intervals, success rates, exclusions and truncation. Inspect
-`review.jsonl` before claiming improvement. This subset excludes symbolic answers,
-fractions and diagrams; difficulty labels do not guarantee reasoning depth.
-See the [LSTD guide](docs/lstd.md) for resume and interpretation. PPO integration
-follows with conventional, ridge and LSTD critics compared on learning and total cost.
+| Critic | Brier ↓ | Correctness-prediction accuracy |
+|---|---:|---:|
+| LSTD(0.999) | **0.20232** | **69.7%** |
+| Ridge | 0.20886 | 69.2% |
 
+The paired difference was **−0.00650**, interval **[−0.00887, −0.00411]**. The
+advantage was clear on level 4; the level-5 interval included zero. Answers longer
+than 512 tokens favored LSTD, with paired difference **−0.00909**. Question-only
+predictions showed no clear advantage.
 
-### MATH-specific fitting — submit alongside the transfer check
+**Interpretation:** encouraging transfer, particularly during longer answers, but
+not proof that deeper reasoning causes the benefit. Level-5 truncation was 7.6%;
+90 answers were excluded, and reward auditing remains necessary.
 
-```bash
-sbatch scripts/submit_math_fit.sh
-```
+### Phase 9: MATH-specific fitting — results awaited
 
-One job generates data, caches features, fits LSTD(lambda) and matched ridge, then
-writes `outputs/math-fit-JOB_ID/report.txt`. It uses up to **1,000 train / 200
-validation / 300 test questions**, all level 4/5, with **16 answers each** (up to
-24,000 answers). MATH-500 is excluded; the official test split never enters fitting.
-Only integer/decimal, text-only questions qualify. Actual counts are saved.
+A separate pipeline fits critics on up to **1,000 train / 200 validation / 300 test
+MATH level 4/5 questions**, excluding MATH-500, with 16 answers each. Qwen stays
+frozen. This tests fitting on MATH rather than transferring a GSM8K-trained head.
+Unknown difficulty labels initially stopped loading; they are now recorded and
+excluded. The replacement run was submitted; no final report has been provided yet.
 
-The actor stays frozen. Lambda and regularization are selected on validation;
-test results are reported overall and by level. This asks whether **MATH-trained**
-LSTD beats MATH-trained ridge; the other job tests **GSM8K-to-MATH transfer**.
-Neither job updates PPO. Both need a verifier audit before interpreting an advantage.
+### Phase 10: lower-lambda stress test
 
-```bash
-sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
-cat outputs/math-fit-JOB_ID/status.json
-cat outputs/math-fit-JOB_ID/report.txt
-# Resume an interrupted fitting pipeline:
-sbatch scripts/submit_math_fit.sh --out outputs/math-fit-OLD_JOB_ID
-```
+This experiment reused the saved new-seed GSM8K and MATH transfer answers. Each
+method's regularization was selected on GSM8K validation only.
 
-### Compare additional LSTD traces on saved answers
+| Critic | New-seed GSM8K Brier ↓ | MATH transfer Brier ↓ |
+|---|---:|---:|
+| LSTD(0.85) | 0.22348 | 0.30172 |
+| LSTD(0.90) | 0.22113 | 0.29338 |
+| LSTD(0.95) | 0.21585 | 0.27263 |
+| LSTD(0.999), earlier matched evaluations | **0.19790** | **0.20232** |
+| Ridge | 0.19887 | 0.20886 |
 
-CPU-only: fit **lambda 0.85, 0.90, 0.95 and ridge** on the same GSM8K training data,
-then evaluate on the saved new-seed GSM8K answers and harder MATH transfer answers.
-Regularization is selected on GSM8K validation only. Existing runs stay unchanged.
+All three lower-lambda paired intervals favored ridge. At lambda=0.85/0.90,
+accuracy was 64.0% on GSM8K and 32.9% on MATH, versus ridge's 70.9% and 69.2%.
 
-```bash
-sbatch scripts/submit_lstd_traces.sh \
-  outputs/critics-12654337 \
-  outputs/lstd-validation-12688087 \
-  outputs/lstd-math-12688713
-# After completion:
-cat outputs/lstd-traces-JOB_ID/report.txt
-```
+**Interpretation:** LSTD is not generally better. Near-return-regression LSTD is our
+promising variant; stronger short-range bootstrapping was harmful here. These
+are exploratory results on repeatedly inspected sets. Intervals are descriptive,
+not adjusted for multiple comparisons. Raw Brier across datasets also depends on
+their success rates; compare methods within each dataset.
 
-The GSM8K evaluation uses new answers to the same test questions. These sets have
-already been inspected, so this is an exploratory comparison, not fresh confirmation.
+We aim to turn an LLM's own hidden representations into a lightweight critic that makes PPO learning more compute-efficient.
+The next step is to test whether ridge or LSTD can preserve or improve math-solving performance while reducing total training cost.
