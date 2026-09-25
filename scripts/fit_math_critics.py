@@ -148,7 +148,24 @@ def screening_questions(questions):
     return selected
 
 
-def initialize(out, source_run=None, prompt_style="completion", budget=2048, screen=False):
+def bounded_questions(questions):
+    """Preserve splits and exclude the deterministic screening sample."""
+    blocked = {q['id'] for q in screening_questions(questions)}
+    selected = []
+    for split, count in (('train', 300), ('val', 50), ('test', 100)):
+        for level in (4, 5):
+            pool = [q for q in questions if q['split'] == split and q['level'] == level
+                    and q['id'] not in blocked]
+            pool.sort(key=lambda q: hashlib.sha256(('planning-critic-42:' + q['id']).encode()).hexdigest())
+            if len(pool) < count // 2:
+                raise ValueError(f'Not enough unscreened {split} level {level} questions')
+            selected.extend(dict(q) for q in pool[:count // 2])
+    for index, q in enumerate(selected):
+        q['source_index'] = index
+    return selected
+
+
+def initialize(out, source_run=None, prompt_style="completion", budget=2048, screen=False, bounded=False):
     config = dict(protocol='frozen-math-critics-v1', responses=16, generation_seed=161803,
         data_source='math_numeric', exclusion_policy=EXCLUSION_POLICY, prefix_sampling=PREFIX_SAMPLING,
         sampling=dict(temperature=1., top_p=1., top_k=-1, max_tokens=2048, seed='161803 + question index'),
@@ -172,11 +189,18 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
         if source_run is None or budget != 2048:
             raise ValueError('Screen requires a source run and 2048-token budget')
         config.update(screen=True, responses=4)
+    if bounded:
+        if screen or source_run is None or budget != 2048:
+            raise ValueError('Bounded critics require a source, 2048 tokens, and no screen flag')
+        config.update(bounded=True, responses=4, limits=dict(train=300, val=50, test=100),
+                      alphas=[1e-4, .001, .01, .1, 1.], plan_boundary='explicit Solution heading v1')
     paths = [ROOT / p for p in ('scripts/fit_math_critics.py', 'scripts/math_hard.py',
         'scripts/frozen_critics.py', 'scripts/fit_lstd.py', 'scripts/analyze_lstd.py',
         'src/math_rl/critic_probe.py', 'src/math_rl/lstd.py', 'src/math_rl/ppo_reward.py',
         'src/math_rl/verifier_batch.py', 'src/math_rl/math_verify_reward.py',
         'src/math_rl/reward.py', 'src/math_rl/prompts.py', 'src/math_rl/provenance.py')]
+    if bounded:
+        paths += [ROOT / 'scripts/planning_checkpoints.py', ROOT / 'scripts/math_planning.py']
     model_files = sorted((ROOT / 'models/qwen-math').glob('*.safetensors'))
     if not model_files:
         raise ValueError('Missing local base model')
@@ -207,13 +231,19 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
             selection = download_questions()
         else:
             from transformers import AutoTokenizer
-            from math_rl.prompts import encode_completion, encode_planning
+            from math_rl.prompts import encode_completion, encode_planning, encode_plan_sections
             tokenizer = AutoTokenizer.from_pretrained(ROOT / 'models/qwen-math', local_files_only=True)
             selection = json.loads((source_data / 'questions.json').read_text())
             if screen:
                 selection = dict(questions=screening_questions(selection['questions']),
                     counts={'val': 100}, split_rule='Validation only; SHA256 planning-screen-42; 50 per level')
+            if bounded:
+                selection = dict(questions=bounded_questions(selection['questions']), counts=config['limits'],
+                    split_rule='Original splits, balanced levels, SHA256 planning-critic-42; screening sample excluded',
+                    test_previously_inspected=True)
             encoder = encode_planning if prompt_style == 'plan' else encode_completion
+            if bounded and prompt_style == 'plan':
+                encoder = encode_plan_sections
             for q in selection['questions']:
                 q['prompt'], q['prompt_token_ids'] = encoder(tokenizer, q['question'])
         atomic_json(source / 'questions.json', selection)
@@ -285,6 +315,7 @@ def main():
     parser.add_argument('--prompt-style', choices=('completion', 'plan'), default='completion')
     parser.add_argument('--budget', type=int, choices=(2048, 4096), default=2048)
     parser.add_argument('--screen', action='store_true', help='Generate only: 100 validation questions, four answers each')
+    parser.add_argument('--bounded', action='store_true', help='300/50/100 questions and four answers for planning critics')
     parser.add_argument('--stage', choices=('generate', 'extract', 'prepare', 'fit'))
     args = parser.parse_args()
     out = args.out.resolve()
@@ -305,7 +336,7 @@ def main():
         else:
             fit_and_report(out, manifest, questions)
         return
-    initialize(out, args.source_run, args.prompt_style, args.budget, args.screen)
+    initialize(out, args.source_run, args.prompt_style, args.budget, args.screen, args.bounded)
     for stage in (('generate',) if args.screen else ('generate', 'extract', 'prepare', 'fit')):
         started = time.monotonic()
         atomic_json(out / 'status.json', dict(stage=stage, state='running'))

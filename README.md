@@ -4,8 +4,12 @@ We want to improve a math-solving LLM with reinforcement learning while avoiding
 PPO's usual second, large neural network for value prediction. Our candidate is a
 small linear critic fitted to hidden features the actor already computes.
 
-**So far: useful small critics, a narrow LSTD advantage, and no demonstrated PPO
-cost saving yet.** [SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands,
+**Strongest result so far: PPO with LSTD(0.99) improved MATH accuracy from 52.3%
+to 60.0%, with about 30% less measured training time than our conventional PPO
+baseline.** GRPO reached 60.3% at slightly lower cost. This is an encouraging
+single-seed pilot, not established superiority over ridge or GRPO.
+
+[SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands,
 monitoring and resumption. This page explains the experiment and results.
 
 ## One example, from tokens to reinforcement learning
@@ -23,7 +27,7 @@ How many servings can I make?”**
 4. **PPO:** combines rewards and value estimates into advantages using GAE, then
    adjusts the actor's token probabilities with a clipped policy objective.
 
-Ordinary PPO trains a separate transformer critic. We instead take Qwen's final
+Our conventional PPO baseline trains a separate transformer critic. We instead take Qwen's final
 normalized hidden vector at the last prefix token, **before the next action**, and
 fit a small head. The final answer and future tokens never enter that state vector.
 
@@ -186,10 +190,10 @@ are exploratory results on repeatedly inspected sets. Intervals are descriptive,
 not adjusted for multiple comparisons. Raw Brier across datasets also depends on
 their success rates; compare methods within each dataset.
 
-### Phase 11: compare the critics inside PPO — implemented, results pending
+### Phase 11: online MATH training — a positive LSTD-PPO pilot
 
-We now test whether the small critics help **learning**, not just prediction.
-All four methods start from the same base Qwen and use the saved MATH level 4/5
+We tested whether the small critics help **learning**, not just prediction.
+All four methods started from the same base Qwen and used the saved MATH level 4/5
 numeric question splits, Math-Verify reward and token budgets.
 
 | Method | How it produces advantages |
@@ -199,11 +203,33 @@ numeric question splits, Math-Verify reward and token budgets.
 | PPO-LSTD(0.99) | Linear TD trace solve on actor features + GAE |
 | GRPO | Relative rewards among four answers to each question |
 
-Each update generates **16 questions × 4 answers = 64 answers** for every method.
-The default pilot is 30 updates (1,920 training answers per method), one seed, and
-runs sequentially on the same two GPUs. Greedy test evaluation happens before and
-after training. Reports include paired accuracy changes, per-level results,
-truncation, critic fitting time, training time and allocated GPU-hours.
+Each update generated **16 questions × 4 answers = 64 answers** for every method.
+The completed pilot ran 30 updates (**1,920 training answers per method**), with
+seed 42, sequentially on the same two GPUs. Greedy evaluation used the same 300
+test questions before and after training; initial correctness scores were identical.
+
+| Method | Final correct | Accuracy | Gain from 52.3% base | Training minutes ↓ | Allocated GPU-hours ↓ |
+|---|---:|---:|---:|---:|---:|
+| Conventional PPO | 157/300 | 52.3% | 0.0 pp | 78.3 | 2.611 |
+| PPO-ridge | 174/300 | 58.0% | +5.7 pp | 54.3 | 1.809 |
+| **PPO-LSTD(0.99)** | **180/300** | **60.0%** | **+7.7 pp** | **54.6** | **1.821** |
+| GRPO | 181/300 | 60.3% | +8.0 pp | 53.2 | 1.775 |
+
+**What went well:** LSTD-PPO fixed 39 base-model errors and introduced 16 new
+errors, a net gain of **23 correct answers**. Its paired comparison against the
+base gave p=0.0027; against conventional PPO, p=0.0052. LSTD fitting took only
+**81.5 seconds across all 30 updates**, about 2.5% of its measured training time.
+Test truncation fell from 7.7% to 2.0%.
+
+**What remains unresolved:** LSTD's six-answer lead over ridge had p=0.42, and
+its one-answer deficit to GRPO had p=1.0. These do not establish an advantage or
+equivalence. Conventional PPO fixed 27 answers and broke 27: unchanged accuracy
+does not mean unchanged weights or prove that a better-tuned baseline cannot learn.
+
+Training costs include generation, feature transport, fitting, validation and
+checkpointing; they exclude setup, initialization and initial/final test evaluation.
+Thus the 30% saving is for this measured training workload, not an isolated solver
+speedup. Logged peak memory was similar across methods; no memory saving is shown.
 
 For the two linear methods, each iteration captures detached, pre-token features
 from the actor's existing log-probability forward pass. Two question folds ensure
@@ -218,38 +244,41 @@ smaller than the offline dataset; this is a declared pilot setting, not a tuned
 winner. Conventional PPO keeps its critic optimizer across updates. All actors
 use the same PPO loss and optimizer settings.
 
-**Interpretation:** this is a comparison of complete critic systems, not an
-isolated test of the solver against conventional PPO. The test questions were
-already inspected offline, the reward audit remains incomplete, and a short
-single-seed pilot cannot establish superiority. LSTD(0.99) lost to ridge offline;
-we keep that result visible while testing its online behavior. The first cluster pilot completed; replication remains necessary. Commands are in
+**Interpretation:** this supports our central idea: a cheaply fitted linear critic
+can support useful PPO learning. Offline, LSTD(0.99) predicted less accurately
+than ridge; online, it achieved the higher score in this pilot. Value-prediction
+error alone therefore does not determine which critic will help PPO most.
+
+This compares complete critic systems, not just solvers: conventional PPO also
+differs in architecture, targets, persistence and cross-fitting. Test questions
+were already inspected offline, the reward audit remains incomplete, and all
+p-values are exploratory and unadjusted. Replication across training seeds,
+review of changed answers and checks of conventional PPO's critic learning are
+needed before claiming a reliable advantage. Commands are in
 [SETUP.MD](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
 
-### Planning before solving: frozen-model experiment
+### Phase 12: planning — completed screen, critic experiment ready
 
-The 30-update MATH pilot reached 52.3% with conventional PPO, 58.0% with
-ridge-PPO, 60.0% with LSTD(0.99)-PPO and 60.3% with GRPO, from a common 52.3%
-base. LSTD-PPO took about 55 minutes versus 78 for conventional PPO. These are
-one-seed, exploratory results on 300 previously inspected questions—not evidence
-that LSTD beats ridge or GRPO reliably.
+The 800-answer validation screen found no clear solving benefit: current-prompt
+accuracy was 32.3%, planning 31.2%, with a paired difference of −1 percentage
+point (95% interval −6.25 to +4.5). Both truncated 6.5% of answers.
+Planning used 757 tokens on average versus 744 for the current prompt. The run
+took about 53 minutes. This tested solving behavior, not critic quality.
 
-Next we test whether asking for a brief plan makes the frozen base model's
-answers and internal value predictions better. We first screen both prompts on
-100 balanced MATH validation questions, four answers each: 800 answers total,
-without feature extraction or critic fitting. This measures solving accuracy,
-truncation and token use; it cannot establish better value estimates.
+The next, bounded experiment tests value prediction: 300 training, 50 validation
+and 100 test questions, balanced by difficulty, four answers per prompt (3,600
+total). The earlier screening sample is excluded; test questions remain previously
+inspected. Fresh ridge and LSTD(0.99) heads are fitted using causal frozen-model
+features, with regularization chosen on validation only.
 
-If warranted, the full comparison follows. Both the existing prompt and a
-planning prompt use the same MATH splits, 16 answers per question and a 2,048-token
-budget. Each gets fresh ridge and LSTD(0.99) fits; regularization is selected on
-validation only. An optional experiment repeats both prompts at 4,096 tokens.
-
-The report separates **answer accuracy** from **critic prediction accuracy and
-Brier error**, and includes truncation, answer lengths and paired question
-comparisons. Features remain causal: a completed plan cannot be used to predict
-values for earlier tokens. This compares complete prompting conditions, not
-isolated post-plan states. No planning results or new PPO runs are claimed yet.
+Besides random prefixes, evaluation checks 0/32/64/128/256 generated tokens and
+an explicitly marked plan ending. The planning prompt now requests section
+headings; compliance is inspected, not assumed. Reports include coverage,
+calibration, constant baselines and question-paired intervals. A standalone HTML
+viewer shows random examples and large prediction errors side by side. Different
+prompts produce different trajectories, so matched length does not establish a
+causal planning effect. No bounded-critic results or new PPO runs are claimed yet.
 See [SETUP.MD](SETUP.MD#phase-12--planning-before-solving).
 
-We aim to turn an LLM's own hidden representations into a lightweight critic that makes PPO learning more compute-efficient.
-The next step is to test whether ridge or LSTD can preserve or improve math-solving performance while reducing total training cost.
+We aim to turn an LLM's own hidden representations into a lightweight critic that improves learning without a separately trained transformer critic.
+The broader goal is reliable gains per unit of compute, with honest comparisons against conventional PPO, ridge and critic-free GRPO.

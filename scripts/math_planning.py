@@ -158,9 +158,12 @@ def main():
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--long-budget', action='store_true', help='Also run both prompts with 4096 response tokens')
     parser.add_argument('--screen', action='store_true', help='Quick validation-only generation comparison; no critic fitting')
+    parser.add_argument('--bounded', action='store_true', help='Smaller critic experiment with prefix diagnostics and HTML viewer')
     args = parser.parse_args()
     if args.screen and args.long_budget:
         parser.error('--screen uses a fixed 2048-token budget; omit --long-budget')
+    if args.bounded and (args.screen or args.long_budget):
+        parser.error('--bounded cannot be combined with --screen or --long-budget')
     out = args.out.resolve()
     source = args.source_run.resolve()
     if out == source or source in out.parents:
@@ -169,6 +172,8 @@ def main():
     config = dict(source=str(source), conditions=conditions(args.long_budget))
     if args.screen:
         config['screen'] = True
+    if args.bounded:
+        config['bounded'] = True
     manifest = out / 'experiment.json'
     if manifest.exists() and json.loads(manifest.read_text()) != json.loads(json.dumps(config)):
         raise ValueError('Resume settings changed')
@@ -180,7 +185,8 @@ def main():
         with (out / f'{name}.log').open('a') as log:
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/fit_math_critics.py'),
                 '--source-run', str(source), '--out', str(out / name),
-                '--prompt-style', style, '--budget', str(budget)] + (['--screen'] if args.screen else []),
+                '--prompt-style', style, '--budget', str(budget)] +
+                (['--screen'] if args.screen else []) + (['--bounded'] if args.bounded else []),
                 stdout=log, stderr=subprocess.STDOUT)
         status = dict(condition=name, state='complete' if result.returncode == 0 else 'failed',
                       seconds=time.monotonic() - start, exit_code=result.returncode)
@@ -193,6 +199,14 @@ def main():
         summarize_screen(out)
     else:
         summarize(out, [f'{style}-{budget}' for style, budget in conditions(args.long_budget)])
+        if args.bounded:
+            from planning_checkpoints import evaluate
+            atomic_json(out / 'status.json', dict(stage='checkpoints', state='running'))
+            try:
+                evaluate(out)
+            except Exception:
+                atomic_json(out / 'status.json', dict(stage='checkpoints', state='failed'))
+                raise
     atomic_json(out / 'status.json', dict(state='complete'))
     print((out / 'report.txt').read_text())
 

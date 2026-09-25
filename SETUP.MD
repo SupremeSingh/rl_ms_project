@@ -360,7 +360,56 @@ This tests solving behavior, not improved initial values. If inconclusive, expan
 the screen before full fitting. Resume with the same source and `--screen --out
 outputs/math-planning-PREVIOUS_JOB_ID`; never reuse a full-fit output directory.
 
-### Full critic comparison (after screening)
+### Bounded critic comparison (recommended next)
+
+```bash
+sbatch --time=1-00:00:00 scripts/submit_math_planning.sh outputs/math-fit-SOURCE_JOB_ID --bounded
+```
+
+This runs 300/50/100 train/validation/test questions, balanced by level, with four
+answers each under both prompts (3,600 total). It excludes the deterministic
+screening sample, preserves the original splits, and generates fresh base-model
+answers. Original test questions were already inspected, so this is exploratory.
+The prompt requests `Plan:` and `Solution:` sections to identify the end of a plan;
+this is a deliberate change from the screening prompt. Missing or ambiguous
+headings have no post-plan measurement; they are not excluded from other metrics.
+
+LSTD(0.99) and ridge use all retained training transitions with validation-selected
+regularization from 0.0001/0.001/0.01/0.1/1.0. Positive regularization suits this
+smaller dataset. Random-prefix evaluation remains unchanged. Additional diagnostics
+evaluate pre-action states at 0/32/64/128/256 tokens, and post-plan states against
+ordinary prefixes of the same length. Coverage, calibration, constant baselines
+and question-level confidence intervals are saved in `checkpoints.json`.
+No future tokens are inputs, and terminal states are excluded. Conditioning on
+answer survival and detected plans can change the evaluated population.
+
+Budget roughly 6–12 hours, provisionally, with a 24-hour allocation. Unlike the
+screen, this includes feature extraction and critic fitting; completion within a
+day is not guaranteed. Per-question generation and features support resuming:
+
+```bash
+sbatch --time=1-00:00:00 scripts/submit_math_planning.sh outputs/math-fit-SOURCE_JOB_ID \
+  --bounded --out outputs/math-planning-PREVIOUS_JOB_ID
+```
+
+Keep code and settings unchanged when resuming. Check `status.json` and the final
+`report.txt` using the commands above. The final `responses.html` shows up to 24
+examples: a seeded random sample plus large question-only ridge errors. It shows
+both responses, verifier statuses, detected boundaries and prefix predictions.
+Sample indices are for display, not paired stochastic continuations. All responses,
+including excluded ones, remain in each condition's `data/trajectories/` directory.
+
+To view the HTML, run this **on your laptop**, replacing `CLUSTER_HOST` with your
+usual Duke SSH host and `JOB_ID` with the new job ID:
+
+```bash
+scp ms785@CLUSTER_HOST:/usr/xtmp/ms785/rl_ms_project/outputs/math-planning-JOB_ID/responses.html ~/Downloads/
+```
+
+Open the downloaded file in a browser. Review plan compliance and verifier errors
+before drawing conclusions. This job does not train PPO or GRPO.
+
+### Full critic comparison (optional larger experiment)
 
 After pulling the updated repository on the cluster, use the completed MATH fit
 as the immutable question/model source. This generates new answers from the

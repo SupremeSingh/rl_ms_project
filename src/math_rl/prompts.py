@@ -48,3 +48,10 @@ PLAN_INSTRUCTION = (
 def encode_planning(tokenizer, question):
     text = PLAN_INSTRUCTION + "\n\nQuestion: " + question + "\n\nSolution:"
     return text, tokenizer.encode(text, add_special_tokens=False)
+
+
+def encode_plan_sections(tokenizer, question):
+    instruction = (PLAN_INSTRUCTION + ' Use a Plan: heading for the plan and then a Solution: '
+                   'heading on its own line before carrying out the plan.')
+    text = instruction + '\n\nQuestion: ' + question + '\n\nPlan:'
+    return text, tokenizer.encode(text, add_special_tokens=False)
