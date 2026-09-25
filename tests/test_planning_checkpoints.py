@@ -78,3 +78,33 @@ def test_checkpoint_evaluation_reads_causal_positions_and_keeps_excluded_visible
     assert '<script>' not in html
     assert '&lt;script&gt;' in html
     assert 'parse_failure' in html
+
+
+@pytest.mark.parametrize('heading', ['Solution: ', '**Solution:** ', '### Solution: ',
+    '**Step-by-Step Solution:**\n', 'Step by step Solution: '])
+def test_heading_variants(heading):
+    text = 'We will add the quantities.\n' + heading + 'Now calculate.'
+    boundary = plan_boundary(TOKENIZER, list(map(ord, text)))
+    assert boundary is not None
+    assert text[:boundary].endswith(heading)
+
+
+def test_format_compliance_and_fenced_headings():
+    from planning_checkpoints import format_audit
+    text = ('What we know: Two quantities.\nWhat we will do: Add them.\n'
+            'Solution: Add 1 and 2.\nFinal answer: 3')
+    assert format_audit(text)['ordered_sections']
+    assert not format_audit(text.replace('Final answer: 3', 'Final answer:'))['ordered_sections']
+    assert plan_boundary(TOKENIZER, list(map(ord, 'Plan.\n```\nSolution: fake\n```'))) is None
+    assert not format_audit('What we know:\nWhat we will do:\nSolution:\nFinal answer: 3')['ordered_sections']
+
+
+def test_structured_prompt_shares_final_answer_contract():
+    from math_rl.prompts import encode_structured
+    tokenizer = SimpleNamespace(encode=lambda text, **kw: list(map(ord, text)))
+    control, _ = encode_structured(tokenizer, 'Find x.', False)
+    plan, _ = encode_structured(tokenizer, 'Find x.', True)
+    assert 'What we know:' in plan and 'What we will do:' in plan
+    assert 'What we know:' not in control
+    contract = r'Final answer: \boxed{number}'
+    assert contract in control and contract in plan

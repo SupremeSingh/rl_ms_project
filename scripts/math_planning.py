@@ -159,7 +159,13 @@ def main():
     parser.add_argument('--long-budget', action='store_true', help='Also run both prompts with 4096 response tokens')
     parser.add_argument('--screen', action='store_true', help='Quick validation-only generation comparison; no critic fitting')
     parser.add_argument('--bounded', action='store_true', help='Smaller critic experiment with prefix diagnostics and HTML viewer')
+    parser.add_argument('--structured', action='store_true', help='Bounded known-facts/actions prompt and audited conclusion rule')
+    parser.add_argument('--audit-source', type=Path, help='Audit a previous planning run into a separate subdirectory')
     args = parser.parse_args()
+    if args.structured:
+        args.bounded = True
+    if args.audit_source and not args.structured:
+        parser.error('--audit-source requires --structured')
     if args.screen and args.long_budget:
         parser.error('--screen uses a fixed 2048-token budget; omit --long-budget')
     if args.bounded and (args.screen or args.long_budget):
@@ -174,10 +180,23 @@ def main():
         config['screen'] = True
     if args.bounded:
         config['bounded'] = True
+    if args.structured:
+        config['structured'] = True
+        config['audit_source'] = str(args.audit_source.resolve()) if args.audit_source else None
     manifest = out / 'experiment.json'
     if manifest.exists() and json.loads(manifest.read_text()) != json.loads(json.dumps(config)):
         raise ValueError('Resume settings changed')
     atomic_json(manifest, config)
+    if args.audit_source:
+        audit_out = out / 'source-audit'
+        if not (audit_out / 'summary.json').exists():
+            atomic_json(out / 'status.json', dict(stage='source-audit', state='running'))
+            with (out / 'source-audit.log').open('a') as log:
+                result = subprocess.run([sys.executable, str(ROOT / 'scripts/audit_planning.py'),
+                    str(args.audit_source.resolve()), '--out', str(audit_out)], stdout=log, stderr=subprocess.STDOUT)
+            if result.returncode:
+                atomic_json(out / 'status.json', dict(stage='source-audit', state='failed'))
+                raise RuntimeError('Source audit failed; inspect source-audit.log')
     for style, budget in conditions(args.long_budget):
         name = f'{style}-{budget}'
         atomic_json(out / 'status.json', dict(condition=name, state='running'))
@@ -186,7 +205,8 @@ def main():
             result = subprocess.run([sys.executable, str(ROOT / 'scripts/fit_math_critics.py'),
                 '--source-run', str(source), '--out', str(out / name),
                 '--prompt-style', style, '--budget', str(budget)] +
-                (['--screen'] if args.screen else []) + (['--bounded'] if args.bounded else []),
+                (['--screen'] if args.screen else []) + (['--bounded'] if args.bounded else []) +
+                (['--structured'] if args.structured else []),
                 stdout=log, stderr=subprocess.STDOUT)
         status = dict(condition=name, state='complete' if result.returncode == 0 else 'failed',
                       seconds=time.monotonic() - start, exit_code=result.returncode)

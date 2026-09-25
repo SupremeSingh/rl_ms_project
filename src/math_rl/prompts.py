@@ -55,3 +55,19 @@ def encode_plan_sections(tokenizer, question):
                    'heading on its own line before carrying out the plan.')
     text = instruction + '\n\nQuestion: ' + question + '\n\nPlan:'
     return text, tokenizer.encode(text, add_special_tokens=False)
+
+
+def encode_structured(tokenizer, question, planning):
+    if planning:
+        instruction = (
+            'Solve the problem using these sections in order.\n'
+            'What we know: List the given facts, constraints and requested quantity in at most three short bullets. '
+            'Do not invent facts.\n'
+            'What we will do: Give at most three short steps explaining your proposed method. '
+            'Do not calculate the final answer yet.\n'
+            'Solution: Carry out the method and check the calculation.\n')
+    else:
+        instruction = 'Solve the math problem step by step.\n'
+    instruction += r'End with one line: Final answer: \boxed{number}. Put only your final numeric answer in the box.'
+    text = instruction + '\n\nQuestion: ' + question + '\n\nResponse:'
+    return text, tokenizer.encode(text, add_special_tokens=False)

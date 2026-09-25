@@ -13,12 +13,35 @@ from math_rl.lstd import predict
 
 POSITIONS = (0, 32, 64, 128, 256)
 METHODS = ('lstd-0.99', 'ridge')
+BOUNDARY_VERSION = 'explicit-headings-v2'
+
+
+def headings(text, title):
+    """Recognize explicit Markdown/plain headings, including inline content; ignore code."""
+    fences = [(m.start(), m.end()) for m in re.finditer(r'```.*?(?:```|\Z)', text, re.S)]
+    pattern = r'(?im)^[ \t]*(?:#{1,6}[ \t]+)?(?:\*\*)?' + title + r'(?:\*\*)?:[ \t]*(?:\*\*)?[ \t]*(?:\r?\n)?'
+    return [m for m in re.finditer(pattern, text)
+            if not any(lo <= m.start() < hi for lo, hi in fences)]
+
+
+def format_audit(text):
+    known, actions = headings(text, 'What we know'), headings(text, 'What we will do')
+    solution = headings(text, r'(?:Step[- ]by[- ]step[ \t]+)?Solution')
+    final = headings(text, 'Final answer')
+    ordered = all(len(group) == 1 for group in (known, actions, solution, final))
+    ordered = ordered and known[0].start() < actions[0].start() < solution[0].start() < final[0].start()
+    populated = ordered and all(text[a.end():b.start()].strip() for a, b in
+                               ((known[0], actions[0]), (actions[0], solution[0]), (solution[0], final[0])))
+    populated = populated and bool(text[final[0].end():].strip())
+    return dict(ordered_sections=bool(populated), solution_headings=len(solution),
+                answer_before_solution=bool(solution and r'\boxed' in text[:solution[0].start()]),
+                boundary_version=BOUNDARY_VERSION)
 
 
 def plan_boundary(tokenizer, ids):
     """First complete explicit heading; map using decoded prefixes, never re-tokenize."""
     text = tokenizer.decode(ids, skip_special_tokens=True)
-    matches = list(re.finditer(r'(?im)^\s*(?:\*\*)?Solution:(?:\*\*)?\s*\n', text))
+    matches = headings(text, r'(?:Step[- ]by[- ]step[ \t]+)?Solution')
     if len(matches) != 1 or not text[:matches[0].start()].strip():
         return None
     end = matches[0].end()
@@ -69,7 +92,9 @@ def render_viewer(path, examples):
             columns.append('<article><h3>' + style + '</h3><p>' + escape(answer['status']) +
                 ' · plan boundary: ' + escape(str(answer['plan_boundary'])) +
                 '</p><pre>' + escape(answer['response']) + '</pre><h4>Prefix predictions</h4><pre>' +
-                escape(json.dumps(answer['predictions'], indent=2)) + '</pre></article>')
+                escape(json.dumps(answer['predictions'], indent=2)) + '</pre><h4>Audit</h4><pre>' +
+                escape(json.dumps(dict(format=answer.get('format_audit'), verifier=answer.get('verifier_audit')), indent=2)) +
+                '</pre></article>')
         sections.append('<details><summary>' + escape(example['id']) + ' · sample ' +
             str(example['sample']) + ' · ' + escape(example['selection']) + '</summary><p>' +
             escape(example['question']) + '</p><p>Reference: ' + escape(example['reference']) +
@@ -105,7 +130,8 @@ def evaluate(out, tokenizer=None):
             for sample, answer in enumerate(raw['responses']):
                 boundary = plan_boundary(tokenizer, answer['token_ids']) if style == 'plan' else None
                 record = dict(response=answer['response'], status=answer['verifier_status'],
-                    plan_boundary=boundary, predictions={}, question=q['question'], reference=q['ground_truth'])
+                    plan_boundary=boundary, format_audit=format_audit(answer['response']),
+                    verifier_audit=answer.get('audit'), predictions={}, question=q['question'], reference=q['ground_truth'])
                 rows[(q['id'], sample)] = record
                 if sample not in retained:
                     continue
@@ -154,6 +180,9 @@ def evaluate(out, tokenizer=None):
             for (style, label, method), rows in list(groups.items()) if method in METHODS and rows},
         plan_heading_detected=sum(r['plan_boundary'] is not None for r in records['plan'].values()),
         total_plan_answers=len(records['plan']),
+        boundary_version=BOUNDARY_VERSION,
+        ordered_plan_sections=sum(r['format_audit']['ordered_sections'] for r in records['plan'].values()),
+        early_boxed_answers=sum(r['format_audit']['answer_before_solution'] for r in records['plan'].values()),
         scope='Exploratory inspected test questions. Retained answers only; prefix must precede termination. '
               'Coverage and outcome rates vary with prompt and position. Matched lengths condition on observed plan '
               'length and ordinary-answer survival, not a causal planning effect. Confidence intervals cluster '
@@ -176,6 +205,9 @@ def evaluate(out, tokenizer=None):
     atomic_json(out / 'viewer-examples.json', examples)
     render_viewer(out / 'responses.html', examples)
     lines = ['\nPrefix diagnostics: plan minus completion Brier (negative favors planning)']
+    lines.append(f"Format audit: {report['ordered_plan_sections']}/{report['total_plan_answers']} answers with ordered, nonempty sections; "
+                 f"{report['plan_heading_detected']} detected boundaries; {report['early_boxed_answers']} early boxed answers. "
+                 f"Boundary rule: {BOUNDARY_VERSION}. These are syntax checks, not reasoning checks.")
     for name, comparison in comparisons.items():
         if comparison:
             lines.append(f"{name}: {comparison['difference']:+.5f}; 95% interval {comparison['interval_95']}; questions={comparison['questions']}")

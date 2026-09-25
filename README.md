@@ -257,7 +257,7 @@ review of changed answers and checks of conventional PPO's critic learning are
 needed before claiming a reliable advantage. Commands are in
 [SETUP.MD](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
 
-### Phase 12: planning — completed screen, critic experiment ready
+### Phase 12: planning — initial results and structured rerun
 
 The 800-answer validation screen found no clear solving benefit: current-prompt
 accuracy was 32.3%, planning 31.2%, with a paired difference of −1 percentage
@@ -265,20 +265,51 @@ point (95% interval −6.25 to +4.5). Both truncated 6.5% of answers.
 Planning used 757 tokens on average versus 744 for the current prompt. The run
 took about 53 minutes. This tested solving behavior, not critic quality.
 
-The next, bounded experiment tests value prediction: 300 training, 50 validation
-and 100 test questions, balanced by difficulty, four answers per prompt (3,600
-total). The earlier screening sample is excluded; test questions remain previously
-inspected. Fresh ridge and LSTD(0.99) heads are fitted using causal frozen-model
-features, with regularization chosen on validation only.
+The bounded critic experiment completed in 3 hours 36 minutes: 300 training,
+50 validation and 100 test questions, four answers per prompt (3,600 total).
+Ordinary versus planning answer accuracy was 30.5% versus 29.5%. LSTD Brier was
+0.18994 versus 0.19972; ridge was 0.18594 versus 0.20130. Overall paired intervals
+included zero. Fixed-prefix results generally favored ordinary reasoning.
 
-Besides random prefixes, evaluation checks 0/32/64/128/256 generated tokens and
-an explicitly marked plan ending. The planning prompt now requests section
-headings; compliance is inspected, not assumed. Reports include coverage,
-calibration, constant baselines and question-paired intervals. A standalone HTML
-viewer shows random examples and large prediction errors side by side. Different
-prompts produce different trajectories, so matched length does not establish a
-causal planning effect. No bounded-critic results or new PPO runs are claimed yet.
-See [SETUP.MD](SETUP.MD#phase-12--planning-before-solving).
+Manual response inspection found missed plan headings and an apparent verifier
+false rejection: a concluding `b = 7` was obscured by later numbers. Some generated
+code-output blocks were also wrong; these blocks are text, not executed programs.
+The post-plan comparison therefore needs qualification, and scoring needs auditing.
+
+**Implemented next: an audited, structured rerun.** The planning prompt requests:
+
+1. **What we know:** given facts, constraints and the quantity to find.
+2. **What we will do:** a short proposed method, before calculating the answer.
+3. **Solution:** carry out the method and check the calculation.
+4. **Final answer:** one explicit numeric conclusion.
+
+The control prompt shares the final-answer format and verifier. Both use the same
+bounded question splits, four answers per question and a 2,048-token budget:
+**3,600 fresh answers**, followed by separate ridge and LSTD(0.99) fits. The actor
+remains frozen; this is not a new PPO or GRPO training run.
+
+| Fix | What it checks |
+|---|---|
+| Broader boundary detection | Inline, Markdown and step-by-step solution headings; fenced code is ignored and multiple headings are flagged as ambiguous. |
+| Section-compliance audit | Missing or empty sections, incorrect order and boxed answers appearing before the solution. |
+| Opt-in conclusion selection | Explicit final-answer lines and supported concluding numeric assignments, with Math-Verify checking equivalence. Repeated final-answer lines abstain. |
+| Response viewer | Actual generated text, prefix predictions, format flags and old/new verifier details. |
+
+An optional audit rescores the previous saved answers into separate files. Original
+labels, features, fitted heads and reports are preserved. The new rule records its
+selected text and legacy score; existing PPO commands retain their original rule.
+It remains an experimental extractor, not a reasoning verifier or a fail-proof
+judge. Requested formatting is measured, not assumed or enforced.
+
+The rerun retains random-prefix evaluation and adds fixed-token and post-plan
+diagnostics, coverage, calibration and constant baselines. Only already-generated
+tokens enter each value prediction. Test questions remain previously inspected;
+different prompts and retained-answer populations limit causal interpretation.
+
+**Status:** 50 targeted pipeline tests and 24 verifier tests passed locally;
+structured cluster results are pending. No planning benefit is established.
+Instructions and audit/viewer locations are in
+[SETUP.MD](SETUP.MD#structured-plan-rerun-and-verification-audit).
 
 We aim to turn an LLM's own hidden representations into a lightweight critic that improves learning without a separately trained transformer critic.
 The broader goal is reliable gains per unit of compute, with honest comparisons against conventional PPO, ridge and critic-free GRPO.

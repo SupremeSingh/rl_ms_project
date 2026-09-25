@@ -409,6 +409,41 @@ scp ms785@CLUSTER_HOST:/usr/xtmp/ms785/rl_ms_project/outputs/math-planning-JOB_I
 Open the downloaded file in a browser. Review plan compliance and verifier errors
 before drawing conclusions. This job does not train PPO or GRPO.
 
+### Structured-plan rerun and verification audit
+
+```bash
+sbatch --time=1-00:00:00 scripts/submit_math_planning.sh outputs/math-fit-SOURCE_JOB_ID \
+  --structured --audit-source outputs/math-planning-OLD_JOB_ID
+```
+
+`--structured` implies the bounded 3,600-answer experiment. It requests **What we
+know**, **What we will do**, **Solution**, and **Final answer** in that order.
+Both prompt conditions share the same final-answer instruction and the opt-in
+`math-verify-conclusion-v2` rule. This is a new protocol: do not resume into an old
+bounded run. The model is prompted, not grammar-constrained; compliance counts and
+viewer examples expose missing sections, duplicate boundaries and premature answers.
+
+Before fresh generation, the optional audit rescoring checks all saved answers from
+`OLD_JOB_ID` without changing the original labels, features or reports. Its outputs
+are `source-audit/summary.json`, `changes.json` and per-condition audit JSONL files.
+It does not relabel old heads or recompute their performance. Fresh heads are fitted
+on newly scored trajectories in the new run.
+
+The new rule prioritizes explicit final-answer lines and a narrow class of concluding
+numeric assignments. Math-Verify still checks equivalence. Old/new scores, extracted
+expressions and selected conclusion text are saved for review. Ambiguous repeated
+final-answer lines abstain. This experimental rule is not a semantic reasoning checker;
+it can still select an irrelevant expression. Inspect changed and unchanged examples.
+Existing PPO and other legacy commands keep their original verifier rule.
+
+Boundary detection now accepts inline `Solution:` and Markdown/step-by-step headings,
+ignores fenced code and declines ambiguous multiple solution headings. It does not
+infer a plan where no explicit boundary exists. Read the new `report.txt`,
+`checkpoints.json` and `responses.html` as above. Include both `--structured` and
+`--audit-source` unchanged when resuming with `--out outputs/math-planning-NEW_JOB_ID`.
+A completed audit is reused; an interrupted audit restarts its CPU rescoring.
+Allow approximately 4–8 hours provisionally, with a 24-hour allocation.
+
 ### Full critic comparison (optional larger experiment)
 
 After pulling the updated repository on the cluster, use the completed MATH fit

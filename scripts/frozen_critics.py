@@ -111,7 +111,8 @@ def generate(out, config, questions):
         if raw["question_id"] != q["id"] or len(raw["responses"]) != config["responses"]:
             raise RuntimeError("Incomplete generation")
         scores = compute_score([config.get("data_source", "gsm8k")] * len(raw["responses"]), [r["response"] for r in raw["responses"]],
-                               [q["ground_truth"]] * len(raw["responses"]), exclude_errors=True)
+                               [q["ground_truth"]] * len(raw["responses"]), exclude_errors=True,
+                               **({'rule': config['verifier_rule']} if config.get('verifier_rule') else {}))
         rows = [dict(r, **score) for r, score in zip(raw["responses"], scores, strict=True)]
         for row in rows:
             if not row['token_ids']:

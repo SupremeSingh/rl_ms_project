@@ -165,7 +165,7 @@ def bounded_questions(questions):
     return selected
 
 
-def initialize(out, source_run=None, prompt_style="completion", budget=2048, screen=False, bounded=False):
+def initialize(out, source_run=None, prompt_style="completion", budget=2048, screen=False, bounded=False, structured=False):
     config = dict(protocol='frozen-math-critics-v1', responses=16, generation_seed=161803,
         data_source='math_numeric', exclusion_policy=EXCLUSION_POLICY, prefix_sampling=PREFIX_SAMPLING,
         sampling=dict(temperature=1., top_p=1., top_k=-1, max_tokens=2048, seed='161803 + question index'),
@@ -194,6 +194,11 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
             raise ValueError('Bounded critics require a source, 2048 tokens, and no screen flag')
         config.update(bounded=True, responses=4, limits=dict(train=300, val=50, test=100),
                       alphas=[1e-4, .001, .01, .1, 1.], plan_boundary='explicit Solution heading v1')
+    if structured:
+        if not bounded:
+            raise ValueError('Structured protocol requires bounded fitting')
+        config.update(prompt_protocol='known-actions-v2', verifier_rule='math-verify-conclusion-v2',
+                      plan_boundary='explicit-headings-v2')
     paths = [ROOT / p for p in ('scripts/fit_math_critics.py', 'scripts/math_hard.py',
         'scripts/frozen_critics.py', 'scripts/fit_lstd.py', 'scripts/analyze_lstd.py',
         'src/math_rl/critic_probe.py', 'src/math_rl/lstd.py', 'src/math_rl/ppo_reward.py',
@@ -201,6 +206,8 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
         'src/math_rl/reward.py', 'src/math_rl/prompts.py', 'src/math_rl/provenance.py')]
     if bounded:
         paths += [ROOT / 'scripts/planning_checkpoints.py', ROOT / 'scripts/math_planning.py']
+    if structured:
+        paths += [ROOT / 'src/math_rl/conclusion_reward.py']
     model_files = sorted((ROOT / 'models/qwen-math').glob('*.safetensors'))
     if not model_files:
         raise ValueError('Missing local base model')
@@ -231,7 +238,7 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
             selection = download_questions()
         else:
             from transformers import AutoTokenizer
-            from math_rl.prompts import encode_completion, encode_planning, encode_plan_sections
+            from math_rl.prompts import encode_completion, encode_planning, encode_plan_sections, encode_structured
             tokenizer = AutoTokenizer.from_pretrained(ROOT / 'models/qwen-math', local_files_only=True)
             selection = json.loads((source_data / 'questions.json').read_text())
             if screen:
@@ -245,7 +252,8 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
             if bounded and prompt_style == 'plan':
                 encoder = encode_plan_sections
             for q in selection['questions']:
-                q['prompt'], q['prompt_token_ids'] = encoder(tokenizer, q['question'])
+                q['prompt'], q['prompt_token_ids'] = (encode_structured(tokenizer, q['question'], prompt_style == 'plan')
+                    if structured else encoder(tokenizer, q['question']))
         atomic_json(source / 'questions.json', selection)
     source_manifest = dict(manifest, questions_sha256=sha256(source / 'questions.json'))
     if (source / 'manifest.json').exists():
@@ -316,6 +324,7 @@ def main():
     parser.add_argument('--budget', type=int, choices=(2048, 4096), default=2048)
     parser.add_argument('--screen', action='store_true', help='Generate only: 100 validation questions, four answers each')
     parser.add_argument('--bounded', action='store_true', help='300/50/100 questions and four answers for planning critics')
+    parser.add_argument('--structured', action='store_true')
     parser.add_argument('--stage', choices=('generate', 'extract', 'prepare', 'fit'))
     args = parser.parse_args()
     out = args.out.resolve()
@@ -336,7 +345,7 @@ def main():
         else:
             fit_and_report(out, manifest, questions)
         return
-    initialize(out, args.source_run, args.prompt_style, args.budget, args.screen, args.bounded)
+    initialize(out, args.source_run, args.prompt_style, args.budget, args.screen, args.bounded, args.structured)
     for stage in (('generate',) if args.screen else ('generate', 'extract', 'prepare', 'fit')):
         started = time.monotonic()
         atomic_json(out / 'status.json', dict(stage=stage, state='running'))
