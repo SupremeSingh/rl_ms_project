@@ -136,11 +136,42 @@ def download_questions():
     return selected
 
 
-def initialize(out):
+def screening_questions(questions):
+    """Fixed, outcome-independent validation sample: 50 questions per level."""
+    selected = []
+    for level in (4, 5):
+        pool = [q for q in questions if q['split'] == 'val' and q['level'] == level]
+        pool.sort(key=lambda q: hashlib.sha256(('planning-screen-42:' + q['id']).encode()).hexdigest())
+        if len(pool) < 50:
+            raise ValueError(f'Screen requires 50 validation questions at level {level}')
+        selected.extend(pool[:50])
+    return selected
+
+
+def initialize(out, source_run=None, prompt_style="completion", budget=2048, screen=False):
     config = dict(protocol='frozen-math-critics-v1', responses=16, generation_seed=161803,
         data_source='math_numeric', exclusion_policy=EXCLUSION_POLICY, prefix_sampling=PREFIX_SAMPLING,
         sampling=dict(temperature=1., top_p=1., top_k=-1, max_tokens=2048, seed='161803 + question index'),
         limits=LIMITS, lambdas=[0., .9, .99, .999, 1.], alphas=[0., 1e-6, 1e-5, 1e-4, .001, .01, .1, 1.])
+    if source_run is not None:
+        source_run = source_run.resolve()
+        if not (source_run / 'report.txt').exists():
+            raise ValueError('Source must be a completed MATH fit')
+        source_data = source_run / 'data'
+        original = json.loads((source_data / 'manifest.json').read_text())
+        if original['questions_sha256'] != sha256(source_data / 'questions.json'):
+            raise ValueError('Source question snapshot changed')
+        if original['config']['protocol'] != 'frozen-math-critics-v1':
+            raise ValueError('Expected a MATH fitting source')
+        config.update(prompt_style=prompt_style, source_run=str(source_run),
+                      source_questions_sha256=sha256(source_data / 'questions.json'), lambdas=[.99])
+        config['sampling']['max_tokens'] = budget
+    elif prompt_style != 'completion' or budget != 2048:
+        raise ValueError('Planning experiments require --source-run')
+    if screen:
+        if source_run is None or budget != 2048:
+            raise ValueError('Screen requires a source run and 2048-token budget')
+        config.update(screen=True, responses=4)
     paths = [ROOT / p for p in ('scripts/fit_math_critics.py', 'scripts/math_hard.py',
         'scripts/frozen_critics.py', 'scripts/fit_lstd.py', 'scripts/analyze_lstd.py',
         'src/math_rl/critic_probe.py', 'src/math_rl/lstd.py', 'src/math_rl/ppo_reward.py',
@@ -149,6 +180,12 @@ def initialize(out):
     model_files = sorted((ROOT / 'models/qwen-math').glob('*.safetensors'))
     if not model_files:
         raise ValueError('Missing local base model')
+    if source_run is not None:
+        for path in model_files + sorted((ROOT / 'models/qwen-math').glob('*.json')):
+            expected = original['files'].get(str(path))
+            if expected != sha256(path):
+                raise ValueError(f'Source model differs: {path}')
+        paths += [source_data / 'manifest.json', source_data / 'questions.json']
     paths += model_files + sorted((ROOT / 'models/qwen-math').glob('*.json'))
     verifier = json.loads(subprocess.check_output(verifier_command() + ['--provenance'], text=True,
         env=dict(os.environ, PYTHONPATH=str(ROOT / 'src'))))
@@ -166,17 +203,30 @@ def initialize(out):
     source = out / 'data'
     source.mkdir(exist_ok=True)
     if not (source / 'questions.json').exists():
-        atomic_json(source / 'questions.json', download_questions())
+        if source_run is None:
+            selection = download_questions()
+        else:
+            from transformers import AutoTokenizer
+            from math_rl.prompts import encode_completion, encode_planning
+            tokenizer = AutoTokenizer.from_pretrained(ROOT / 'models/qwen-math', local_files_only=True)
+            selection = json.loads((source_data / 'questions.json').read_text())
+            if screen:
+                selection = dict(questions=screening_questions(selection['questions']),
+                    counts={'val': 100}, split_rule='Validation only; SHA256 planning-screen-42; 50 per level')
+            encoder = encode_planning if prompt_style == 'plan' else encode_completion
+            for q in selection['questions']:
+                q['prompt'], q['prompt_token_ids'] = encoder(tokenizer, q['question'])
+        atomic_json(source / 'questions.json', selection)
     source_manifest = dict(manifest, questions_sha256=sha256(source / 'questions.json'))
     if (source / 'manifest.json').exists():
         if json.loads((source / 'manifest.json').read_text()) != source_manifest:
             raise ValueError('Frozen question snapshot changed')
     else:
         atomic_json(source / 'manifest.json', source_manifest)
-    for name in ('trajectories', 'features'):
+    for name in (('trajectories',) if screen else ('trajectories', 'features')):
         (source / name).mkdir(exist_ok=True)
     counts = json.loads((source / 'questions.json').read_text())['counts']
-    print(f'Selected questions: {counts}; 16 answers each', flush=True)
+    print(f"Selected questions: {counts}; {config['responses']} answers each", flush=True)
     return manifest
 
 
@@ -193,7 +243,8 @@ def prepare(source, questions):
         raw = json.loads((source / 'trajectories' / f'{i:05d}.json').read_text())
         statuses[q['split']].update(r['verifier_status'] for r in raw['responses'])
     atomic_json(source / 'summary.json', dict(scope='Data preparation only; normalization uses training prefixes only',
-        statuses={s: dict(c) for s, c in statuses.items()}, test_previously_inspected=False))
+        statuses={s: dict(c) for s, c in statuses.items()},
+        test_previously_inspected=bool(json.loads((source / 'manifest.json').read_text())['config'].get('source_run'))))
 
 
 def fit_and_report(out, manifest, questions):
@@ -218,16 +269,22 @@ def fit_and_report(out, manifest, questions):
         ('counts', 'limits', 'split_rule', 'reserved_math500_questions', 'dataset_revisions') if k in selection}
     atomic_json(out / 'summary.json', summary)
     lines = ['MATH-specific fitting; levels 4/5 numeric subset; frozen base actor.',
-             'MATH-500 excluded. Lambda and alpha selected on validation only.',
+             ('MATH-500 excluded. Lambda fixed at 0.99; alpha selected on validation only.'
+              if config.get('source_run') else 'MATH-500 excluded. Lambda and alpha selected on validation only.'),
+             f"Prompt: {config.get('prompt_style', 'completion')}; response budget: {config.get('sampling', {}).get('max_tokens', 2048)}",
              (fitted / 'report.txt').read_text(),
              'Per-level test results: ' + json.dumps(summary['difficulty']),
-             'Inspect data/review.jsonl. Conditional on verifiable answers; fixed 2048-token cap. No PPO claim.']
+             'Inspect data/review.jsonl. Critic metrics conditional on verifiable answers. No PPO claim.']
     (out / 'report.txt').write_text('\n'.join(lines) + '\n')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', required=True, type=Path)
+    parser.add_argument('--source-run', type=Path)
+    parser.add_argument('--prompt-style', choices=('completion', 'plan'), default='completion')
+    parser.add_argument('--budget', type=int, choices=(2048, 4096), default=2048)
+    parser.add_argument('--screen', action='store_true', help='Generate only: 100 validation questions, four answers each')
     parser.add_argument('--stage', choices=('generate', 'extract', 'prepare', 'fit'))
     args = parser.parse_args()
     out = args.out.resolve()
@@ -248,8 +305,8 @@ def main():
         else:
             fit_and_report(out, manifest, questions)
         return
-    initialize(out)
-    for stage in ('generate', 'extract', 'prepare', 'fit'):
+    initialize(out, args.source_run, args.prompt_style, args.budget, args.screen)
+    for stage in (('generate',) if args.screen else ('generate', 'extract', 'prepare', 'fit')):
         started = time.monotonic()
         atomic_json(out / 'status.json', dict(stage=stage, state='running'))
         with (out / f'{stage}.log').open('a') as log:
@@ -262,7 +319,8 @@ def main():
             history.write(json.dumps(status) + '\n')
         if result.returncode:
             raise RuntimeError(f'{stage} failed; see {out / (stage + ".log")}')
-    print((out / 'report.txt').read_text())
+    if not args.screen:
+        print((out / 'report.txt').read_text())
 
 
 if __name__ == '__main__':

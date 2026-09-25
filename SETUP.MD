@@ -327,3 +327,90 @@ the cause. Read the error before resubmitting. Never remove original caches to
 silence a provenance mismatch.
 
 See [docs/lstd.md](docs/lstd.md) for equations, controls and limitations.
+
+
+## Phase 12 — Planning before solving
+
+Start with the quick validation screen, before committing to full critic fits:
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+source scripts/cluster_env.sh
+sbatch --time=03:00:00 scripts/submit_math_planning.sh outputs/math-fit-SOURCE_JOB_ID --screen
+```
+
+This uses 100 validation questions (50 at each difficulty level), four answers
+per question and prompt, and 2,048 response tokens: **800 answers total**.
+It performs no feature extraction or critic fitting. Expect roughly 20–60 minutes
+after allocation as a provisional estimate; the three-hour limit gives headroom.
+The source snapshots and base model are checked, and the original run is untouched.
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/math-planning-JOB_ID/status.json
+cat outputs/math-planning-JOB_ID/report.txt
+```
+
+`summary.json` includes verifier status counts and per-level accuracy. All attempts
+remain in the accuracy denominator. `review.jsonl` contains paired questions and
+both sets of responses, with changed success rates first. Review these for scoring
+errors and whether a brief plan was actually produced. The paired interval
+resamples questions within difficulty levels, not individual answers.
+This tests solving behavior, not improved initial values. If inconclusive, expand
+the screen before full fitting. Resume with the same source and `--screen --out
+outputs/math-planning-PREVIOUS_JOB_ID`; never reuse a full-fit output directory.
+
+### Full critic comparison (after screening)
+
+After pulling the updated repository on the cluster, use the completed MATH fit
+as the immutable question/model source. This generates new answers from the
+**base** Qwen model, not the PPO checkpoints. The source run is left untouched.
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+source scripts/cluster_env.sh
+sbatch scripts/submit_math_planning.sh outputs/math-fit-SOURCE_JOB_ID
+```
+
+Replace `SOURCE_JOB_ID` with your completed MATH fitting job. The job runs ordinary
+reasoning and brief planning sequentially on one A5000, with 16 samples for each
+of the same train/validation/test questions. Both budgets are 2,048 tokens.
+LSTD lambda is fixed at 0.99; ridge and LSTD regularization are tuned on validation.
+All token transitions are used for fitting and the existing random-prefix
+protocol for evaluation. The plan is requested in the prompt, not forced or
+postprocessed; inspect responses to check compliance.
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/math-planning-JOB_ID/status.json
+cat outputs/math-planning-JOB_ID/report.txt
+```
+
+The final report is created only after both conditions finish. Individual
+condition folders contain stage logs, trajectories, cached features, critic
+reports and `data/review.jsonl`. Allow roughly two full MATH-fitting runs; the
+previous run took about 17 hours, so this is a substantial job rather than a
+short pilot. Actual cost depends on generated answer lengths.
+
+To additionally test extra space, run the full four-condition experiment in a
+new output directory:
+
+```bash
+sbatch scripts/submit_math_planning.sh outputs/math-fit-SOURCE_JOB_ID --long-budget
+```
+
+This repeats both prompts at 2,048 and 4,096 tokens and may exceed the two-day
+allocation. Generation/features are saved per question. Resume an interrupted
+experiment with the same options, unchanged code/environment, and its old output:
+
+```bash
+sbatch scripts/submit_math_planning.sh outputs/math-fit-SOURCE_JOB_ID \
+  --out outputs/math-planning-PREVIOUS_JOB_ID
+```
+
+Include `--long-budget` when resuming a four-condition run. Do not run two jobs
+writing to the same output directory. Compare prompt conditions on validation
+before choosing a PPO configuration; these inspected test results are exploratory.
+Answer accuracy counts all attempts; critic metrics exclude unparseable/error
+answers and may therefore compare different retained populations. No actor
+parameters are trained in this phase. PPO/GRPO planning comparisons come afterward.

@@ -37,3 +37,14 @@ AUDIT_INSTRUCTION = r"Solve the math problem step by step. Put your final numeri
 def encode_completion(tokenizer, question):
     text = AUDIT_INSTRUCTION + "\n\nQuestion: " + question + "\n\nSolution:"
     return text, tokenizer.encode(text, add_special_tokens=False)
+
+
+PLAN_INSTRUCTION = (
+    r"First give a brief plan of 2-3 sentences describing how to solve the problem. "
+    r"Then carry out the plan step by step. Put your final numeric answer inside a single \boxed{...}."
+)
+
+
+def encode_planning(tokenizer, question):
+    text = PLAN_INSTRUCTION + "\n\nQuestion: " + question + "\n\nSolution:"
+    return text, tokenizer.encode(text, add_special_tokens=False)

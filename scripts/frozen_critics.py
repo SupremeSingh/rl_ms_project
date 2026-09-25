@@ -88,9 +88,11 @@ def generate(out, config, questions):
     if all(shard_path(out, i, "trajectories").exists() for i in range(len(questions))):
         return
     (out / "pending").mkdir(exist_ok=True)
+    budget = config.get("sampling", {}).get("max_tokens", 2048)
+    context = max(2560, max(len(q["prompt_token_ids"]) for q in questions) + budget)
     engine = LLM(model=str(ROOT / "models/qwen-math"), dtype="bfloat16", tensor_parallel_size=1,
-                 max_model_len=2560, gpu_memory_utilization=.6, max_num_seqs=16,
-                 max_num_batched_tokens=2560, enforce_eager=True, seed=42, generation_config="vllm")
+                 max_model_len=context, gpu_memory_utilization=.6, max_num_seqs=16,
+                 max_num_batched_tokens=context, enforce_eager=True, seed=42, generation_config="vllm")
     for i, q in enumerate(questions):
         path = shard_path(out, i, "trajectories")
         if path.exists():
@@ -100,7 +102,7 @@ def generate(out, config, questions):
             raw = json.loads(pending.read_text())
         else:
             params = SamplingParams(n=config["responses"], temperature=1., top_p=1., top_k=-1,
-                                    max_tokens=2048, seed=config.get("generation_seed", 42) + i)
+                                    max_tokens=budget, seed=config.get("generation_seed", 42) + i)
             generated = engine.generate([{"prompt_token_ids": q["prompt_token_ids"]}], params)[0].outputs
             raw = dict(question_id=q["id"], responses=[dict(response=r.text, token_ids=list(r.token_ids),
                 finish_reason=r.finish_reason, stop_reason=r.stop_reason) for r in generated])

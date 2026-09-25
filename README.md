@@ -222,9 +222,34 @@ use the same PPO loss and optimizer settings.
 isolated test of the solver against conventional PPO. The test questions were
 already inspected offline, the reward audit remains incomplete, and a short
 single-seed pilot cannot establish superiority. LSTD(0.99) lost to ridge offline;
-we keep that result visible while testing its online behavior. GPU execution of
-this new integration still needs cluster validation. Commands are in
+we keep that result visible while testing its online behavior. The first cluster pilot completed; replication remains necessary. Commands are in
 [SETUP.MD](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
+
+### Planning before solving: frozen-model experiment
+
+The 30-update MATH pilot reached 52.3% with conventional PPO, 58.0% with
+ridge-PPO, 60.0% with LSTD(0.99)-PPO and 60.3% with GRPO, from a common 52.3%
+base. LSTD-PPO took about 55 minutes versus 78 for conventional PPO. These are
+one-seed, exploratory results on 300 previously inspected questions—not evidence
+that LSTD beats ridge or GRPO reliably.
+
+Next we test whether asking for a brief plan makes the frozen base model's
+answers and internal value predictions better. We first screen both prompts on
+100 balanced MATH validation questions, four answers each: 800 answers total,
+without feature extraction or critic fitting. This measures solving accuracy,
+truncation and token use; it cannot establish better value estimates.
+
+If warranted, the full comparison follows. Both the existing prompt and a
+planning prompt use the same MATH splits, 16 answers per question and a 2,048-token
+budget. Each gets fresh ridge and LSTD(0.99) fits; regularization is selected on
+validation only. An optional experiment repeats both prompts at 4,096 tokens.
+
+The report separates **answer accuracy** from **critic prediction accuracy and
+Brier error**, and includes truncation, answer lengths and paired question
+comparisons. Features remain causal: a completed plan cannot be used to predict
+values for earlier tokens. This compares complete prompting conditions, not
+isolated post-plan states. No planning results or new PPO runs are claimed yet.
+See [SETUP.MD](SETUP.MD#phase-12--planning-before-solving).
 
 We aim to turn an LLM's own hidden representations into a lightweight critic that makes PPO learning more compute-efficient.
 The next step is to test whether ridge or LSTD can preserve or improve math-solving performance while reducing total training cost.
