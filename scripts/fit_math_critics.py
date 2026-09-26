@@ -165,7 +165,7 @@ def bounded_questions(questions):
     return selected
 
 
-def initialize(out, source_run=None, prompt_style="completion", budget=2048, screen=False, bounded=False, structured=False):
+def initialize(out, source_run=None, prompt_style="completion", budget=2048, screen=False, bounded=False, structured=False, multistage=False):
     config = dict(protocol='frozen-math-critics-v1', responses=16, generation_seed=161803,
         data_source='math_numeric', exclusion_policy=EXCLUSION_POLICY, prefix_sampling=PREFIX_SAMPLING,
         sampling=dict(temperature=1., top_p=1., top_k=-1, max_tokens=2048, seed='161803 + question index'),
@@ -199,6 +199,15 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
             raise ValueError('Structured protocol requires bounded fitting')
         config.update(prompt_protocol='known-actions-v2', verifier_rule='math-verify-conclusion-v2',
                       plan_boundary='explicit-headings-v2')
+    if multistage:
+        if not structured:
+            raise ValueError('Multistage requires structured bounded fitting')
+        from math_rl.staged_generation import stages, VERSION
+        config.update(multistage=True, generation_protocol=VERSION,
+            stage_schedule=[list(s) for s in stages(prompt_style == 'plan')],
+            stage_seed='generation_seed + question_index * 100 + sample_index * 10 + stage_index',
+            plan_boundary='controller-injected-v1',
+            scoring_scope='final stage only; no credit from plan or solution numbers')
     paths = [ROOT / p for p in ('scripts/fit_math_critics.py', 'scripts/math_hard.py',
         'scripts/frozen_critics.py', 'scripts/fit_lstd.py', 'scripts/analyze_lstd.py',
         'src/math_rl/critic_probe.py', 'src/math_rl/lstd.py', 'src/math_rl/ppo_reward.py',
@@ -208,6 +217,8 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
         paths += [ROOT / 'scripts/planning_checkpoints.py', ROOT / 'scripts/math_planning.py']
     if structured:
         paths += [ROOT / 'src/math_rl/conclusion_reward.py']
+    if multistage:
+        paths += [ROOT / 'src/math_rl/staged_generation.py']
     model_files = sorted((ROOT / 'models/qwen-math').glob('*.safetensors'))
     if not model_files:
         raise ValueError('Missing local base model')
@@ -254,6 +265,9 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
             for q in selection['questions']:
                 q['prompt'], q['prompt_token_ids'] = (encode_structured(tokenizer, q['question'], prompt_style == 'plan')
                     if structured else encoder(tokenizer, q['question']))
+                if multistage:
+                    from math_rl.staged_generation import prompt
+                    q['prompt'], q['prompt_token_ids'] = prompt(tokenizer, q['question'], prompt_style == 'plan')
         atomic_json(source / 'questions.json', selection)
     source_manifest = dict(manifest, questions_sha256=sha256(source / 'questions.json'))
     if (source / 'manifest.json').exists():
@@ -325,6 +339,7 @@ def main():
     parser.add_argument('--screen', action='store_true', help='Generate only: 100 validation questions, four answers each')
     parser.add_argument('--bounded', action='store_true', help='300/50/100 questions and four answers for planning critics')
     parser.add_argument('--structured', action='store_true')
+    parser.add_argument('--multistage', action='store_true')
     parser.add_argument('--stage', choices=('generate', 'extract', 'prepare', 'fit'))
     args = parser.parse_args()
     out = args.out.resolve()
@@ -345,7 +360,7 @@ def main():
         else:
             fit_and_report(out, manifest, questions)
         return
-    initialize(out, args.source_run, args.prompt_style, args.budget, args.screen, args.bounded, args.structured)
+    initialize(out, args.source_run, args.prompt_style, args.budget, args.screen, args.bounded, args.structured, args.multistage)
     for stage in (('generate',) if args.screen else ('generate', 'extract', 'prepare', 'fit')):
         started = time.monotonic()
         atomic_json(out / 'status.json', dict(stage=stage, state='running'))

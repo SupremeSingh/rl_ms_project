@@ -161,7 +161,10 @@ def main():
     parser.add_argument('--bounded', action='store_true', help='Smaller critic experiment with prefix diagnostics and HTML viewer')
     parser.add_argument('--structured', action='store_true', help='Bounded known-facts/actions prompt and audited conclusion rule')
     parser.add_argument('--audit-source', type=Path, help='Audit a previous planning run into a separate subdirectory')
+    parser.add_argument('--multistage', action='store_true', help='Bounded frozen-actor experiment with controller-injected section headers')
     args = parser.parse_args()
+    if args.multistage:
+        args.structured = True
     if args.structured:
         args.bounded = True
     if args.audit_source and not args.structured:
@@ -183,6 +186,8 @@ def main():
     if args.structured:
         config['structured'] = True
         config['audit_source'] = str(args.audit_source.resolve()) if args.audit_source else None
+    if args.multistage:
+        config['multistage'] = True
     manifest = out / 'experiment.json'
     if manifest.exists() and json.loads(manifest.read_text()) != json.loads(json.dumps(config)):
         raise ValueError('Resume settings changed')
@@ -206,7 +211,7 @@ def main():
                 '--source-run', str(source), '--out', str(out / name),
                 '--prompt-style', style, '--budget', str(budget)] +
                 (['--screen'] if args.screen else []) + (['--bounded'] if args.bounded else []) +
-                (['--structured'] if args.structured else []),
+                (['--structured'] if args.structured else []) + (['--multistage'] if args.multistage else []),
                 stdout=log, stderr=subprocess.STDOUT)
         status = dict(condition=name, state='complete' if result.returncode == 0 else 'failed',
                       seconds=time.monotonic() - start, exit_code=result.returncode)

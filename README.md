@@ -276,40 +276,45 @@ false rejection: a concluding `b = 7` was obscured by later numbers. Some genera
 code-output blocks were also wrong; these blocks are text, not executed programs.
 The post-plan comparison therefore needs qualification, and scoring needs auditing.
 
-**Implemented next: an audited, structured rerun.** The planning prompt requests:
+The structured rerun raised observed answer accuracy from 22.5% to 26.3%, but
+its interval included no improvement (−1.25 to +9.01 percentage points). Crucially,
+**none of 400 planning test responses satisfied all requested sections**. Raw
+critic Brier scores were higher with planning, but the outcome distribution also
+changed; that alone does not establish worse features. No planning benefit is
+established. The old audit report also double-counted its new-correct total; this
+reporting bug is fixed, without changing the old saved labels.
 
-1. **What we know:** given facts, constraints and the quantity to find.
-2. **What we will do:** a short proposed method, before calculating the answer.
-3. **Solution:** carry out the method and check the calculation.
-4. **Final answer:** one explicit numeric conclusion.
+**Next: controller-managed multi-stage generation.** Python inserts the headings
+and resumes the frozen model separately for each stage:
 
-The control prompt shares the final-answer format and verifier. Both use the same
-bounded question splits, four answers per question and a 2,048-token budget:
-**3,600 fresh answers**, followed by separate ridge and LSTD(0.99) fits. The actor
-remains frozen; this is not a new PPO or GRPO training run.
-
-| Fix | What it checks |
+| Condition | Sampled-token budgets |
 |---|---|
-| Broader boundary detection | Inline, Markdown and step-by-step solution headings; fenced code is ignored and multiple headings are flagged as ambiguous. |
-| Section-compliance audit | Missing or empty sections, incorrect order and boxed answers appearing before the solution. |
-| Opt-in conclusion selection | Explicit final-answer lines and supported concluding numeric assignments, with Math-Verify checking equivalence. Repeated final-answer lines abstain. |
-| Response viewer | Actual generated text, prefix predictions, format flags and old/new verifier details. |
+| Planning | What we know: 96; What we will do: 96; Solution: 1,792; Final answer: 64 |
+| Control | Solution: 1,984; Final answer: 64 |
 
-An optional audit rescores the previous saved answers into separate files. Original
-labels, features, fitted heads and reports are preserved. The new rule records its
-selected text and legacy score; existing PPO commands retain their original rule.
-It remains an experimental extractor, not a reasoning verifier or a fail-proof
-judge. Requested formatting is measured, not assumed or enforced.
+Every stage stops at `<END_STAGE>`, model EOS, or its token cap. Unused budget is
+not transferred. Both conditions allow 2,048 sampled tokens; inserted headers
+add context tokens, which are recorded separately. This enforces section slots,
+not meaningful content: empty stages, caps and malformed final answers are audited.
+Only the final stage is scored, so numbers in plans or generated code cannot earn
+accidental credit. Malformed conclusions are excluded from critic fitting and
+count as unsuccessful attempts in answer accuracy.
 
-The rerun retains random-prefix evaluation and adds fixed-token and post-plan
-diagnostics, coverage, calibration and constant baselines. Only already-generated
-tokens enter each value prediction. Test questions remain previously inspected;
-different prompts and retained-answer populations limit causal interpretation.
+The experiment keeps 300 training, 50 validation and 100 test questions, four
+answers per condition: **3,600 answers**. It fits ridge and LSTD(0.99) separately,
+with validation-only regularization selection. Exact token IDs, stage boundaries,
+and sampled-action masks are saved. Hidden states include injected headers, but
+headers are not counted as actions or extra LSTD trace steps. This is a controlled
+frozen-policy experiment, not an integration with PPO.
 
-**Status:** 50 targeted pipeline tests and 24 verifier tests passed locally;
-structured cluster results are pending. No planning benefit is established.
-Instructions and audit/viewer locations are in
-[SETUP.MD](SETUP.MD#structured-plan-rerun-and-verification-audit).
+Reports include random-prefix and fixed-position errors, the exact pre-solution
+boundary, constant-baseline-adjusted comparisons, exclusions and per-stage stops.
+The response viewer shows full selected responses and stage details. Old outputs
+remain unchanged. Previously inspected questions and differing retained populations
+still limit causal claims; manual review remains necessary.
+
+Multi-stage GPU results are pending. Run instructions are in
+[SETUP.MD](SETUP.MD#multi-stage-planning-experiment).
 
 We aim to turn an LLM's own hidden representations into a lightweight critic that improves learning without a separately trained transformer critic.
 The broader goal is reliable gains per unit of compute, with honest comparisons against conventional PPO, ridge and critic-free GRPO.

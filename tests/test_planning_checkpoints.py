@@ -40,7 +40,8 @@ def test_plan_boundary_requires_unique_complete_heading_and_nonterminal_state():
     assert plan_boundary(TOKENIZER, list(map(ord, text + '\nSolution:\nAgain'))) is None
 
 
-def test_checkpoint_evaluation_reads_causal_positions_and_keeps_excluded_visible(tmp_path):
+@pytest.mark.parametrize('staged', [False, True])
+def test_checkpoint_evaluation_reads_causal_positions_and_keeps_excluded_visible(tmp_path, staged):
     for style in ('completion', 'plan'):
         run = tmp_path / f'{style}-2048'
         (run / 'fit').mkdir(parents=True)
@@ -57,6 +58,14 @@ def test_checkpoint_evaluation_reads_causal_positions_and_keeps_excluded_visible
         answers = [dict(response=text, token_ids=ids, score=1., verifier_status='correct', finish_reason='stop')
                    for _ in range(3)] + [dict(response='<script>alert(1)</script>', token_ids=[65], score=None,
                        verifier_status='parse_failure', finish_reason='stop')]
+        if staged:
+            from math_rl.staged_generation import rollout, END
+            engine = SimpleNamespace(generate=lambda prompts, params: [SimpleNamespace(outputs=[
+                SimpleNamespace(token_ids=list(map(ord, 'a' * 40 + END)), finish_reason='stop', stop_reason=END)])])
+            tokenizer = SimpleNamespace(encode=lambda text, **kw: list(map(ord, text)), decode=TOKENIZER.decode)
+            answers[:3] = [dict(rollout(engine, tokenizer, [], style == 'plan', 42, SimpleNamespace),
+                               score=1., verifier_status='correct') for _ in range(3)]
+            ids = answers[0]['token_ids']
         path = run / 'data/trajectories/00000.json'
         path.write_text(json.dumps(dict(question_id='q1', responses=answers)))
         count = len(ids) + 1
@@ -71,9 +80,18 @@ def test_checkpoint_evaluation_reads_causal_positions_and_keeps_excluded_visible
     assert report['total_plan_answers'] == 4
     assert report['metrics']['plan/32/ridge']['mean_prediction'] == pytest.approx(.32)
     assert report['metrics']['plan/0/ridge']['brier'] == 1
-    assert 'plan/128/ridge' not in report['metrics']
+    if not staged:
+        assert 'plan/128/ridge' not in report['metrics']
+    else:
+        assert report['boundary_version'] == 'controller-injected-v1'
+        assert report['stage_audit']['plan']['facts']['attempts'] == 3
+        assert report['metrics']['plan/post_plan/ridge']['mean_prediction'] == pytest.approx(1.02)
     assert report['paired_plan_minus_completion']['32/ridge']['difference'] == pytest.approx(0)
-    assert report['paired_plan_minus_completion']['matched_plan_length/ridge']['difference'] == pytest.approx(0)
+    if staged:
+        # Control has terminated at this length; never use its terminal feature.
+        assert report['paired_plan_minus_completion']['matched_plan_length/ridge'] is None
+    else:
+        assert report['paired_plan_minus_completion']['matched_plan_length/ridge']['difference'] == pytest.approx(0)
     html = (tmp_path / 'responses.html').read_text()
     assert '<script>' not in html
     assert '&lt;script&gt;' in html
@@ -108,3 +126,11 @@ def test_structured_prompt_shares_final_answer_contract():
     assert 'What we know:' not in control
     contract = r'Final answer: \boxed{number}'
     assert contract in control and contract in plan
+
+
+def test_baseline_adjustment_removes_constant_difficulty_difference():
+    from planning_checkpoints import paired
+    left = [dict(question='q1', y=1., p=.4, baseline=.4)]
+    right = [dict(question='q1', y=1., p=.8, baseline=.8)]
+    assert paired(left, right)['difference'] == pytest.approx(.32)
+    assert paired(left, right, adjusted=True)['difference'] == pytest.approx(0)

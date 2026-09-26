@@ -83,6 +83,9 @@ def shard_path(out, index, kind):
 
 
 def generate(out, config, questions):
+    if config.get('multistage'):
+        from math_rl.staged_generation import generate as generate_staged
+        return generate_staged(out, config, questions, ROOT, atomic_json)
     from vllm import LLM, SamplingParams
     from math_rl.ppo_reward import compute_score
     if all(shard_path(out, i, "trajectories").exists() for i in range(len(questions))):
@@ -147,8 +150,14 @@ def extract(out, config, questions):
         for response_index, row in enumerate(trajectories["responses"]):
             if not usable_response(row):
                 continue
-            ids = torch.tensor([q["prompt_token_ids"] + row["token_ids"]], device="cuda")
-            states = prefix_states(model, ids, len(q["prompt_token_ids"]), len(row["token_ids"]))
+            context = row.get('context_token_ids', row['token_ids'])
+            ids = torch.tensor([q["prompt_token_ids"] + context], device="cuda")
+            states = prefix_states(model, ids, len(q["prompt_token_ids"]), len(context))
+            if 'action_mask' in row:
+                from math_rl.staged_generation import decision_states
+                # Each next decision includes intervening controller context. Headers
+                # do not create artificial zero-reward actions or extra trace decay.
+                states = decision_states(states, row)
             features.append(states)
             offsets.append(offsets[-1] + len(states))
             rewards.append(row["score"])

@@ -41,6 +41,9 @@ def read_shard(source, index, question):
         raise ValueError('Cached responses do not match the declared exclusion policy')
     for j, response_index in enumerate(indices):
         row = raw['responses'][response_index]
+        if 'action_mask' in row:
+            from math_rl.staged_generation import validate
+            validate(row)
         if (row['score'] != float(shard['rewards'][j]) or row['score'] not in (0, 1)
                 or row['finish_reason'] not in ('stop', 'length')
                 or offsets[j + 1] - offsets[j] != len(row['token_ids']) + 1):

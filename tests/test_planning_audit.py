@@ -23,5 +23,7 @@ def test_audit_preserves_sources_and_can_restart(tmp_path, monkeypatch):
     assert all(p.read_bytes() == content for p, content in original.items())
     report = json.loads((out / 'summary.json').read_text())
     assert report['changed'] == 2
+    assert report['totals']['plan']['new_correct'] == 1
+    assert report['totals']['completion']['new_correct'] == 1
     assert report['totals']['plan']['new_unique_heading'] == 1
     assert report['totals']['plan']['old_unique_heading'] == 0

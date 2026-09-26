@@ -52,7 +52,6 @@ def audit(source, out):
                     new_boundary = headings(text, r'(?:Step[- ]by[- ]step[ \t]+)?Solution')
                     counts['answers'] += 1
                     counts['old_correct'] += row['old']['verifier_status'] == 'correct'
-                    counts['new_correct'] += score['verifier_status'] == 'correct'
                     counts['old_unique_heading'] += len(old_boundary) == 1
                     counts['new_unique_heading'] += len(new_boundary) == 1
                     counts['new_' + score['verifier_status']] += 1

@@ -65,12 +65,15 @@ def metrics(rows):
                                   (np.clip(p, 0, .999999) < low + .2))).any()])
 
 
-def paired(left, right):
+def paired(left, right, adjusted=False):
     """Question-weighted Brier difference, left minus right."""
     def errors(rows):
         groups = defaultdict(list)
         for row in rows:
-            groups[row['question']].append((row['p'] - row['y']) ** 2)
+            error = (row['p'] - row['y']) ** 2
+            if adjusted:
+                error -= (row['baseline'] - row['y']) ** 2
+            groups[row['question']].append(error)
         return {key: np.mean(values) for key, values in groups.items()}
     a, b = errors(left), errors(right)
     keys = sorted(a.keys() & b.keys())
@@ -93,7 +96,8 @@ def render_viewer(path, examples):
                 ' · plan boundary: ' + escape(str(answer['plan_boundary'])) +
                 '</p><pre>' + escape(answer['response']) + '</pre><h4>Prefix predictions</h4><pre>' +
                 escape(json.dumps(answer['predictions'], indent=2)) + '</pre><h4>Audit</h4><pre>' +
-                escape(json.dumps(dict(format=answer.get('format_audit'), verifier=answer.get('verifier_audit')), indent=2)) +
+                escape(json.dumps(dict(format=answer.get('format_audit'), verifier=answer.get('verifier_audit'),
+                    stages=answer.get('stages')), indent=2)) +
                 '</pre></article>')
         sections.append('<details><summary>' + escape(example['id']) + ' · sample ' +
             str(example['sample']) + ' · ' + escape(example['selection']) + '</summary><p>' +
@@ -128,9 +132,16 @@ def evaluate(out, tokenizer=None):
             shard, raw, _ = read_shard(run / 'data', index, q)
             retained = {int(v): j for j, v in enumerate(shard['response_indices'])}
             for sample, answer in enumerate(raw['responses']):
-                boundary = plan_boundary(tokenizer, answer['token_ids']) if style == 'plan' else None
+                if 'stages' in answer:
+                    from math_rl.staged_generation import validate
+                    validate(answer)
+                    solution = next(s for s in answer['stages'] if s['name'] == 'solution')
+                    boundary = solution['action_offset'] if style == 'plan' and solution['sampled_tokens'] else None
+                else:
+                    boundary = plan_boundary(tokenizer, answer['token_ids']) if style == 'plan' else None
                 record = dict(response=answer['response'], status=answer['verifier_status'],
                     plan_boundary=boundary, format_audit=format_audit(answer['response']),
+                    stages=answer.get('stages'),
                     verifier_audit=answer.get('audit'), predictions={}, question=q['question'], reference=q['ground_truth'])
                 rows[(q['id'], sample)] = record
                 if sample not in retained:
@@ -148,7 +159,8 @@ def evaluate(out, tokenizer=None):
                 for label, position in points.items():
                     record['predictions'][label] = {m: float(v[position]) for m, v in values.items()}
                     for m, v in values.items():
-                        groups[(style, label, m)].append(dict(question=q['id'], y=answer['score'], p=float(v[position])))
+                        groups[(style, label, m)].append(dict(question=q['id'], y=answer['score'],
+                            p=float(v[position]), baseline=constant))
         records[style] = rows
     if records['completion'].keys() != records['plan'].keys():
         raise ValueError('Response question/sample IDs differ')
@@ -165,16 +177,21 @@ def evaluate(out, tokenizer=None):
             continue
         for method in (*METHODS, 'constant'):
             groups[('plan', 'matched_plan_length', method)].append(
-                dict(question=qid, y=target['y'], p=float(target['values'][method][length])))
+                dict(question=qid, y=target['y'], p=float(target['values'][method][length]),
+                     baseline=float(target['values']['constant'][length])))
             for control in controls:
                 groups[('completion', 'matched_plan_length', method)].append(
-                    dict(question=qid, y=control['y'], p=float(control['values'][method][length])))
+                    dict(question=qid, y=control['y'], p=float(control['values'][method][length]),
+                         baseline=float(control['values']['constant'][length])))
     comparisons = {}
     for label in (*map(str, POSITIONS), 'matched_plan_length'):
         for method in (*METHODS, 'constant'):
             comparisons[f'{label}/{method}'] = paired(groups[('plan', label, method)], groups[('completion', label, method)])
     report = dict(metrics={'/'.join(key): metrics(rows) for key, rows in groups.items() if rows},
         paired_plan_minus_completion=comparisons,
+        paired_baseline_adjusted_plan_minus_completion={f'{label}/{method}': paired(
+            groups[('plan', label, method)], groups[('completion', label, method)], adjusted=True)
+            for label in (*map(str, POSITIONS), 'matched_plan_length') for method in METHODS},
         paired_critic_minus_constant={f'{style}/{label}/{method}': paired(
             rows, groups[(style, label, 'constant')])
             for (style, label, method), rows in list(groups.items()) if method in METHODS and rows},
@@ -187,6 +204,10 @@ def evaluate(out, tokenizer=None):
               'Coverage and outcome rates vary with prompt and position. Matched lengths condition on observed plan '
               'length and ordinary-answer survival, not a causal planning effect. Confidence intervals cluster '
               'by question and are unadjusted. Plan headings require manual compliance review.')
+    if any(r.get('stages') for r in records['plan'].values()):
+        from math_rl.staged_generation import stage_audit
+        report['boundary_version'] = 'controller-injected-v1'
+        report['stage_audit'] = {style: stage_audit(rows.values()) for style, rows in records.items()}
     atomic_json(out / 'checkpoints.json', report)
     rng = np.random.default_rng(42)
     keys = sorted(records['plan'])
@@ -207,10 +228,19 @@ def evaluate(out, tokenizer=None):
     lines = ['\nPrefix diagnostics: plan minus completion Brier (negative favors planning)']
     lines.append(f"Format audit: {report['ordered_plan_sections']}/{report['total_plan_answers']} answers with ordered, nonempty sections; "
                  f"{report['plan_heading_detected']} detected boundaries; {report['early_boxed_answers']} early boxed answers. "
-                 f"Boundary rule: {BOUNDARY_VERSION}. These are syntax checks, not reasoning checks.")
+                 f"Boundary rule: {report['boundary_version']}. These are syntax checks, not reasoning checks.")
+    if 'stage_audit' in report:
+        lines.append('Stage stops/content audit (test answers, including excluded answers): ' + json.dumps(report['stage_audit']))
     for name, comparison in comparisons.items():
         if comparison:
             lines.append(f"{name}: {comparison['difference']:+.5f}; 95% interval {comparison['interval_95']}; questions={comparison['questions']}")
+    lines.append('Baseline-adjusted differences (critic Brier minus its own constant Brier; negative favors planning):')
+    for name, comparison in report['paired_baseline_adjusted_plan_minus_completion'].items():
+        if comparison:
+            lines.append(f"{name}: {comparison['difference']:+.5f}; 95% interval {comparison['interval_95']}")
+    if any(r.get('stages') for r in records['plan'].values()):
+        lines.append('Multi-stage states include injected context, but positions count sampled tokens only. '
+                     'Position 0 is the first decision after the initial header, not a header-free question state.')
     lines.append(report['scope'])
     lines.append('Inspect checkpoints.json and responses.html; all full responses remain in each data/trajectories directory.')
     with (out / 'report.txt').open('a') as stream:

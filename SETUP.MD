@@ -498,3 +498,47 @@ before choosing a PPO configuration; these inspected test results are explorator
 Answer accuracy counts all attempts; critic metrics exclude unparseable/error
 answers and may therefore compare different retained populations. No actor
 parameters are trained in this phase. PPO/GRPO planning comparisons come afterward.
+
+
+### Multi-stage planning experiment
+
+Pull the updated code on the cluster, then submit a fresh output directory:
+
+```bash
+git pull
+source scripts/cluster_env.sh
+sbatch --time=1-00:00:00 scripts/submit_math_planning.sh \
+  outputs/math-fit-SOURCE_JOB_ID --multistage \
+  --audit-source outputs/math-planning-OLD_JOB_ID
+```
+
+Replace `SOURCE_JOB_ID` with the completed MATH fitting source and `OLD_JOB_ID`
+with the structured planning run to audit. `--multistage` implies `--structured`
+and `--bounded`. It generates 3,600 answers, then extracts causal features and
+fits ridge/LSTD(0.99), sequentially on one A5000. The 24-hour request is a limit,
+not a runtime guarantee; staged decoding adds calls beyond the previous run.
+
+Planning budgets are 96 facts + 96 plan + 1,792 solution + 64 final-answer tokens.
+The control uses 1,984 solution + 64 final-answer tokens. Each stage stops on
+`<END_STAGE>`, EOS or its cap; Python then inserts the next heading. No unused
+budget transfers. Final answers must be a single decimal number. Empty/invalid
+final stages are recorded and excluded from fitting, while all attempts count
+in answer accuracy. A stage cap marks the trajectory as capped even if later
+stages finish. Header tokens are additional context, not sampled actions.
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/math-planning-JOB_ID/status.json
+cat outputs/math-planning-JOB_ID/report.txt
+```
+
+Inspect `checkpoints.json` for exact-boundary, baseline-adjusted and stage-stop
+statistics; open `responses.html` for example answers and stage metadata.
+Every answer is saved under each condition's `data/trajectories/` directory,
+including excluded answers. The optional old-run audit is in `source-audit/`.
+
+To resume after interruption, use the same arguments and add
+`--out outputs/math-planning-JOB_ID`. Completed answers are cached before scoring,
+so a scoring interruption does not discard them. Do not change code or settings
+mid-run: manifests reject incompatible resumes. Missing dependencies and corrupted
+artifacts remain explicit errors rather than being silently ignored.
