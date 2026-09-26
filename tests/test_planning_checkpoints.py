@@ -62,7 +62,8 @@ def test_checkpoint_evaluation_reads_causal_positions_and_keeps_excluded_visible
             from math_rl.staged_generation import rollout, END
             engine = SimpleNamespace(generate=lambda prompts, params: [SimpleNamespace(outputs=[
                 SimpleNamespace(token_ids=list(map(ord, 'a' * 40 + END)), finish_reason='stop', stop_reason=END)])])
-            tokenizer = SimpleNamespace(encode=lambda text, **kw: list(map(ord, text)), decode=TOKENIZER.decode)
+            tokenizer = SimpleNamespace(encode=lambda text, **kw: list(map(ord, text)), decode=TOKENIZER.decode,
+                                        get_vocab=lambda: {str(i): i for i in range(256)})
             answers[:3] = [dict(rollout(engine, tokenizer, [], style == 'plan', 42, SimpleNamespace),
                                score=1., verifier_status='correct') for _ in range(3)]
             ids = answers[0]['token_ids']

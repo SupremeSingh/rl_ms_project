@@ -502,43 +502,61 @@ parameters are trained in this phase. PPO/GRPO planning comparisons come afterwa
 
 ### Multi-stage planning experiment
 
-Pull the updated code on the cluster, then submit a fresh output directory:
+The current protocol (`staged-plan-v2`) removes planning instructions from the
+control and accepts unambiguous final answers in prose or boxes. Math-Verify
+scores only the final section. The old decimal-only filter is removed.
+**Start a fresh run: do not migrate or resume the earlier protocol with these
+changed prompts and scoring rules.** Its cached answers can be audited separately.
+
+First rescore the saved control answers without using a GPU:
 
 ```bash
 git pull
 source scripts/cluster_env.sh
-sbatch --time=1-00:00:00 scripts/submit_math_planning.sh \
-  outputs/math-fit-SOURCE_JOB_ID --multistage \
-  --audit-source outputs/math-planning-OLD_JOB_ID
+sbatch scripts/submit_staged_rescore.sh \
+  outputs/math-planning-OLD_JOB_ID/completion-2048
 ```
 
-Replace `SOURCE_JOB_ID` with the completed MATH fitting source and `OLD_JOB_ID`
-with the structured planning run to audit. `--multistage` implies `--structured`
-and `--bounded`. It generates 3,600 answers, then extracts causal features and
-fits ridge/LSTD(0.99), sequentially on one A5000. The 24-hour request is a limit,
-not a runtime guarantee; staged decoding adds calls beyond the previous run.
+This writes `outputs/staged-rescore-RESCORE_JOB_ID/summary.json`, `answers.json`
+and `responses.html`. Originals stay unchanged. Completed audit batches are cached;
+to resume, repeat the command with `--out outputs/staged-rescore-RESCORE_JOB_ID`.
+Inspect flagged extractions manually: multiple numbers may be legitimate problem
+context, but may also indicate conflicting or irrelevant conclusions. The audit
+is of saved batches, not a new benchmark or a silent relabeling of training data.
 
-Planning budgets are 96 facts + 96 plan + 1,792 solution + 64 final-answer tokens.
-The control uses 1,984 solution + 64 final-answer tokens. Each stage stops on
-`<END_STAGE>`, EOS or its cap; Python then inserts the next heading. No unused
-budget transfers. Final answers must be a single decimal number. Empty/invalid
-final stages are recorded and excluded from fitting, while all attempts count
-in answer accuracy. A stage cap marks the trajectory as capped even if later
-stages finish. Header tokens are additional context, not sampled actions.
+Then submit the generation-only screen (can run independently of the audit):
 
 ```bash
-sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
-cat outputs/math-planning-JOB_ID/status.json
-cat outputs/math-planning-JOB_ID/report.txt
+sbatch --time=06:00:00 scripts/submit_math_planning.sh \
+  outputs/math-fit-SOURCE_JOB_ID --multistage --screen
 ```
 
-Inspect `checkpoints.json` for exact-boundary, baseline-adjusted and stage-stop
-statistics; open `responses.html` for example answers and stage metadata.
-Every answer is saved under each condition's `data/trajectories/` directory,
-including excluded answers. The optional old-run audit is in `source-audit/`.
+This uses 100 validation questions (50 per level), four answers per condition:
+**800 attempts**, no feature extraction and no critic fitting. These validation
+questions were used in prior screening; this is a development check, not an
+untouched evaluation. Control and planning have separate instructions. Both use
+controller-injected headings and the same final-section verifier.
 
-To resume after interruption, use the same arguments and add
-`--out outputs/math-planning-JOB_ID`. Completed answers are cached before scoring,
-so a scoring interruption does not discard them. Do not change code or settings
-mid-run: manifests reject incompatible resumes. Missing dependencies and corrupted
-artifacts remain explicit errors rather than being silently ignored.
+Planning budgets: 96 facts + 96 plan + 1,792 solution + 64 final-answer tokens.
+Control: 1,984 solution + 64 final-answer tokens. Each stage stops at
+`<END_STAGE>`, EOS or its cap; unused budgets do not transfer. Headers add context
+tokens but are not sampled actions. Invalid generated token IDs are preserved in
+error records and excluded before continuation, without retrying the answer.
+
+```bash
+sacct -j SCREEN_JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/math-planning-SCREEN_JOB_ID/status.json
+cat outputs/math-planning-SCREEN_JOB_ID/report.txt
+```
+
+The screen's `responses.html` contains **all 800 responses**, their final-section
+extractions and stage metadata. `summary.json` reports answer accuracy over all
+attempts, retained fraction, verifier statuses and per-stage caps/empty content.
+`review.jsonl` retains full paired-question records. These results test whether
+the protocol produces useful answers and labels, not whether the critic improves.
+Review before launching another fit; no automatic fitting job follows.
+
+To resume this new screen after interruption, repeat its command and add
+`--out outputs/math-planning-SCREEN_JOB_ID`, keeping code and flags unchanged.
+A new Slurm ID does not change that output path. The earlier full-budget command
+without `--screen` still exists, but is not the recommended next experiment.

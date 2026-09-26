@@ -284,7 +284,7 @@ changed; that alone does not establish worse features. No planning benefit is
 established. The old audit report also double-counted its new-correct total; this
 reporting bug is fixed, without changing the old saved labels.
 
-**Next: controller-managed multi-stage generation.** Python inserts the headings
+**Implemented: controller-managed multi-stage generation.** Python inserts the headings
 and resumes the frozen model separately for each stage:
 
 | Condition | Sampled-token budgets |
@@ -296,9 +296,9 @@ Every stage stops at `<END_STAGE>`, model EOS, or its token cap. Unused budget i
 not transferred. Both conditions allow 2,048 sampled tokens; inserted headers
 add context tokens, which are recorded separately. This enforces section slots,
 not meaningful content: empty stages, caps and malformed final answers are audited.
-Only the final stage is scored, so numbers in plans or generated code cannot earn
-accidental credit. Malformed conclusions are excluded from critic fitting and
-count as unsuccessful attempts in answer accuracy.
+Only the final stage is scored. Numbers in earlier sections cannot earn accidental
+credit. Clear final answers in prose or boxes are accepted by Math-Verify; empty
+or unresolved extractions are kept separate from incorrect answers.
 
 The experiment keeps 300 training, 50 validation and 100 test questions, four
 answers per condition: **3,600 answers**. It fits ridge and LSTD(0.99) separately,
@@ -313,7 +313,22 @@ The response viewer shows full selected responses and stage details. Old outputs
 remain unchanged. Previously inspected questions and differing retained populations
 still limit causal claims; manual review remains necessary.
 
-Multi-stage GPU results are pending. Run instructions are in
+The first multi-stage run stopped when a generated token ID was rejected as
+input to the next stage. A guard now records and excludes those attempts before
+continuation. Inspection of five saved control responses also exposed an overly
+strict decimal-only final-answer filter and planning instructions leaking into
+the control. All five answers were wrong; four were excluded for formatting.
+These examples are diagnostic, not an estimate of overall accuracy.
+
+**Next: a read-only CPU rescore of saved answers, then an 800-answer generation-only
+screen.** The corrected control has no planning instructions; both conditions
+score final sections with Math-Verify, accepting prose and boxed answers. The
+screen uses 100 previously inspected validation questions, four answers per
+condition, without feature extraction or critic fitting. It reports exclusions
+and stage stops, and an HTML viewer exposes all answers and extraction flags.
+Ambiguous extractions still need human review. No planning benefit is established.
+
+The changed protocol starts fresh rather than mixing with the old run. Commands:
 [SETUP.MD](SETUP.MD#multi-stage-planning-experiment).
 
 We aim to turn an LLM's own hidden representations into a lightweight critic that improves learning without a separately trained transformer critic.

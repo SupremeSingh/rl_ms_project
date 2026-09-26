@@ -117,3 +117,17 @@ def test_report_separates_actor_accuracy_and_critic_error(tmp_path):
     assert report['conditions']['plan-2048']['retained'] == 1
     assert report['paired']['plan-2048']['answer_accuracy']['plan_minus_completion'] == .5
     assert report['paired']['plan-2048']['ridge']['plan_minus_completion'] == 0
+
+
+def test_multistage_screen_does_not_launch_fitting(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(sys, 'argv', ['math_planning.py', str(tmp_path / 'source'),
+        '--out', str(tmp_path / 'out'), '--multistage', '--screen'])
+    monkeypatch.setattr(math_planning.subprocess, 'run',
+        lambda command, **kw: calls.append(command) or SimpleNamespace(returncode=0))
+    def summary(out):
+        (out / 'report.txt').write_text('screen')
+    monkeypatch.setattr(math_planning, 'summarize_screen', summary)
+    math_planning.main()
+    assert len(calls) == 2
+    assert all('--screen' in call and '--multistage' in call and '--bounded' not in call for call in calls)

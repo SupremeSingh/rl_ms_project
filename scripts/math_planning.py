@@ -20,6 +20,8 @@ def summarize_screen(out):
     """Keep failed extractions in the denominator; pair at question, not answer."""
     from collections import Counter
     import numpy as np
+    from math_rl.staged_generation import stage_audit
+    from rescore_staged_answers import render, audit_flags
     results, records, review = {}, {}, []
     for style in ('completion', 'plan'):
         run = out / f'{style}-2048'
@@ -43,6 +45,8 @@ def summarize_screen(out):
             answer_accuracy=statuses['correct'] / len(lengths),
             truncation_rate=capped / len(lengths), mean_response_tokens=float(np.mean(lengths)),
             verifier_statuses=dict(statuses),
+            stage_audit=stage_audit(r for q in rows.values() for r in q['responses']),
+            retained_rate=(statuses['correct'] + statuses['incorrect']) / len(lengths),
             per_level={str(level): float(np.mean([r['accuracy'] for r in rows.values() if r['level'] == level]))
                        for level in (4, 5)})
     if records['completion'].keys() != records['plan'].keys():
@@ -77,10 +81,27 @@ def summarize_screen(out):
     with (out / 'review.jsonl').open('w') as stream:
         for row in review:
             stream.write(json.dumps(row) + '\n')
+    examples = []
+    for style, questions in records.items():
+        for key, q in questions.items():
+            for i, r in enumerate(q['responses']):
+                final = r.get('final_stage_text', r['response'])
+                flags = audit_flags(final)
+                if r['verifier_status'] not in ('correct', 'incorrect'):
+                    flags.append('unresolved verifier result')
+                examples.append(dict(id=f'{style}/{key}/{i}', question=q['question'], reference=q['ground_truth'],
+                    response=r['response'], final=final, stages=r.get('stages', []), extracted=r.get('extracted', ''),
+                    old_status=r['verifier_status'], new_status=r['verifier_status'], flags=flags))
+    render(out / 'responses.html', examples)
     lines = [report['scope'], 'prompt       answer accuracy   truncation   mean tokens']
     for style, result in results.items():
         lines.append(f"{style:12} {result['answer_accuracy']:.3f}             {result['truncation_rate']:.3f}        {result['mean_response_tokens']:.1f}")
     lines.append('Paired planning effect: ' + json.dumps(report['plan_minus_completion']))
+    for style, result in results.items():
+        lines.append(f"{style} verifier statuses: {result['verifier_statuses']}; retained fraction: {result['retained_rate']:.3f}")
+        if result['stage_audit']:
+            lines.append(f"{style} stage audit: " + json.dumps(result['stage_audit']))
+    lines.append('Inspect responses.html for all answers, final-section extractions and stage metadata.')
     (out / 'report.txt').write_text('\n'.join(lines) + '\n')
 
 
@@ -165,7 +186,7 @@ def main():
     args = parser.parse_args()
     if args.multistage:
         args.structured = True
-    if args.structured:
+    if args.structured and not args.screen:
         args.bounded = True
     if args.audit_source and not args.structured:
         parser.error('--audit-source requires --structured')

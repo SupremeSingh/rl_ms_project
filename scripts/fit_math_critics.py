@@ -195,8 +195,8 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
         config.update(bounded=True, responses=4, limits=dict(train=300, val=50, test=100),
                       alphas=[1e-4, .001, .01, .1, 1.], plan_boundary='explicit Solution heading v1')
     if structured:
-        if not bounded:
-            raise ValueError('Structured protocol requires bounded fitting')
+        if not (bounded or screen):
+            raise ValueError('Structured protocol requires bounded fitting or screening')
         config.update(prompt_protocol='known-actions-v2', verifier_rule='math-verify-conclusion-v2',
                       plan_boundary='explicit-headings-v2')
     if multistage:
@@ -208,6 +208,8 @@ def initialize(out, source_run=None, prompt_style="completion", budget=2048, scr
             stage_seed='generation_seed + question_index * 100 + sample_index * 10 + stage_index',
             plan_boundary='controller-injected-v1',
             scoring_scope='final stage only; no credit from plan or solution numbers')
+        config.pop('verifier_rule', None)
+        config['final_stage_verifier'] = 'math-verify-v1'
     paths = [ROOT / p for p in ('scripts/fit_math_critics.py', 'scripts/math_hard.py',
         'scripts/frozen_critics.py', 'scripts/fit_lstd.py', 'scripts/analyze_lstd.py',
         'src/math_rl/critic_probe.py', 'src/math_rl/lstd.py', 'src/math_rl/ppo_reward.py',

@@ -8,6 +8,9 @@ from math_rl.staged_generation import END, decision_states, rollout, stage_audit
 
 
 class Tokenizer:
+    def get_vocab(self):
+        return {str(i): i for i in range(256)}
+
     def encode(self, text, **kwargs):
         return list(text.encode())
 
@@ -71,17 +74,19 @@ def test_caps_empty_content_and_corrupt_action_masks():
         decision_states(torch.zeros(2, 1), row)
 
 
-def test_generation_scores_only_final_stage_and_resumes(tmp_path, monkeypatch):
+@pytest.mark.parametrize('final', ['42', 'The final answer is 42.', r'The final answer is \boxed{42}.'])
+def test_generation_scores_only_final_stage_and_resumes(tmp_path, monkeypatch, final):
     import json
     import sys
     import transformers
     from math_rl import ppo_reward
     from math_rl.staged_generation import generate
-    engine = Engine([('Incorrect intermediate number 99' + END, 'stop'), ('42' + END, 'stop')])
+    engine = Engine([('Incorrect intermediate number 99' + END, 'stop'), (final + END, 'stop')])
     monkeypatch.setitem(sys.modules, 'vllm', SimpleNamespace(LLM=lambda **kw: engine, SamplingParams=SimpleNamespace))
     monkeypatch.setattr(transformers.AutoTokenizer, 'from_pretrained', lambda *a, **kw: Tokenizer())
     scored = []
     def score(sources, answers, golds, **kwargs):
+        assert kwargs == {'exclude_errors': True}
         scored.extend(answers)
         return [dict(score=1., verifier_status='correct')]
     monkeypatch.setattr(ppo_reward, 'compute_score', score)
@@ -90,7 +95,33 @@ def test_generation_scores_only_final_stage_and_resumes(tmp_path, monkeypatch):
     questions = [dict(id='q', prompt_token_ids=[1], ground_truth='42')]
     save = lambda path, value: path.write_text(json.dumps(value))
     generate(tmp_path, config, questions, tmp_path, save)
-    assert scored == ['Final answer: 42']
+    assert scored == ['Final answer: ' + final]
+    saved = json.loads((tmp_path / 'trajectories/00000.json').read_text())['responses'][0]
+    assert saved['score'] == 1 and saved['verifier_status'] == 'correct'
     generate(tmp_path, config, questions, tmp_path, save)
     assert len(engine.calls) == 2
     assert not list((tmp_path / 'pending').glob('*.json'))
+
+
+def test_invalid_output_is_excluded_before_next_stage():
+    engine = SimpleNamespace(generate=lambda *a, **kw: [SimpleNamespace(outputs=[
+        SimpleNamespace(token_ids=[65, 151779], finish_reason='stop', stop_reason=END)])])
+    row = rollout(engine, Tokenizer(), [1], False, 42, SimpleNamespace)
+    assert row['verifier_status'] == 'invalid_token_id'
+    assert row['score'] is None and row['token_ids'] == []
+    assert row['generation_error']['invalid_ids'] == [151779]
+    assert row['generation_error']['original']['context_token_ids'][-2:] == [65, 151779]
+    from math_rl.staged_generation import check_cached
+    assert check_cached(row, set(range(256))) == row
+    with pytest.raises(ValueError, match='Prompt'):
+        rollout(engine, Tokenizer(), [151779], False, 42, SimpleNamespace)
+
+
+def test_control_has_no_planning_instructions():
+    from math_rl.staged_generation import prompt
+    control, _ = prompt(Tokenizer(), 'What is 2+2?', False)
+    plan, _ = prompt(Tokenizer(), 'What is 2+2?', True)
+    assert 'What we know' not in control and 'What we will do' not in control
+    assert 'proposed method' not in control
+    assert 'What we know' in plan and 'What we will do' in plan
+    assert 'short sentence or boxed answer is acceptable' in control

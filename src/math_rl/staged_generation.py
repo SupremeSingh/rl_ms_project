@@ -1,6 +1,24 @@
 """Frozen-policy staged rollouts. Inserted context is never a sampled action."""
-VERSION = 'staged-plan-v1'
+VERSION = 'staged-plan-v2'
 END = '<END_STAGE>'
+
+
+def excluded_tokens(row, invalid_ids):
+    """Preserve an unusable attempt for audit, never repair its token sequence."""
+    return dict(response=row.get('response', '') + '\n[Generation excluded: invalid token ID]',
+        token_ids=[], score=None, verifier_status='invalid_token_id', finish_reason='abort',
+        final_stage_text='', generation_protocol=VERSION,
+        generation_error=dict(invalid_ids=sorted(set(invalid_ids)), original=row))
+
+
+def check_cached(row, valid_ids):
+    if row.get('verifier_status') == 'invalid_token_id':
+        if row.get('score') is not None or row.get('token_ids') or not row.get('generation_error'):
+            raise ValueError('Malformed excluded generation')
+        return row
+    validate(row)
+    invalid = set(row['context_token_ids']) - valid_ids
+    return excluded_tokens(row, invalid) if invalid else row
 
 
 def decision_states(states, row):
@@ -21,12 +39,13 @@ def stages(planning):
 def prompt(tokenizer, question, planning):
     instruction = ('Solve the question in stages. The controller supplies each section heading. '
         'Write only the content of the current section, then write <END_STAGE>. '
-        'Do not repeat headings or write later sections. '
-        'For What we know, list given facts, constraints and the requested quantity; invent nothing. '
-        'For What we will do, give a short proposed method without the final result. '
+        'Do not repeat headings or write later sections. ')
+    if planning:
+        instruction += ('For What we know, list given facts, constraints and the requested quantity; invent nothing. '
+                        'For What we will do, give a short proposed method without the final result. ')
+    instruction += (
         'For Solution, work through the calculation. '
-        'For Final answer, output only the final numeric answer, with no units or explanation.')
-    # Both conditions share the same controller instructions; only the stage schedule differs.
+        'For Final answer, state one unambiguous final numeric answer. A short sentence or boxed answer is acceptable.')
     text = instruction + '\n\nQuestion: ' + question + '\n\nResponse:'
     return text, tokenizer.encode(text, add_special_tokens=False)
 
@@ -63,11 +82,16 @@ def validate(row):
     return positions
 
 
-def rollout(engine, tokenizer, prompt_ids, planning, seed, sampling_class):
+def rollout(engine, tokenizer, prompt_ids, planning, seed, sampling_class, valid_ids=None):
+    valid_ids = set(tokenizer.get_vocab().values()) if valid_ids is None else valid_ids
+    if set(prompt_ids) - valid_ids:
+        raise ValueError('Prompt contains tokens absent from the tokenizer')
     context, mask, log = [], [], []
     for index, (name, header, budget) in enumerate(stages(planning)):
         header_start = len(context)
         injected = tokenizer.encode('\n\n' + header + '\n', add_special_tokens=False)
+        if set(injected) - valid_ids:
+            raise ValueError('Controller header contains invalid tokens')
         context.extend(injected)
         mask.extend([False] * len(injected))
         start = len(context)
@@ -78,6 +102,13 @@ def rollout(engine, tokenizer, prompt_ids, planning, seed, sampling_class):
         if result.finish_reason not in ('stop', 'length'):
             raise RuntimeError('Unexpected stage termination')
         ids = list(result.token_ids)
+        invalid = set(ids) - valid_ids
+        if invalid:
+            # Output vocabularies can contain IDs the tokenizer cannot accept as
+            # the next stage's input. Do not decode, retry or silently remove them.
+            return excluded_tokens(dict(response=tokenizer.decode(context, skip_special_tokens=True),
+                context_token_ids=context + ids, action_mask=mask + [True] * len(ids),
+                failed_stage=name, completed_stages=log), invalid)
         context.extend(ids)
         mask.extend([True] * len(ids))
         log.append(dict(name=name, header=header, budget=budget, header_start=header_start,
@@ -120,6 +151,7 @@ def generate(out, config, questions, root, atomic_json):
     if all((out / 'trajectories' / f'{i:05d}.json').exists() for i in range(len(questions))):
         return
     tokenizer = AutoTokenizer.from_pretrained(root / 'models/qwen-math', local_files_only=True)
+    valid_ids = set(tokenizer.get_vocab().values())
     planning = config['prompt_style'] == 'plan'
     header_tokens = sum(len(tokenizer.encode('\n\n' + header + '\n', add_special_tokens=False))
                         for _, header, _ in stages(planning))
@@ -139,27 +171,20 @@ def generate(out, config, questions, root, atomic_json):
                 saved = json.loads(cached.read_text())
                 if saved['question_id'] != q['id']:
                     raise ValueError('Staged resume question mismatch')
-                row = saved['response']
-                validate(row)
+                row = check_cached(saved['response'], valid_ids)
             else:
                 row = rollout(engine, tokenizer, q['prompt_token_ids'], planning,
-                              config['generation_seed'] + i * 100 + sample * 10, SamplingParams)
+                              config['generation_seed'] + i * 100 + sample * 10, SamplingParams, valid_ids)
                 atomic_json(cached, dict(question_id=q['id'], response=row))
             rows.append(row)
-        scores = compute_score(['math_numeric'] * len(rows),
-            ['Final answer: ' + r['final_stage_text'] for r in rows],
-            [q['ground_truth']] * len(rows), exclude_errors=True, rule=config['verifier_rule'])
-        for row, score in zip(rows, scores, strict=True):
+        scorable = [r for r in rows if r.get('verifier_status') != 'invalid_token_id']
+        scores = compute_score(['math_numeric'] * len(scorable),
+            ['Final answer: ' + r['final_stage_text'] for r in scorable],
+            [q['ground_truth']] * len(scorable), exclude_errors=True) if scorable else []
+        for row, score in zip(scorable, scores, strict=True):
             row.update(score, scoring_scope='final stage only')
             if not row['final_stage_text'] or not row['token_ids']:
                 row.update(score=None, verifier_status='empty_final_stage')
-            else:
-                # The final stage contract is one decimal number, not a prose
-                # paragraph from which an arbitrary internal number can win credit.
-                import re
-                from math_rl.conclusion_reward import NUMBER
-                if not re.fullmatch(NUMBER, row['final_stage_text']):
-                    row.update(score=None, verifier_status='invalid_final_stage')
         atomic_json(target, dict(question_id=q['id'], responses=rows))
         for sample in range(config['responses']):
             (out / 'pending' / f'{i:05d}-{sample}.json').unlink()
