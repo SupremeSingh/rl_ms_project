@@ -6,11 +6,12 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import tempfile
 
 import numpy as np
 import math_comparison as comparison
 from math_rl.ppo_baseline import PPO_PROFILES, audit_health, select_profile
-from math_rl.provenance import snapshot, write_json
+from math_rl.provenance import snapshot, write_json, sha256
 
 
 def launch(out, method, seed, steps, profile='legacy', calibration=False, name=None):
@@ -18,7 +19,7 @@ def launch(out, method, seed, steps, profile='legacy', calibration=False, name=N
     cmd = comparison.command(out, method, seed, steps, feature_mode='actor', replay_capacity=0,
         ppo_profile=profile, evaluation_split='val' if calibration else 'test', case_name=name)
     env = dict(os.environ, RAY_ADDRESS='local', MATH_RL_SEED=str(seed),
-               RAY_TMPDIR=f'/tmp/mrl-{os.environ.get("SLURM_JOB_ID", os.getpid())}-{name}')
+               RAY_TMPDIR=tempfile.mkdtemp(prefix='mr-', dir='/tmp'))
     Path(env['RAY_TMPDIR']).mkdir(exist_ok=True)
     started = time.perf_counter()
     with (out / f'{name}.log').open('x') as log:
@@ -28,6 +29,67 @@ def launch(out, method, seed, steps, profile='legacy', calibration=False, name=N
         raise ValueError('Incomplete run budget')
     result['process_seconds'] = time.perf_counter() - started
     return result
+
+
+
+def reuse_calibration(source, out, manifest):
+    """Reference complete, compatible candidates; failed candidates restart fresh.
+
+    This is whole-run reuse, never restoration of a partially trained actor.
+    Symlinks preserve checkpoints without copying gigabytes or modifying sources.
+    """
+    source = source.resolve()
+    old = json.loads((source / 'manifest.json').read_text())
+    for key in ('protocol', 'calibration'):
+        if old[key] != manifest[key]:
+            raise ValueError(f'Cannot reuse changed {key}')
+    for key in ('questions_sha256', 'model_hashes', 'data_hashes'):
+        if old['data'][key] != manifest['data'][key]:
+            raise ValueError(f'Cannot reuse changed data/model: {key}')
+    def critical(files):
+        return {k: v for k, v in files.items() if k.startswith(('src/', 'configs/'))
+                or k.startswith('requirements') or k == 'pyproject.toml'}
+    expected = critical(manifest['provenance']['files'])
+    reused = {}
+    for profile in PPO_PROFILES:
+        name = f'calibration-{profile}'
+        case = source / name
+        result_file = case / 'result.json'
+        if not result_file.exists():
+            continue
+        result = json.loads(result_file.read_text())
+        run = json.loads((case / 'run.json').read_text())
+        if critical(run['provenance']['files']) != expected:
+            raise ValueError(f'Training code/config/environment changed for {name}; do not mix results')
+        steps = manifest['calibration']['steps']
+        cfg = run['config']
+        expected_profile = PPO_PROFILES[profile]
+        if (cfg['experiment']['method'] != 'ppo' or cfg['experiment']['ppo_profile'] != profile
+                or cfg['experiment']['evaluation_split'] != 'val' or cfg['experiment']['replay_capacity'] != 0
+                or cfg['data']['seed'] != 17 or cfg['trainer']['total_training_steps'] != steps
+                or cfg['critic']['optim']['lr'] != expected_profile['lr']
+                or cfg['critic']['ppo_epochs'] != expected_profile['epochs']
+                or cfg['critic']['loss_agg_mode'] != 'seq-mean-token-mean'):
+            raise ValueError(f'Saved calibration configuration differs: {name}')
+        hashes = manifest['data']['data_hashes']
+        if set(run['data_hashes'].values()) != {hashes['train.parquet'], hashes['val.parquet']}:
+            raise ValueError(f'Saved calibration input hashes differ: {name}')
+        if (result['method'], result['seed'], result['updates'], result['answers'],
+                result['ppo_profile'], result['evaluation_split']) != ('ppo', 17, steps, steps*64, profile, 'val'):
+            raise ValueError(f'Completed result has incompatible settings: {name}')
+        for label in ('base-validation', 'final-validation'):
+            rows = comparison.read_answers(case / f'{label}-test.jsonl')
+            questions = [q for q in json.loads((out / 'data/questions.json').read_text())['questions'] if q['split'] == 'val']
+            if [(r['id'], r['ground_truth']) for r in rows] != [(q['id'], q['ground_truth']) for q in questions]:
+                raise ValueError(f'Validation questions changed: {name}')
+        (out / name).symlink_to(case, target_is_directory=True)
+        log = source / f'{name}.log'
+        if log.exists():
+            (out / log.name).symlink_to(log)
+        reused[profile] = dict(source=str(case), result_sha256=sha256(result_file),
+                               run_sha256=sha256(case / 'run.json'))
+    write_json(out / 'reused-calibration.json', reused)
+    return reused
 
 
 def aggregate(out, seeds):
@@ -97,12 +159,17 @@ def run(args):
                 selection='final validation accuracy among healthy, non-regressing candidates; declared-order tie-break'),
             primary_comparison='lstd versus calibrated ppo', provenance=snapshot(comparison.ROOT))
         write_json(out / 'manifest.json', manifest)
+        reused = reuse_calibration(args.reuse_calibration, out, manifest) if getattr(args, 'reuse_calibration', None) else {}
         candidates = []
         for profile in PPO_PROFILES:
             name = f'calibration-{profile}'
             state.update(state='calibrating', current=name)
             write_json(out / 'status.json', state)
-            result = launch(out, 'ppo', 17, args.calibration_steps, profile, True, name)
+            if profile in reused:
+                result = json.loads((out / name / 'result.json').read_text())
+                result['reused_from'] = reused[profile]['source']
+            else:
+                result = launch(out, 'ppo', 17, args.calibration_steps, profile, True, name)
             result.update(profile=profile, health=audit_health(out / name / 'ppo-critic-audit', args.calibration_steps))
             candidates.append(result)
             write_json(out / 'calibration.json', dict(candidates=candidates))
@@ -144,6 +211,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--reuse-calibration', type=Path, help='Reuse compatible completed calibration runs; retry missing candidates from base weights')
     parser.add_argument('--calibration-steps', type=int, default=30)
     parser.add_argument('--steps', type=int, default=60)
     parser.add_argument('--seeds', type=int, nargs='+', default=[42, 43, 44])

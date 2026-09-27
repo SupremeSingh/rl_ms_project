@@ -370,6 +370,26 @@ The original Phase 11 command still reproduces the historical pilot defaults.
 Use the new script for the calibrated comparison. See
 [docs/ppo_baseline.md](docs/ppo_baseline.md) for exact settings and limitations.
 
+### Continue after a calibration launch failure
+
+Ray now uses a short, unique temporary directory. Long candidate names previously
+made its Unix socket path exceed the system limit before training could start.
+To preserve completed calibration candidates and retry missing ones in a new job:
+
+```bash
+sbatch scripts/submit_math_rigorous.sh outputs/math-fit-12688752 \
+  --reuse-calibration outputs/math-rigorous-PREVIOUS_JOB_ID
+```
+
+Use the same calibration budget. Completed candidates are checked against saved
+model/data hashes, training-code/configuration records, budgets and validation
+question IDs, then referenced without copying checkpoints or modifying the old
+output. Missing candidates restart from base weights. Selection and the full
+comparison follow normally. Keep the original directory: the new output links to
+its completed candidates and records them in `reused-calibration.json`. This is
+whole-candidate reuse, not resume of a partly trained actor or final comparison.
+If provenance checks fail, inspect the differences rather than bypassing them.
+
 ### Buffer experiment — archived
 
 The buffer was tested with frozen features and matched no-buffer controls.

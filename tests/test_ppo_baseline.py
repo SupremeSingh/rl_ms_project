@@ -174,3 +174,63 @@ def test_pinned_baseline_worker_and_profile_compose():
     assert config.critic.strategy == 'fsdp'
     assert config.experiment.replay_capacity == 0
     assert issubclass(AuditedCriticWorker, CriticWorker)
+
+
+def reuse_fixture(tmp_path):
+    old, new = tmp_path / 'old', tmp_path / 'new'
+    old.mkdir()
+    (new / 'data').mkdir(parents=True)
+    q = dict(id='math/val/0', ground_truth='2', split='val')
+    (new / 'data/questions.json').write_text(json.dumps(dict(questions=[q])))
+    manifest = dict(protocol='math-online-calibrated-v1',
+        calibration=dict(seed=17, steps=30, candidates=PPO_PROFILES),
+        data=dict(questions_sha256='questions', model_hashes={'weights': 'weights'}, data_hashes={'train.parquet': 'train', 'val.parquet': 'val', 'test.parquet': 'test'}),
+        provenance=dict(files={'src/core.py': 'same', 'scripts/math_rigorous.py': 'new'}))
+    (old / 'manifest.json').write_text(json.dumps(manifest))
+    case = old / 'calibration-normalized'
+    case.mkdir()
+    result = dict(method='ppo', seed=17, updates=30, answers=1920, ppo_profile='normalized', evaluation_split='val')
+    (case / 'result.json').write_text(json.dumps(result))
+    (case / 'run.json').write_text(json.dumps(dict(provenance=dict(files={
+        'src/core.py': 'same', 'scripts/math_rigorous.py': 'old'}),
+        data_hashes={'train': 'train', 'val': 'val'},
+        config=dict(experiment=dict(method='ppo', ppo_profile='normalized', evaluation_split='val', replay_capacity=0),
+                    data=dict(seed=17), trainer=dict(total_training_steps=30),
+                    critic=dict(optim=dict(lr=1e-5), ppo_epochs=2, loss_agg_mode='seq-mean-token-mean')))))
+    for label in ('base-validation', 'final-validation'):
+        (case / f'{label}-test.jsonl').write_text(json.dumps(dict(id=q['id'], ground_truth='2', score=1, verifier_status='correct')))
+    (old / 'calibration-more_fitting').mkdir()
+    (old / 'calibration-more_fitting/error.txt').write_text('socket too long')
+    return old, new, manifest
+
+
+def test_reuse_completed_candidates_preserves_failed_source(tmp_path):
+    old, new, manifest = reuse_fixture(tmp_path)
+    before = (old / 'calibration-normalized/result.json').read_bytes()
+    reused = math_rigorous.reuse_calibration(old, new, manifest)
+    assert set(reused) == {'normalized'}
+    assert (new / 'calibration-normalized').is_symlink()
+    assert not (new / 'calibration-more_fitting').exists()
+    assert (old / 'calibration-more_fitting/error.txt').read_text() == 'socket too long'
+    assert (old / 'calibration-normalized/result.json').read_bytes() == before
+
+
+def test_reuse_rejects_training_changes(tmp_path):
+    old, new, manifest = reuse_fixture(tmp_path)
+    manifest['provenance']['files']['src/core.py'] = 'changed'
+    with pytest.raises(ValueError, match='Training code'):
+        math_rigorous.reuse_calibration(old, new, manifest)
+
+
+def test_launch_uses_short_unique_ray_paths(tmp_path, monkeypatch):
+    captured = []
+    def run(cmd, **kwargs):
+        captured.append(kwargs['env']['RAY_TMPDIR'])
+        case = tmp_path / 'calibration-more_fitting'
+        case.mkdir(exist_ok=True)
+        (case / 'result.json').write_text(json.dumps(dict(updates=30, answers=1920)))
+    monkeypatch.setattr(math_rigorous.subprocess, 'run', run)
+    math_rigorous.launch(tmp_path, 'ppo', 17, 30, 'more_fitting', True, 'calibration-more_fitting')
+    ray_path = captured[0]
+    assert len((ray_path + '/ray/session_2026-09-27_16-39-31_806402_652187/sockets/plasma_store').encode()) <= 107
+    assert 'more_fitting' not in ray_path
