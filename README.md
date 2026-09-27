@@ -4,19 +4,19 @@ We want to improve a math-solving LLM with reinforcement learning while avoiding
 PPO's usual second, large neural network for value prediction. Our candidate is a
 small linear critic fitted to hidden features the actor already computes.
 
-**Strongest result so far: PPO with LSTD(0.99) improved MATH accuracy from 52.3%
-to 60.0%, with about 30% less measured training time than our conventional PPO
-baseline.** GRPO reached 60.3% at slightly lower cost. This is an encouraging
-single-seed pilot, not established superiority over ridge or GRPO.
+**Main finding so far: a small linear critic can support useful PPO learning.**
+In the latest frozen-feature pilot, LSTD without the buffer reached **57.7%**
+MATH accuracy, matching GRPO's aggregate score at about 5% greater training cost.
+The initial actor-feature pilot reached 60.0%. These are single-seed experiments;
+conventional PPO needs validation-based tuning before strong cost-saving claims.
 
 [SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands,
 monitoring and resumption. This page explains the experiment and results.
 
-**Current path:** ordinary completion → Math-Verify reward → conventional PPO,
-PPO-ridge, PPO-LSTD(0.99), and GRPO. Planning is paused. Next, test the optional
-critic replay buffer against a matched frozen-feature/no-replay control, then
-replicate promising comparisons across seeds and audit changed answers.
-[Run Phase 11](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
+**Current path:** ordinary completion → Math-Verify → PPO, PPO-ridge,
+PPO-LSTD(0.99), and GRPO. **Planning and the buffer are paused.** Next, calibrate
+and audit conventional PPO on validation data, then lock its settings for a
+three-seed comparison. [Run instructions](SETUP.MD#calibrated-ppo-comparison).
 
 ## One example, from tokens to reinforcement learning
 
@@ -240,7 +240,7 @@ speedup. Logged peak memory was similar across methods; no memory saving is show
 In this completed pilot, each iteration of the two linear methods captures detached, pre-token features
 from the actor's existing log-probability forward pass. Two question folds ensure
 an answer's own reward is never used to fit its value predictions. We fit new
-heads on the current batch and discard them after the update: **no replay buffer
+heads on the current batch and discard them after the update: **no buffer
 and no reuse of the offline weights**. The saved offline run supplies the question
 split and model identity, not old-policy training answers.
 
@@ -263,25 +263,61 @@ review of changed answers and checks of conventional PPO's critic learning are
 needed before claiming a reliable advantage. Commands are in
 [SETUP.MD](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
 
-### Next: critic-only replay — implemented, not yet cluster-validated
+### Buffer experiment — completed; buffer paused
 
-We can now retain a small FIFO buffer of complete answers for **LSTD(0.99) or
-ridge**, while PPO still updates the actor only on its newest answers. The
-experimental setting keeps at most **256 answers / 131,072 token transitions**,
-and rejects data more than **four policy updates old**. Older answers to a
-held-out question are excluded from that question's critic fit, too.
+We tested a buffer of up to 256 answers, 131,072 transitions and four updates of
+history. A frozen base encoder kept stored features consistent. The no-buffer
+controls used that **same frozen encoder**. Both runs completed successfully.
+Each method used seed 42, 30 updates × 64 answers and a 300-question test set.
+All started at 52.3% accuracy; training costs include fitting and feature passes.
 
-To keep stored vectors comparable as the actor changes, replay uses a **frozen
-copy of the base model** to extract pre-token hidden states. This costs an extra
-forward pass and model storage; measured training time includes it. The original
-actor-feature/no-replay pipeline remains the default. A frozen-feature/no-replay
-control isolates the buffer's contribution.
+| Method | Final answer accuracy | Training GPU-hours |
+|---|---:|---:|
+| Conventional PPO | 51.0% | 2.598 |
+| Ridge, no buffer | 56.7% | 1.849 |
+| Ridge + buffer | 56.3% | 1.947 |
+| LSTD(0.99), no buffer | **57.7%** | 1.865 |
+| LSTD(0.99) + buffer | 57.3% | 2.043 |
+| GRPO | **57.7%** | **1.779** |
 
-Frozen features do **not** make old answers on-policy: this is recent, uncorrected
-mixed-policy critic fitting, not an exact current-policy value solution. Replay
-could reduce fitting noise or introduce stale-policy bias. No replay results or
-speedup claims exist yet. [Run instructions](SETUP.MD#critic-replay-buffer-experiment)
-start with a short two-GPU check. Planning remains paused.
+**Interpretation:** the buffer cost about 5% more for ridge and 10% more for
+LSTD, with one fewer correct answer out of 300 for each. That tiny accuracy
+change does not establish harm, but there is no demonstrated benefit. LSTD
+without the buffer matched GRPO's aggregate accuracy at about 5% greater cost.
+This is one seed on inspected questions, not proof of equal performance.
+
+The cheap-critic idea remains promising, but conventional PPO's repeated poor
+results require a better baseline before claiming savings against strong PPO.
+These frozen-feature runs also differ from the initial actor-feature pilot;
+do not attribute differences between those pilots solely to the buffer.
+
+### Next comparison: calibrated PPO, no buffer
+
+The new job first runs three **validation-only** conventional PPO candidates:
+critic learning rate 1e-5 / two epochs, 5e-5 / two epochs, and 1e-5 / four epochs.
+All use a zero-initialized scalar value head over a trainable pretrained backbone,
+and mean loss over valid tokens per answer. The previous loss divided by padded
+response width; that was a different weighting/scaling choice, not a proven
+explanation of PPO's poor accuracy. VERL's clipped PPO loss, GAE, detached return
+targets and persistent critic optimizer remain in use.
+
+Full-precision diagnostics check initial values, gradients and whether each
+critic update reduces error on the same raw GAE targets. These are training-fit
+checks, not held-out value accuracy. A candidate must pass aggregate health
+checks and avoid a final validation-accuracy regression. Selection uses only
+validation accuracy with a declared tie-break. If none qualifies, the job stops.
+
+The selected PPO configuration is then locked. **PPO, ridge, LSTD(0.99) and GRPO
+each run 60 updates × 64 answers across seeds 42, 43 and 44.** Linear critics
+reuse current actor features on fresh batches; the buffer is disabled. Prompts,
+reward, actor optimizer, decoding and budgets are matched. Reports include
+per-seed accuracy, seed variation, paired comparisons, costs and PPO health.
+PPO calibration costs and its extra diagnostic forward passes are disclosed.
+
+This is a more rigorous internal comparison, not a completed result or a paper
+replication. Only PPO receives this additional tuning budget; the test split has
+already been inspected, and an independent reward audit and untouched evaluation
+are still needed for strong external claims. See [baseline protocol and sources](docs/ppo_baseline.md).
 
 ### Phase 12: explicit planning — paused
 

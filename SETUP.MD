@@ -4,9 +4,9 @@ For the goal, results and interpretation, read [README.md](README.md).
 Run submissions from the repository on Duke's login node. Slurm runs the work on
 compute nodes; you may disconnect SSH after submission.
 
-**Current next step:** run the short [critic replay check](#critic-replay-buffer-experiment),
-then compare replay with frozen-feature/fresh-data critics before replication. Use the original completed MATH fitting directory as the source,
-not a planning output. Planning experiments below are archived and optional.
+**Current next step:** the [calibrated PPO comparison](#calibrated-ppo-comparison).
+The buffer and planning are paused. Use the original completed MATH fitting
+output as the source; no further offline generation is needed.
 
 Commands with `JOB_ID` or other uppercase placeholders require your returned job
 number. Input-path placeholders such as `CRITICS_JOB_ID` refer to the completed
@@ -313,71 +313,70 @@ actor GAE lambda=0.95; no historical replay or separate transformer critic for t
 linear methods. This first comparison tests the complete systems, including
 these fitting differences, on previously inspected questions.
 
-### Critic replay buffer experiment
+### Calibrated PPO comparison
 
-Use the same ordinary-completion MATH data source as Phase 11. After syncing the
-updated code to the cluster, first run three updates of both lightweight critics:
+After syncing the updated repository to the cluster:
 
 ```bash
+cd /usr/xtmp/ms785/rl_ms_project
 source scripts/cluster_env.sh
-sbatch --time=03:00:00 scripts/submit_math_comparison.sh outputs/math-fit-12688752 \
-  --methods ridge lstd --steps 3 \
-  --critic-feature-mode frozen --critic-replay-capacity 256
+sbatch scripts/submit_math_rigorous.sh outputs/math-fit-12688752
 ```
 
-The three-step run is an integration check, not an accuracy experiment. After it
-completes successfully, run the matched 30-step controls in separate allocations:
+One two-GPU allocation runs methods sequentially, with a two-day time limit.
+Based on the earlier runs, budget roughly **a day to a day and a half of running
+time**, plus queueing; longer critic fitting and diagnostic passes add uncertainty.
+The defaults are three 30-update validation-only PPO candidates on seed 17,
+then four methods × three seeds × 60 updates (3,840 answers per final run).
+There is no buffer and no explicit planning. Linear methods reuse current actor
+features, avoiding the frozen encoder's extra pass.
+
+The job selects conventional PPO using validation accuracy only, after critic
+health and non-regression checks. It never evaluates the final test set during
+calibration. If every candidate fails, it stops and saves diagnostics instead of
+launching an expensive comparison with an unvalidated baseline. Final runs start
+from the original base model; calibration checkpoints are not reused.
 
 ```bash
-# Frozen encoder, fresh critic data only.
-sbatch scripts/submit_math_comparison.sh outputs/math-fit-12688752 \
-  --methods ridge lstd --steps 30 \
-  --critic-feature-mode frozen --critic-replay-capacity 0
-
-# Frozen encoder, recent critic replay; also rerun conventional PPO and GRPO.
-sbatch scripts/submit_math_comparison.sh outputs/math-fit-12688752 \
-  --steps 30 --critic-feature-mode frozen --critic-replay-capacity 256
+squeue -j JOB_ID
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/math-rigorous-JOB_ID/status.json
+cat outputs/math-rigorous-JOB_ID/selection.json
+cat outputs/math-rigorous-JOB_ID/report.txt
+cat outputs/math-rigorous-JOB_ID/aggregate.json
+cat outputs/math-rigorous-JOB_ID/ppo-health.json
 ```
 
-The source directory identifies saved question splits/model provenance. Offline
-critic weights and answers are **not** loaded into the buffer. Each method/seed
-starts empty. Add `--seeds 42 43 44` for replication after the integration check.
-Use the same seeds and budgets for both controls.
+`selection.json` appears after calibration. If selection fails, inspect
+`calibration.json` and `calibration-NAME.log`. Each PPO run saves
+`ppo-critic-audit/rank-*.jsonl`: unrounded learning rates, gradient norms,
+pre/post-update MSE on identical raw GAE targets and diagnostic-forward time.
+`ppo-health.json` includes an estimate of extra diagnostic wall time (sum of the
+slowest rank per update). It is included in reported training cost, not hidden.
+The aggregate report also estimates PPO cost excluding those diagnostic forwards;
+use both figures when discussing compute savings. A completed job can have `state: needs_review` if a final PPO health check fails;
+read this before interpreting aggregate scores. The script fails on subprocess
+errors and does not resume partially trained actors.
 
-The loop is:
+Per-run `base-test.jsonl` / `final-test.jsonl` contain complete generated responses,
+references and verifier statuses for answer review. Calibration instead writes
+`base-validation-test.jsonl` / `final-validation-test.jsonl`; despite the shared
+historical filename suffix these contain **validation questions only**.
+`aggregate.json` gives paired seed/question bootstrap intervals; they are
+exploratory, not automatic significance/superiority declarations. All existing
+test questions have been inspected previously.
 
-1. Generate 64 new answers with the current actor and score them with Math-Verify.
-2. Extract causal pre-token states using the immutable base encoder.
-3. Append complete trajectories and binary outcomes to the CPU buffer. Evict
-   oldest trajectories before fitting to respect answer/token/age limits.
-4. Refit two question-cross-fitted LSTD or ridge heads. For each held-out current
-   question, exclude **all** its answers from the fitting pool, including history.
-   Means/scales are fitted on eligible training features only.
-5. Predict values on the current batch; run standard GAE and PPO using only that
-   batch. Stored answers never enter the actor loss.
+The original Phase 11 command still reproduces the historical pilot defaults.
+Use the new script for the calibrated comparison. See
+[docs/ppo_baseline.md](docs/ppo_baseline.md) for exact settings and limitations.
 
-Defaults: `--critic-replay-max-age 4` permits age 0–4; FIFO capacity may evict
-sooner. `--critic-replay-max-transitions 131072` bounds feature storage to about
-768 MiB for 1,536-dimensional float32 states (plus fitting temporaries). Capacity
-is measured in whole answers, not randomly sampled tokens. Length-capped answers
-remain terminal under the existing capped-response task. The buffer exists only
-within a run; checkpoint resume remains unsupported.
+### Buffer experiment — archived
 
-Read `outputs/math-online-JOB_ID/report.txt` and each
-`METHOD-seed42/linear-critic/metrics.jsonl`. The latter records historical/total
-answers, transitions, age, evictions, feature bytes, per-fold fitting counts and
-solver diagnostics. History should be zero at update 1 and positive afterward;
-actual counts depend on question overlap and the limits. Run manifests record
-feature/replay settings. Head checkpoints include buffer metadata, not a copy of
-its trajectories.
-
-**Interpretation:** the extra frozen encoder is inference-only, CPU-offloaded
-between uses. Loading it on first use, forward passes, feature transport and
-buffer fitting are included in training seconds. Forming LSTD statistics costs
-roughly O(Tk²), in addition to the O(k³) solve. Buffer replay uses uncorrected old
-policy outcomes: fixed features do not remove off-policy bias. Compare against
-the frozen fresh-data control before attributing gains to replay; do not treat
-the previous actor-feature pilot as that control. No cluster replay result yet.
+The buffer was tested with frozen features and matched no-buffer controls.
+It did not improve this one-seed pilot and increased cost. No new buffer job is
+recommended. Its code, settings (`--critic-replay-*`) and original outputs remain
+available for reproducing the result. The active comparison fixes capacity to
+zero; “buffer” is the term used in reports and discussion.
 
 ## If something fails
 
@@ -390,6 +389,7 @@ cat outputs/math-fit-JOB_ID/status.json
 tail -n 100 outputs/math-fit-JOB_ID/generate.log
 ```
 
+For the calibrated comparison, use `slurm-math-rigorous-JOB_ID.out`.
 Other log prefixes are `slurm-critics`, `slurm-lstd`, `slurm-lstd-analysis`,
 `slurm-lstd-validation`, `slurm-lstd-math`, `slurm-lstd-traces` and `slurm-math-online`.
 For online failures, inspect `outputs/math-online-JOB_ID/METHOD-seed42.log`.

@@ -92,8 +92,16 @@ def prepare(source, out):
 
 
 def command(out, method, seed, steps, feature_mode='actor', replay_capacity=0,
-            replay_max_age=4, replay_max_transitions=131072):
-    case = out / f'{method}-seed{seed}'
+            replay_max_age=4, replay_max_transitions=131072, ppo_profile='legacy',
+            evaluation_split='test', case_name=None):
+    from math_rl.ppo_baseline import PPO_PROFILES
+    case = out / (case_name or f'{method}-seed{seed}')
+    extras = []
+    if method == 'ppo' and ppo_profile != 'legacy':
+        profile = PPO_PROFILES[ppo_profile]
+        extras = [f'experiment.ppo_profile={ppo_profile}',
+            f'critic.optim.lr={profile["lr"]}', f'critic.ppo_epochs={profile["epochs"]}',
+            'critic.loss_agg_mode=seq-mean-token-mean', 'critic.use_dynamic_bsz=false']
     return [sys.executable, '-m', 'math_rl.math_main',
         f'experiment.method={method}',
         f'actor_rollout_ref.model.critic_feature_mode={feature_mode if method in ("lstd", "ridge") else "actor"}',
@@ -102,10 +110,11 @@ def command(out, method, seed, steps, feature_mode='actor', replay_capacity=0,
         f'experiment.replay_max_transitions={replay_max_transitions}',
         f'algorithm.adv_estimator={"grpo" if method == "grpo" else "gae"}',
         f'data.train_files={out / "data/train.parquet"}', f'data.val_files={out / "data/val.parquet"}',
-        f'experiment.test_file={out / "data/test.parquet"}', f'data.seed={seed}',
+        f'experiment.test_file={out / ("data/" + evaluation_split + ".parquet")}',
+        f'experiment.evaluation_split={evaluation_split}', f'data.seed={seed}',
         f'trainer.total_training_steps={steps}', f'trainer.save_freq={steps}',
         f'trainer.default_local_dir={case}', f'trainer.experiment_name=math-{method}-seed{seed}',
-        f'hydra.run.dir={out / (method + "-seed" + str(seed) + "-hydra")}']
+        f'hydra.run.dir={out / (case.name + "-hydra")}'] + extras
 
 
 def read_answers(path):

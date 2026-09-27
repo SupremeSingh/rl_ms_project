@@ -29,6 +29,22 @@ def validate(config):
         raise ValueError('Comparison uses gamma=1, actor GAE lambda=.95, no KL shaping')
     if config.experiment.critic_lambda != .99 or config.experiment.critic_alpha != .01:
         raise ValueError('Predeclared online comparison: LSTD(.99), alpha=.01 for both linear methods')
+    from math_rl.ppo_baseline import PPO_PROFILES
+    profile = config.experiment.ppo_profile
+    if profile != 'legacy':
+        chosen = PPO_PROFILES.get(profile)
+        if chosen is None or config.experiment.method != 'ppo':
+            raise ValueError('Invalid conventional PPO profile')
+        if (config.critic.optim.lr != chosen['lr'] or config.critic.ppo_epochs != chosen['epochs']
+                or config.critic.loss_agg_mode != 'seq-mean-token-mean'
+                or config.critic.strategy != 'fsdp' or config.critic.use_dynamic_bsz
+                or config.critic.ppo_micro_batch_size_per_gpu != 1
+                or config.critic.ulysses_sequence_parallel_size != 1):
+            raise ValueError('Baseline profile must use its locked critic settings')
+    if config.experiment.evaluation_split not in ('test', 'val'):
+        raise ValueError('Invalid evaluation split')
+    if config.experiment.evaluation_split == 'val' and str(config.experiment.test_file) != str(config.data.val_files):
+        raise ValueError('Calibration must evaluate validation data only')
     mode = config.actor_rollout_ref.model.critic_feature_mode
     capacity = config.experiment.replay_capacity
     if mode not in ('actor', 'frozen') or capacity < 0:
@@ -80,7 +96,8 @@ def run(config):
     linear = config.experiment.method in ('ridge', 'lstd')
     roles = {Role.ActorRollout: ray.remote(FeatureActorWorker if linear else ActorRolloutRefWorker)}
     if config.experiment.method == 'ppo':
-        roles[Role.Critic] = ray.remote(CriticWorker)
+        from math_rl.ppo_baseline_worker import AuditedCriticWorker
+        roles[Role.Critic] = ray.remote(CriticWorker if config.experiment.ppo_profile == 'legacy' else AuditedCriticWorker)
     pool = ResourcePoolManager(resource_pool_spec={'global_pool': [config.trainer.n_gpus_per_node]},
                                mapping={role: 'global_pool' for role in roles})
     train = create_rl_dataset(config.data.train_files, config.data, tokenizer, None)
@@ -94,16 +111,22 @@ def run(config):
     started = time.perf_counter()
     trainer.init_workers()
     init_seconds = time.perf_counter() - started
-    initial = trainer.evaluate_test('base')
+    calibration = config.experiment.evaluation_split == 'val'
+    initial = trainer.evaluate_test('base-validation' if calibration else 'base')
     started = time.perf_counter()
     trainer.fit()
     training_seconds = time.perf_counter() - started
-    final = trainer.evaluate_test('final')
+    final = trainer.evaluate_test('final-validation' if calibration else 'final')
     result = dict(method=config.experiment.method, seed=seed, initial_test=initial, final_test=final,
         updates=trainer.completed_updates, answers=trainer.completed_updates * 64,
         initialization_seconds=init_seconds, training_seconds=training_seconds,
         training_gpu_hours=training_seconds * config.trainer.n_gpus_per_node / 3600,
         scope='Training time includes validation, checkpointing, feature transport and critic fitting; excludes setup and test evaluation')
+    result['ppo_profile'] = config.experiment.ppo_profile
+    result['evaluation_split'] = config.experiment.evaluation_split
+    if calibration:
+        result['initial_validation'] = result.pop('initial_test')
+        result['final_validation'] = result.pop('final_test')
     write_json(trainer.output / 'result.json', result)
     return result
 
