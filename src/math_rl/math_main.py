@@ -29,6 +29,16 @@ def validate(config):
         raise ValueError('Comparison uses gamma=1, actor GAE lambda=.95, no KL shaping')
     if config.experiment.critic_lambda != .99 or config.experiment.critic_alpha != .01:
         raise ValueError('Predeclared online comparison: LSTD(.99), alpha=.01 for both linear methods')
+    mode = config.actor_rollout_ref.model.critic_feature_mode
+    capacity = config.experiment.replay_capacity
+    if mode not in ('actor', 'frozen') or capacity < 0:
+        raise ValueError('Invalid critic feature/replay mode')
+    if capacity and (mode != 'frozen' or capacity < 64):
+        raise ValueError('Replay requires frozen features and capacity >= 64 answers')
+    if config.experiment.replay_max_transitions < 64 * 2048 or config.experiment.replay_max_age < 0:
+        raise ValueError('Replay bounds must accommodate a complete batch and nonnegative age')
+    if mode == 'frozen' and not config.actor_rollout_ref.actor.fsdp_config.param_offload:
+        raise ValueError('Frozen encoder requires actor parameter offload between passes')
     rollout = config.actor_rollout_ref.rollout
     if (config.data.train_batch_size, rollout.n, rollout.temperature, rollout.top_p, rollout.top_k) != (16, 4, 1., 1., -1):
         raise ValueError('All methods require 16 prompts x 4 answers with matched sampling')

@@ -17,6 +17,6 @@ export MATH_RL_GPU=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 [[ $# -ge 1 ]] || { echo 'Usage: sbatch scripts/submit_math_comparison.sh outputs/math-fit-... [--steps 30] [--seeds 42 43 44]' >&2; exit 1; }
 bash scripts/container_exec.sh bash scripts/setup_ppo.sh
 bash scripts/container_exec.sh "$PWD/.venv/bin/python" -m pytest -q \
-  tests/test_online_critic.py tests/test_math_comparison.py
+  tests/test_online_critic.py tests/test_critic_replay.py tests/test_math_comparison.py
 srun bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/math_comparison.py \
   --out "outputs/math-online-${SLURM_JOB_ID:?}" "$@"

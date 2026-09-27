@@ -12,6 +12,12 @@ single-seed pilot, not established superiority over ridge or GRPO.
 [SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands,
 monitoring and resumption. This page explains the experiment and results.
 
+**Current path:** ordinary completion → Math-Verify reward → conventional PPO,
+PPO-ridge, PPO-LSTD(0.99), and GRPO. Planning is paused. Next, test the optional
+critic replay buffer against a matched frozen-feature/no-replay control, then
+replicate promising comparisons across seeds and audit changed answers.
+[Run Phase 11](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
+
 ## One example, from tokens to reinforcement learning
 
 Suppose the question is: **“I have 5 avocados and buy 4 more. Each serving needs 3.
@@ -231,7 +237,7 @@ checkpointing; they exclude setup, initialization and initial/final test evaluat
 Thus the 30% saving is for this measured training workload, not an isolated solver
 speedup. Logged peak memory was similar across methods; no memory saving is shown.
 
-For the two linear methods, each iteration captures detached, pre-token features
+In this completed pilot, each iteration of the two linear methods captures detached, pre-token features
 from the actor's existing log-probability forward pass. Two question folds ensure
 an answer's own reward is never used to fit its value predictions. We fit new
 heads on the current batch and discard them after the update: **no replay buffer
@@ -257,79 +263,52 @@ review of changed answers and checks of conventional PPO's critic learning are
 needed before claiming a reliable advantage. Commands are in
 [SETUP.MD](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
 
-### Phase 12: planning — initial results and structured rerun
+### Next: critic-only replay — implemented, not yet cluster-validated
 
-The 800-answer validation screen found no clear solving benefit: current-prompt
-accuracy was 32.3%, planning 31.2%, with a paired difference of −1 percentage
-point (95% interval −6.25 to +4.5). Both truncated 6.5% of answers.
-Planning used 757 tokens on average versus 744 for the current prompt. The run
-took about 53 minutes. This tested solving behavior, not critic quality.
+We can now retain a small FIFO buffer of complete answers for **LSTD(0.99) or
+ridge**, while PPO still updates the actor only on its newest answers. The
+experimental setting keeps at most **256 answers / 131,072 token transitions**,
+and rejects data more than **four policy updates old**. Older answers to a
+held-out question are excluded from that question's critic fit, too.
 
-The bounded critic experiment completed in 3 hours 36 minutes: 300 training,
-50 validation and 100 test questions, four answers per prompt (3,600 total).
-Ordinary versus planning answer accuracy was 30.5% versus 29.5%. LSTD Brier was
-0.18994 versus 0.19972; ridge was 0.18594 versus 0.20130. Overall paired intervals
-included zero. Fixed-prefix results generally favored ordinary reasoning.
+To keep stored vectors comparable as the actor changes, replay uses a **frozen
+copy of the base model** to extract pre-token hidden states. This costs an extra
+forward pass and model storage; measured training time includes it. The original
+actor-feature/no-replay pipeline remains the default. A frozen-feature/no-replay
+control isolates the buffer's contribution.
 
-Manual response inspection found missed plan headings and an apparent verifier
-false rejection: a concluding `b = 7` was obscured by later numbers. Some generated
-code-output blocks were also wrong; these blocks are text, not executed programs.
-The post-plan comparison therefore needs qualification, and scoring needs auditing.
+Frozen features do **not** make old answers on-policy: this is recent, uncorrected
+mixed-policy critic fitting, not an exact current-policy value solution. Replay
+could reduce fitting noise or introduce stale-policy bias. No replay results or
+speedup claims exist yet. [Run instructions](SETUP.MD#critic-replay-buffer-experiment)
+start with a short two-GPU check. Planning remains paused.
 
-The structured rerun raised observed answer accuracy from 22.5% to 26.3%, but
-its interval included no improvement (−1.25 to +9.01 percentage points). Crucially,
-**none of 400 planning test responses satisfied all requested sections**. Raw
-critic Brier scores were higher with planning, but the outcome distribution also
-changed; that alone does not establish worse features. No planning benefit is
-established. The old audit report also double-counted its new-correct total; this
-reporting bug is fixed, without changing the old saved labels.
+### Phase 12: explicit planning — paused
 
-**Implemented: controller-managed multi-stage generation.** Python inserts the headings
-and resumes the frozen model separately for each stage:
+Our final screen compared ordinary staged solving with **facts → plan → solution
+→ final answer**, using the frozen base model on 100 previously inspected MATH
+validation questions, four answers per condition (800 attempts). Python inserted
+headings and imposed per-stage budgets; Math-Verify scored only the final section.
+No critics were fitted and no policy updates occurred. Runtime: **1 hour 42 minutes**.
 
-| Condition | Sampled-token budgets |
-|---|---|
-| Planning | What we know: 96; What we will do: 96; Solution: 1,792; Final answer: 64 |
-| Control | Solution: 1,984; Final answer: 64 |
+| Condition | Answer accuracy | Mean generated tokens | Any stage hit its cap |
+|---|---:|---:|---:|
+| Staged control | 77/400 — **19.25%** | **582.4** | 38.8% |
+| Staged planning | 58/400 — **14.5%** | **772.7** | 98.8% |
 
-Every stage stops at `<END_STAGE>`, model EOS, or its token cap. Unused budget is
-not transferred. Both conditions allow 2,048 sampled tokens; inserted headers
-add context tokens, which are recorded separately. This enforces section slots,
-not meaningful content: empty stages, caps and malformed final answers are audited.
-Only the final stage is scored. Numbers in earlier sections cannot earn accidental
-credit. Clear final answers in prose or boxes are accepted by Math-Verify; empty
-or unresolved extractions are kept separate from incorrect answers.
+Planning lost **4.75 percentage points** (exploratory paired 95% interval
+**[−9.5, −0.25]**) while using about **33% more tokens**. Facts and plans usually
+hit their 96-token caps. Inspection showed duplicated headings, unfinished
+expressions, instruction repetition and topic drift. The cap rate means *any
+section* exhausted its allowance, not the full 2,048-token budget. These scores
+are not directly comparable to Phase 11's different evaluation protocol.
 
-The experiment keeps 300 training, 50 validation and 100 test questions, four
-answers per condition: **3,600 answers**. It fits ridge and LSTD(0.99) separately,
-with validation-only regularization selection. Exact token IDs, stage boundaries,
-and sampled-action masks are saved. Hidden states include injected headers, but
-headers are not counted as actions or extra LSTD trace steps. This is a controlled
-frozen-policy experiment, not an integration with PPO.
-
-Reports include random-prefix and fixed-position errors, the exact pre-solution
-boundary, constant-baseline-adjusted comparisons, exclusions and per-stage stops.
-The response viewer shows full selected responses and stage details. Old outputs
-remain unchanged. Previously inspected questions and differing retained populations
-still limit causal claims; manual review remains necessary.
-
-The first multi-stage run stopped when a generated token ID was rejected as
-input to the next stage. A guard now records and excludes those attempts before
-continuation. Inspection of five saved control responses also exposed an overly
-strict decimal-only final-answer filter and planning instructions leaking into
-the control. All five answers were wrong; four were excluded for formatting.
-These examples are diagnostic, not an estimate of overall accuracy.
-
-**Next: a read-only CPU rescore of saved answers, then an 800-answer generation-only
-screen.** The corrected control has no planning instructions; both conditions
-score final sections with Math-Verify, accepting prose and boxed answers. The
-screen uses 100 previously inspected validation questions, four answers per
-condition, without feature extraction or critic fitting. It reports exclusions
-and stage stops, and an HTML viewer exposes all answers and extraction flags.
-Ambiguous extractions still need human review. No planning benefit is established.
-
-The changed protocol starts fresh rather than mixing with the old run. Commands:
-[SETUP.MD](SETUP.MD#multi-stage-planning-experiment).
+**Interpretation:** this staged protocol did not help this 1.5B base model.
+Instruction-following limitations, noisy text and forced boundaries are plausible
+contributors; the experiment does **not** establish a parameter-count ceiling or
+show that planning cannot help a reasoning-trained model. We return to Phase 11's
+ordinary-completion pipeline. Planning code and outputs remain as historical
+experiments, not prerequisites for further PPO work.
 
 We aim to turn an LLM's own hidden representations into a lightweight critic that improves learning without a separately trained transformer critic.
 The broader goal is reliable gains per unit of compute, with honest comparisons against conventional PPO, ridge and critic-free GRPO.

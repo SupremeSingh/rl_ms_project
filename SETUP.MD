@@ -4,6 +4,10 @@ For the goal, results and interpretation, read [README.md](README.md).
 Run submissions from the repository on Duke's login node. Slurm runs the work on
 compute nodes; you may disconnect SSH after submission.
 
+**Current next step:** run the short [critic replay check](#critic-replay-buffer-experiment),
+then compare replay with frozen-feature/fresh-data critics before replication. Use the original completed MATH fitting directory as the source,
+not a planning output. Planning experiments below are archived and optional.
+
 Commands with `JOB_ID` or other uppercase placeholders require your returned job
 number. Input-path placeholders such as `CRITICS_JOB_ID` refer to the completed
 upstream phase. Keep those artifacts; do not rerun completed generation just to
@@ -266,8 +270,8 @@ One job requests **two A5000 GPUs, eight CPUs and 128 GB RAM**, with a two-day t
 limit. It installs/checks the existing isolated verifier and runs numerical and
 integration tests first, then trains PPO, PPO-ridge, PPO-LSTD(0.99) and GRPO
 sequentially. Each starts from the base model: **30 updates × 64 answers**, seed 42.
-There is no new dependency to install manually. The new GPU path is not yet
-cluster-validated; use `--steps 2` for a shorter first execution if desired.
+This path completed the reported single-seed pilot. There is no new dependency
+to install manually; use the multi-seed command below for replication.
 
 Monitor and read the result (the new submission prints `JOB_ID`):
 
@@ -290,7 +294,8 @@ ordinary parse failure or verifier timeout = 0. Other runtime failures stop that
 method and remain visible. Independent methods still run; any failed method makes
 the overall job fail. Nothing is silently excluded from the online sample budget.
 
-After the first comparison succeeds, repeat with several training seeds:
+Recommended next: repeat the completed comparison with several training seeds,
+keeping the ordinary completion prompt, reward and training budget fixed:
 
 ```bash
 sbatch scripts/submit_math_comparison.sh outputs/math-fit-MATH_FIT_JOB_ID \
@@ -307,6 +312,72 @@ fresh batch, using two question folds. LSTD lambda=0.99, linear regularization=0
 actor GAE lambda=0.95; no historical replay or separate transformer critic for the
 linear methods. This first comparison tests the complete systems, including
 these fitting differences, on previously inspected questions.
+
+### Critic replay buffer experiment
+
+Use the same ordinary-completion MATH data source as Phase 11. After syncing the
+updated code to the cluster, first run three updates of both lightweight critics:
+
+```bash
+source scripts/cluster_env.sh
+sbatch --time=03:00:00 scripts/submit_math_comparison.sh outputs/math-fit-12688752 \
+  --methods ridge lstd --steps 3 \
+  --critic-feature-mode frozen --critic-replay-capacity 256
+```
+
+The three-step run is an integration check, not an accuracy experiment. After it
+completes successfully, run the matched 30-step controls in separate allocations:
+
+```bash
+# Frozen encoder, fresh critic data only.
+sbatch scripts/submit_math_comparison.sh outputs/math-fit-12688752 \
+  --methods ridge lstd --steps 30 \
+  --critic-feature-mode frozen --critic-replay-capacity 0
+
+# Frozen encoder, recent critic replay; also rerun conventional PPO and GRPO.
+sbatch scripts/submit_math_comparison.sh outputs/math-fit-12688752 \
+  --steps 30 --critic-feature-mode frozen --critic-replay-capacity 256
+```
+
+The source directory identifies saved question splits/model provenance. Offline
+critic weights and answers are **not** loaded into the buffer. Each method/seed
+starts empty. Add `--seeds 42 43 44` for replication after the integration check.
+Use the same seeds and budgets for both controls.
+
+The loop is:
+
+1. Generate 64 new answers with the current actor and score them with Math-Verify.
+2. Extract causal pre-token states using the immutable base encoder.
+3. Append complete trajectories and binary outcomes to the CPU buffer. Evict
+   oldest trajectories before fitting to respect answer/token/age limits.
+4. Refit two question-cross-fitted LSTD or ridge heads. For each held-out current
+   question, exclude **all** its answers from the fitting pool, including history.
+   Means/scales are fitted on eligible training features only.
+5. Predict values on the current batch; run standard GAE and PPO using only that
+   batch. Stored answers never enter the actor loss.
+
+Defaults: `--critic-replay-max-age 4` permits age 0–4; FIFO capacity may evict
+sooner. `--critic-replay-max-transitions 131072` bounds feature storage to about
+768 MiB for 1,536-dimensional float32 states (plus fitting temporaries). Capacity
+is measured in whole answers, not randomly sampled tokens. Length-capped answers
+remain terminal under the existing capped-response task. The buffer exists only
+within a run; checkpoint resume remains unsupported.
+
+Read `outputs/math-online-JOB_ID/report.txt` and each
+`METHOD-seed42/linear-critic/metrics.jsonl`. The latter records historical/total
+answers, transitions, age, evictions, feature bytes, per-fold fitting counts and
+solver diagnostics. History should be zero at update 1 and positive afterward;
+actual counts depend on question overlap and the limits. Run manifests record
+feature/replay settings. Head checkpoints include buffer metadata, not a copy of
+its trajectories.
+
+**Interpretation:** the extra frozen encoder is inference-only, CPU-offloaded
+between uses. Loading it on first use, forward passes, feature transport and
+buffer fitting are included in training seconds. Forming LSTD statistics costs
+roughly O(Tk²), in addition to the O(k³) solve. Buffer replay uses uncorrected old
+policy outcomes: fixed features do not remove off-policy bias. Compare against
+the frozen fresh-data control before attributing gains to replay; do not treat
+the previous actor-feature pilot as that control. No cluster replay result yet.
 
 ## If something fails
 
@@ -329,9 +400,13 @@ silence a provenance mismatch.
 See [docs/lstd.md](docs/lstd.md) for equations, controls and limitations.
 
 
-## Phase 12 — Planning before solving
+## Phase 12 — Planning before solving (archived; paused)
 
-Start with the quick validation screen, before committing to full critic fits:
+These commands document completed development experiments. They are not the
+current next step and are not used by Phase 11. No further planning run or critic
+fit is recommended from the latest screen.
+
+Historical quick validation screen:
 
 ```bash
 cd /usr/xtmp/ms785/rl_ms_project
@@ -360,7 +435,7 @@ This tests solving behavior, not improved initial values. If inconclusive, expan
 the screen before full fitting. Resume with the same source and `--screen --out
 outputs/math-planning-PREVIOUS_JOB_ID`; never reuse a full-fit output directory.
 
-### Bounded critic comparison (recommended next)
+### Bounded critic comparison (historical)
 
 ```bash
 sbatch --time=1-00:00:00 scripts/submit_math_planning.sh outputs/math-fit-SOURCE_JOB_ID --bounded
@@ -497,10 +572,10 @@ writing to the same output directory. Compare prompt conditions on validation
 before choosing a PPO configuration; these inspected test results are exploratory.
 Answer accuracy counts all attempts; critic metrics exclude unparseable/error
 answers and may therefore compare different retained populations. No actor
-parameters are trained in this phase. PPO/GRPO planning comparisons come afterward.
+parameters are trained in this phase. PPO/GRPO planning comparisons were not pursued; this branch is paused.
 
 
-### Multi-stage planning experiment
+### Multi-stage planning experiment (historical)
 
 The current protocol (`staged-plan-v2`) removes planning instructions from the
 control and accepts unambiguous final answers in prose or boxes. Math-Verify
@@ -559,4 +634,4 @@ Review before launching another fit; no automatic fitting job follows.
 To resume this new screen after interruption, repeat its command and add
 `--out outputs/math-planning-SCREEN_JOB_ID`, keeping code and flags unchanged.
 A new Slurm ID does not change that output path. The earlier full-budget command
-without `--screen` still exists, but is not the recommended next experiment.
+without `--screen` still exists, but this entire planning branch is now paused.

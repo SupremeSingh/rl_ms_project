@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from verl.trainer.ppo import ray_trainer
 
 from math_rl.completion_dataset import CompletionDataset
+from math_rl.critic_replay import CriticReplay
 from math_rl.online_critic import cross_fitted_values
 from math_rl.provenance import write_json
 
@@ -35,6 +36,15 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
 
     def fit(self):
         original = ray_trainer.compute_advantage
+        capacity = getattr(self.config.experiment, 'replay_capacity', 0)
+        model_config = getattr(getattr(self.config, 'actor_rollout_ref', None), 'model', None)
+        feature_mode = getattr(model_config, 'critic_feature_mode', 'actor')
+        replay = None
+        if self.linear and capacity:
+            if feature_mode != 'frozen':
+                raise ValueError('Replay requires immutable frozen features')
+            replay = CriticReplay(capacity, self.config.experiment.replay_max_transitions,
+                                  self.config.experiment.replay_max_age)
 
         def advantages(data, *args, **kwargs):
             if self.linear:
@@ -45,12 +55,14 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
                     [str(info['prompt_id']) for info in data.non_tensor_batch['extra_info']],
                     self.method, alpha=self.config.experiment.critic_alpha,
                     trace_lambda=self.config.experiment.critic_lambda,
-                    seed=self.config.data.seed + self.global_steps)
+                    seed=self.config.data.seed + self.global_steps, replay=replay, step=self.global_steps)
+                metrics['feature_mode'] = feature_mode
                 data.batch['values'] = values.to(device)
                 folder = self.output / 'linear-critic'
                 folder.mkdir(exist_ok=True)
                 torch.save(dict(heads=heads, step=self.global_steps, method=self.method,
-                    feature_policy='current actor before this update; discarded after update'),
+                    feature_policy=feature_mode,
+                    replay=metrics.get('replay')),
                     folder / f'{self.global_steps}.pt')
                 with (folder / 'metrics.jsonl').open('a') as handle:
                     handle.write(json.dumps(dict(metrics, step=self.global_steps)) + '\n')

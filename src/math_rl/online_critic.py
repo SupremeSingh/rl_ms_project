@@ -1,7 +1,7 @@
-"""On-policy, question-cross-fitted linear values for PPO (gamma=1).
+"""Question-cross-fitted linear values for PPO (gamma=1).
 
 Inputs are detached final-normalized actor states BEFORE each response token.
-Refit from scratch each iteration: no stale actor features or cross-policy replay.
+Optional recent replay requires a frozen encoder; actor updates remain on fresh data.
 """
 from contextlib import contextmanager
 import hashlib
@@ -87,8 +87,11 @@ def fit_head(states, outcomes, method, alpha, trace_lambda):
         transitions=stats['transitions'], trajectories=stats['trajectories'])
 
 
-def cross_fitted_values(features, rewards, mask, question_ids, method, alpha=.01, trace_lambda=.99, seed=42):
-    """Predict each question using only other questions' current-policy outcomes.
+def cross_fitted_values(features, rewards, mask, question_ids, method, alpha=.01, trace_lambda=.99, seed=42, replay=None, step=None):
+    """Predict each question using only other questions' outcomes.
+
+    Without replay, all fitting data comes from the current batch. Replay includes
+    recent older policies and therefore does not estimate a pure on-policy value.
 
     Includes zero-reward parse failures, just like online PPO/GRPO. Raw linear
     predictions are neither clipped nor passed through a sigmoid. EOS and the
@@ -111,17 +114,32 @@ def cross_fitted_values(features, rewards, mask, question_ids, method, alpha=.01
     if any(len(x) != int(n) for x, n in zip(states, lengths, strict=True)):
         raise ValueError('Feature count must equal valid response actions')
     folds = question_folds(question_ids, seed)
+    if replay is not None:
+        if step is None:
+            raise ValueError('Replay requires a behavior-policy step')
+        replay.append(states, outcomes.tolist(), question_ids, step)
     values = torch.zeros_like(rewards, dtype=torch.float32)
     heads, diagnostics = [], []
     for fold in range(2):
         train = np.flatnonzero(folds != fold).tolist()
         test = np.flatnonzero(folds == fold).tolist()
-        head, checks = fit_head([states[i] for i in train], outcomes[train].tolist(), method, alpha, trace_lambda)
+        held_out = {question_ids[i] for i in test}
+        if replay is None:
+            fit_states, fit_rewards = [states[i] for i in train], outcomes[train].tolist()
+            fit_questions = {question_ids[i] for i in train}
+            history = 0
+        else:
+            # Exclude ALL older answers to held-out questions, even when folds change.
+            eligible = [e for e in replay.entries if e.question not in held_out]
+            fit_states, fit_rewards = [e.states for e in eligible], [e.reward for e in eligible]
+            fit_questions = {e.question for e in eligible}
+            history = sum(e.step < step for e in eligible)
+        head, checks = fit_head(fit_states, fit_rewards, method, alpha, trace_lambda)
         for i in test:
             values[i, :lengths[i]] = (design(states[i], head['mean'], head['scale']) @ head['weights']).float()
-        heads.append(dict(head, predicted_fold=fold, train_questions=sorted({question_ids[i] for i in train})))
+        heads.append(dict(head, predicted_fold=fold, train_questions=sorted(fit_questions)))
         diagnostics.append(dict(checks, predicted_fold=fold,
-            train_questions=len({question_ids[i] for i in train}), test_questions=len({question_ids[i] for i in test})))
+            historical_answers=history, train_questions=len(fit_questions), test_questions=len({question_ids[i] for i in test})))
     valid = values[mask.bool()]
     targets = outcomes[:, None].expand_as(values)[mask.bool()]
     if not torch.isfinite(valid).all():
@@ -131,4 +149,25 @@ def cross_fitted_values(features, rewards, mask, question_ids, method, alpha=.01
         transitions=int(lengths.sum()), mean_value=float(valid.mean()), min_value=float(valid.min()),
         max_value=float(valid.max()), outside_unit_interval=float(((valid < 0) | (valid > 1)).float().mean()),
         out_of_fold_brier=float((valid - targets).square().mean()), reward_rate=float(outcomes.mean()))
+    if replay is not None:
+        metrics['replay'] = replay.metrics()
     return values.detach(), heads, metrics
+
+
+@torch.inference_mode()
+def frozen_prefixes(encoder, input_ids, attention_mask, response_width):
+    """One causal encoder pass per unpadded answer, retaining pre-action states."""
+    device = next(encoder.parameters()).device
+    features = []
+    for ids, mask in zip(input_ids, attention_mask, strict=True):
+        prompt = int(mask[:-response_width].sum())
+        response = int(mask[-response_width:].sum())
+        if prompt < 1 or response < 1:
+            raise ValueError('Empty frozen-feature prompt or response')
+        tokens = ids[mask.bool()].unsqueeze(0).to(device)
+        hidden = encoder(input_ids=tokens, use_cache=False, return_dict=True).last_hidden_state
+        states = hidden[0, prompt-1:prompt+response-1].float().cpu().numpy().copy()
+        if len(states) != response or not np.isfinite(states).all():
+            raise ValueError('Invalid frozen features')
+        features.append(states)
+    return features

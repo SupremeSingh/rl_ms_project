@@ -13,6 +13,9 @@ experiment:
   test_file: null
   critic_alpha: 0.01
   critic_lambda: 0.99
+  replay_capacity: 0
+  replay_max_transitions: 131072
+  replay_max_age: 4
 
 data:
   train_files: null
@@ -22,6 +25,8 @@ data:
   validation_shuffle: false
 
 actor_rollout_ref:
+  model:
+    critic_feature_mode: actor
   actor:
     ppo_mini_batch_size: 16
     ulysses_sequence_parallel_size: 1

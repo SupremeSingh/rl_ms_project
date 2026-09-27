@@ -88,13 +88,19 @@ def prepare(source, out):
         questions_sha256=sha256(question_path), counts=counts, model_hashes=model_hashes,
         data_hashes={p.name: sha256(p) for p in data.glob('*.parquet')},
         scope='Same inspected MATH question splits; exploratory online comparison, not a new untouched benchmark',
-        offline_heads='Not loaded: refit current-policy features each iteration; no historical-answer replay')
+        offline_heads='Not loaded: online heads are refitted; feature and replay settings are in this manifest')
 
 
-def command(out, method, seed, steps):
+def command(out, method, seed, steps, feature_mode='actor', replay_capacity=0,
+            replay_max_age=4, replay_max_transitions=131072):
     case = out / f'{method}-seed{seed}'
     return [sys.executable, '-m', 'math_rl.math_main',
-        f'experiment.method={method}', f'algorithm.adv_estimator={"grpo" if method == "grpo" else "gae"}',
+        f'experiment.method={method}',
+        f'actor_rollout_ref.model.critic_feature_mode={feature_mode if method in ("lstd", "ridge") else "actor"}',
+        f'experiment.replay_capacity={replay_capacity if method in ("lstd", "ridge") else 0}',
+        f'experiment.replay_max_age={replay_max_age}',
+        f'experiment.replay_max_transitions={replay_max_transitions}',
+        f'algorithm.adv_estimator={"grpo" if method == "grpo" else "gae"}',
         f'data.train_files={out / "data/train.parquet"}', f'data.val_files={out / "data/val.parquet"}',
         f'experiment.test_file={out / "data/test.parquet"}', f'data.seed={seed}',
         f'trainer.total_training_steps={steps}', f'trainer.save_freq={steps}',
@@ -162,6 +168,7 @@ def report(out):
         limitations='Pilot budgets; imperfect reward audit; one seed by default. Paired p-values exploratory and unadjusted. Offline prediction quality is not PPO evidence.')
     write_json(out / 'summary.json', summary)
     lines = ['MATH levels 4/5 numeric subset: online actor training',
+        f"Linear critic settings: {manifest.get('linear_critic', {'feature_mode': 'actor', 'replay_capacity': 0})}",
         f"{manifest['steps']} updates x 64 answers per method/seed; same 2 GPUs, reward, prompts and decoding.",
         'method/seed          base accuracy   final accuracy   change (pp)   training seconds   GPU hours']
     for name, r in records.items():
@@ -185,7 +192,11 @@ def run(args):
     write_json(out / 'status.json', state)
     try:
         data = prepare(args.source, out)
-        manifest = dict(protocol='math-online-v1', data=data, seeds=args.seeds, methods=args.methods,
+        replay_options = dict(feature_mode=getattr(args, 'critic_feature_mode', 'actor'),
+            replay_capacity=getattr(args, 'critic_replay_capacity', 0),
+            replay_max_age=getattr(args, 'critic_replay_max_age', 4),
+            replay_max_transitions=getattr(args, 'critic_replay_max_transitions', 131072))
+        manifest = dict(linear_critic=replay_options, protocol='math-online-v1', data=data, seeds=args.seeds, methods=args.methods,
             steps=args.steps, critic_lambda=.99, critic_alpha=.01, actor_gae_lambda=.95,
             answers_per_update=64, provenance=snapshot(ROOT))
         write_json(out / 'manifest.json', manifest)
@@ -199,7 +210,7 @@ def run(args):
                            RAY_TMPDIR=f'/tmp/mrl-{os.environ.get("SLURM_JOB_ID", os.getpid())}-{method}-{seed}')
                 Path(env['RAY_TMPDIR']).mkdir(exist_ok=True)
                 with (out / f'{name}.log').open('x') as log:
-                    result = subprocess.run(command(out, method, seed, args.steps), cwd=ROOT, env=env,
+                    result = subprocess.run(command(out, method, seed, args.steps, **replay_options), cwd=ROOT, env=env,
                                             stdout=log, stderr=subprocess.STDOUT)
                 state['runs'][name] = dict(exit_code=result.returncode, process_seconds=time.perf_counter() - started)
                 write_json(out / 'status.json', state)
@@ -224,10 +235,19 @@ def main():
     parser.add_argument('--steps', type=int, default=30)
     parser.add_argument('--seeds', nargs='+', type=int, default=[42])
     parser.add_argument('--methods', nargs='+', choices=METHODS, default=list(METHODS))
+    parser.add_argument('--critic-feature-mode', choices=['actor', 'frozen'], default='actor')
+    parser.add_argument('--critic-replay-capacity', type=int, default=0, help='FIFO capacity in complete answers; zero disables replay')
+    parser.add_argument('--critic-replay-max-age', type=int, default=4, help='Maximum policy-update age')
+    parser.add_argument('--critic-replay-max-transitions', type=int, default=131072)
     parser.add_argument('--report', action='store_true')
     args = parser.parse_args()
     if args.steps < 1 or len(set(args.seeds)) != len(args.seeds) or len(set(args.methods)) != len(args.methods):
         parser.error('Use positive steps and unique seeds/methods')
+    if args.critic_replay_capacity < 0 or (args.critic_replay_capacity and
+            (args.critic_feature_mode != 'frozen' or args.critic_replay_capacity < 64)):
+        parser.error('Replay requires frozen features and capacity >= 64')
+    if args.critic_replay_max_age < 0 or args.critic_replay_max_transitions < 131072:
+        parser.error('Use nonnegative age and at least 131072 transitions')
     report(args.out) if args.report else run(args)
 
 
