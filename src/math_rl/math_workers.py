@@ -1,4 +1,5 @@
 """Pinned VERL features: reuse actor forward or explicitly run a frozen encoder."""
+import time
 import numpy as np
 import torch
 
@@ -29,6 +30,31 @@ class FeatureActorWorker(ActorRolloutRefWorker):
                 self._critic_encoder = AutoModel.from_pretrained(
                     self.config.model.path, torch_dtype=torch.bfloat16,
                     attn_implementation='sdpa', trust_remote_code=False).eval().requires_grad_(False)
+            from math_rl.cumulative_lstd import encoder_epoch
+            step = int(data.meta_info.get('critic_update_step', 1))
+            interval = int(data.meta_info.get('critic_refresh_interval', 0))
+            epoch = encoder_epoch(step, interval)
+            refresh_seconds = 0.
+            if epoch != getattr(self, '_critic_encoder_epoch', 0):
+                from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, FullStateDictConfig, StateDictType
+                from verl.utils.fsdp_utils import load_fsdp_model_to_gpu, offload_fsdp_model_to_cpu
+                from math_rl.critic_layers import copy_backbone_state
+                started = time.perf_counter()
+                module = self.actor.actor_module
+                if not isinstance(module, FSDP):
+                    raise ValueError('Encoder refresh requires pinned FSDP1')
+                # All DP ranks participate; each CPU encoder receives the same full state.
+                load_fsdp_model_to_gpu(module)
+                try:
+                    with FSDP.state_dict_type(module, StateDictType.FULL_STATE_DICT,
+                            FullStateDictConfig(offload_to_cpu=True, rank0_only=False)):
+                        state = module.state_dict()
+                    copy_backbone_state(self._critic_encoder, state)
+                    del state
+                finally:
+                    offload_fsdp_model_to_cpu(module)
+                refresh_seconds = time.perf_counter() - started
+            self._critic_encoder_epoch = epoch
             try:
                 self._critic_encoder.to(torch.cuda.current_device())
                 features = frozen_prefixes(self._critic_encoder, ids, masks, width)
@@ -44,4 +70,7 @@ class FeatureActorWorker(ActorRolloutRefWorker):
         for i, states in enumerate(features):
             packed[i] = states
         result.non_tensor_batch['pretoken_features'] = packed
+        if self.config.model.get('critic_feature_mode', 'actor') == 'frozen':
+            result.non_tensor_batch['critic_encoder_epoch'] = np.full(len(features), epoch, dtype=np.int64)
+            result.meta_info.setdefault('metrics', {})['critic/encoder_refresh_seconds'] = refresh_seconds
         return result

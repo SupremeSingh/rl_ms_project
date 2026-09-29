@@ -13,6 +13,10 @@ experiment:
   ppo_profile: legacy
   evaluation_split: test
   test_file: null
+  critic_statistics: batch
+  cumulative_epsilon: 0.01
+  statistics_reset_interval: 0
+  encoder_refresh_interval: 0
   critic_alpha: 0.01
   critic_lambda: 0.99
   replay_capacity: 0

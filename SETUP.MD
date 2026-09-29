@@ -655,3 +655,55 @@ To resume this new screen after interruption, repeat its command and add
 `--out outputs/math-planning-SCREEN_JOB_ID`, keeping code and flags unchanged.
 A new Slurm ID does not change that output path. The earlier full-budget command
 without `--screen` still exists, but this entire planning branch is now paused.
+
+## Critic follow-up studies
+
+See [the protocol](docs/critic-followups.md) for the layer-depth, cumulative
+raw-sum LSTD and periodic encoder-refresh comparisons. Sync the code to the
+cluster first, then start from the project directory and source the environment.
+
+```bash
+cd /usr/xtmp/ms785/rl_ms_project
+source scripts/cluster_env.sh
+
+# One GPU: reuse saved MATH answers; compare three layers and all existing heads.
+sbatch scripts/submit_critic_layers.sh outputs/math-fit-12688752
+
+# Two GPUs: short integration check, including actual encoder refresh.
+sbatch --time=03:00:00 scripts/submit_critic_followups.sh \
+  outputs/math-fit-12688752 --study refresh --steps 3 --seeds 42 \
+  --refresh-interval 1
+```
+
+After the smoke finishes with `state: complete`, submit the full studies:
+
+```bash
+# Matched frozen encoder: fresh batch versus all accumulated statistics.
+sbatch scripts/submit_critic_followups.sh outputs/math-fit-12688752 \
+  --study cumulative --trace-lambda 0.99 --epsilon 0.01
+
+# Refresh versus reset-only control and permanently frozen cumulative control.
+sbatch scripts/submit_critic_followups.sh outputs/math-fit-12688752 \
+  --study refresh --trace-lambda 0.99 --epsilon 0.01 --refresh-interval 10
+```
+
+Both online jobs default to 60 updates and seeds 42, 43, 44. The second job
+includes a frozen cumulative reference again so it is self-contained. Do not
+interpret the one-seed smoke as a performance study. Submission wall-time limits
+are budgets, not measured runtime predictions for the new pipeline.
+
+Outputs are `outputs/critic-layers-<JOBID>` or
+`outputs/critic-followups-<JOBID>`. Inspect `status.json`, then `report.txt` and
+`summary.json`. The layer report also links conceptually to the per-layer
+`review.txt`, fitted heads, predictions and curves. To resume layer extraction or
+head fitting with exactly the same sources/settings/code:
+
+```bash
+sbatch scripts/submit_critic_layers.sh outputs/math-fit-12688752 \
+  --out outputs/critic-layers-<ORIGINAL_JOBID>
+```
+
+Online training does not support mid-run resume; start a fresh output directory.
+`--epsilon 1` reproduces a single identity prior on raw sums; it is not added
+again at each update. Encoder refresh resets matrices; it does not silently mix
+old and new feature spaces or replay old data into PPO actor updates.

@@ -462,6 +462,130 @@ show that planning cannot help a reasoning-trained model. We return to Phase 11'
 ordinary-completion pipeline. Planning code and outputs remain as historical
 experiments, not prerequisites for further PPO work.
 
+## Pre-prover follow-up studies: implementation added, results pending
+
+Three ablations extend the completed comparison before formal proof search:
+
+| Study | Comparison | What it tests |
+|---|---|---|
+| Critic layer depth | Outputs around one-third, two-thirds and final depth | Where outcome-predictive features are available |
+| Cumulative LSTD(0.99) | Fixed base encoder, fresh-batch versus accumulated raw matrices | Whether retaining historical sufficient statistics helps PPO |
+| Encoder refresh | Never reset, reset only, or copy actor and reset together | Whether periodically updated representations help beyond discarding stale history |
+
+### Layer depth: same data, different representations
+
+The layer study reuses saved answers and identical prefix positions at approximately
+one-third, two-thirds and final model depth. It fits the same supervised heads with
+matched budgets and validation-only tuning. Intermediate features are block
+outputs; final features include Qwen's final RMSNorm. This tests those extraction
+conventions, not depth independently of normalization. No new result is claimed.
+
+### Cumulative LSTD: how closely we follow the proposed algorithm
+
+**The fixed-encoder study follows the proposed raw-sum algorithm**, with two
+explicit adaptations: LSTD(0.99) eligibility traces and two-fold question
+cross-fitting. The original feature-outer-product formulation is LSTD(0);
+replacing its first feature factor with an eligibility trace gives LSTD(lambda).
+
+Here is the implemented loop. The two systems keep each question's current and
+historical outcomes out of its own value predictions:
+
+```text
+Freeze encoder pi_base; initialize actor pi from the same base model
+Assign every training question permanently to fold 0 or fold 1
+Initialize A[0], A[1] = 0 and b[0], b[1] = 0
+
+For each PPO update:
+    Generate fresh answers D with current actor pi
+
+    For each answer in D:
+        f = its question's fixed fold
+        z = 0
+        For each valid token transition:
+            phi      = [pi_base's pre-action hidden vector; 1]
+            phi_next = [pi_base's next-state hidden vector; 1]
+            If terminal: phi_next = 0, including the intercept
+            r = final binary answer reward if terminal, otherwise 0
+
+            z = phi + gamma * 0.99 * z
+            A[f] += outer(z, phi - gamma * phi_next)
+            b[f] += z * r
+
+    For each fold f:
+        w[f] = solve(A[f] + epsilon * I, b[f])
+
+    Predict each fresh answer's values with w[1 - its_question_fold]
+    Compute GAE from rewards and values
+    Update pi with PPO using fresh answers only
+```
+
+**Settings:** gamma=1, LSTD lambda=0.99, GAE lambda=0.95, epsilon=0.01.
+The critic uses the 1,536-dimensional hidden vector plus an intercept, so each
+matrix is 1,537 × 1,537. Features are detached, in fixed raw coordinates after
+Qwen's final normalization; there is no per-update standardization. The terminal
+reward is 1 for a verifier-accepted answer and 0 otherwise under the online
+scoring policy. EOS and the response cap both end the episode. Traces reset
+between answers; matrices persist between updates. Values have no sigmoid or
+clipping.
+
+**Regularization shrinks relative to the accumulated data.** A and b are never
+divided by sample count. Epsilon*I is added once when solving, not repeatedly
+inserted into the stored A. With M transitions, its equivalent strength in a
+mean-statistics system is epsilon/M. Setting epsilon=1 is equivalent to starting
+the regularized system with I and then adding raw contributions. The intercept
+is penalized here too, as specified by epsilon*I. This differs from our earlier
+mean-statistics fit, which standardized features and exempted the intercept.
+
+Setting LSTD lambda=0 makes z=phi and recovers the proposed transition equations.
+With lambda=.99, past features enter through z. Cross-fitting is the other
+intentional difference: two permanently separated systems replace one shared
+system. A question can never train its own predictions, even through old data.
+
+The matched control clears matrices every update but keeps the same frozen
+encoder, raw features, epsilon and fixed folds. The cumulative condition never
+clears them. This isolates accumulation within the new formulation; it is not a
+direct rerun of the previous standardized batch critic. History is retained as
+sufficient statistics, with **no answer buffer**.
+
+### Encoder refresh: reset is different from retaining all history
+
+After the actor changes, the same prefix can have different features under a
+refreshed encoder. Old matrices were built in the previous feature space; simply
+adding new contributions would not implement LSTD on one consistent feature map.
+
+| Approach | Encoder changes? | What happens to A and b? |
+|---|---|---|
+| Frozen cumulative study | Never | Retain all contributions |
+| Frozen reset control | Never | Clear every 10 updates |
+| Refreshed encoder study | Copy current actor every 10 updates | Clear at each refresh, then accumulate again |
+
+The refreshed encoder is frozen between copies. Comparing the last two conditions
+separates refreshing the representation from merely discarding older data. All
+conditions keep their question folds fixed and use fresh data for actor updates.
+
+**Keeping all history across refreshes would require rebuilding:** save historical
+token sequences, re-extract their features with the new encoder, and reconstruct
+A and b. That variant is not implemented. The current refresh study retains
+history only within each encoder interval; the permanently frozen cumulative
+study retains it throughout the run.
+
+### What accumulation does not guarantee
+
+A frozen encoder keeps feature coordinates consistent, but the actor that generated
+the answers changes after every PPO update. Consequently, accumulated statistics
+mix behavior policies. We use **no importance correction** and make no exact
+current-policy TD fixed-point claim for this historical mixture. Whether extra
+data outweigh stale-policy bias is an experimental question. Refreshing the
+encoder does not itself correct that bias.
+
+Local tests cover the equations, causal alignment, historical fold isolation and
+resets. They do not validate the cluster's distributed encoder-copy path; run the
+short smoke before full online comparisons. All three studies remain pending
+performance results.
+
+[Protocol and limitations](docs/critic-followups.md) ·
+[Commands](SETUP.MD#critic-follow-up-studies).
+
 ## What remains open, and the proposed next direction
 
 Before broad claims, audit answers where methods disagree, investigate

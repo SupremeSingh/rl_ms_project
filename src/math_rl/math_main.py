@@ -27,8 +27,21 @@ def validate(config):
     if (config.algorithm.gamma != 1 or config.algorithm.lam != .95
             or config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss):
         raise ValueError('Comparison uses gamma=1, actor GAE lambda=.95, no KL shaping')
-    if config.experiment.critic_lambda != .99 or config.experiment.critic_alpha != .01:
-        raise ValueError('Predeclared online comparison: LSTD(.99), alpha=.01 for both linear methods')
+    cumulative = config.experiment.critic_statistics == 'cumulative'
+    if config.experiment.critic_statistics not in ('batch', 'cumulative'):
+        raise ValueError('Unknown statistics mode')
+    if cumulative:
+        import math
+        e = config.experiment
+        if (e.method != 'lstd' or config.actor_rollout_ref.model.critic_feature_mode != 'frozen'
+                or e.replay_capacity or not math.isfinite(e.cumulative_epsilon) or e.cumulative_epsilon <= 0
+                or not 0 <= e.critic_lambda <= 1 or e.statistics_reset_interval < 0
+                or e.encoder_refresh_interval < 0
+                or (e.encoder_refresh_interval and e.statistics_reset_interval != e.encoder_refresh_interval)):
+            raise ValueError('Cumulative LSTD requires frozen features, no buffer, and resets on every refresh')
+    elif (config.experiment.critic_lambda != .99 or config.experiment.critic_alpha != .01
+          or config.experiment.encoder_refresh_interval or config.experiment.statistics_reset_interval):
+        raise ValueError('Original comparison requires LSTD(.99), alpha=.01, no refresh/reset')
     from math_rl.ppo_baseline import PPO_PROFILES
     profile = config.experiment.ppo_profile
     if profile != 'legacy':

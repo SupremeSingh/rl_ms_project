@@ -40,6 +40,22 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
         model_config = getattr(getattr(self.config, 'actor_rollout_ref', None), 'model', None)
         feature_mode = getattr(model_config, 'critic_feature_mode', 'actor')
         replay = None
+        cumulative = None
+        original_log_prob = None
+        if getattr(self.config.experiment, 'critic_statistics', 'batch') == 'cumulative':
+            from datasets import Dataset
+            from math_rl.cumulative_lstd import CumulativeLSTD
+            rows = Dataset.from_parquet(str(self.config.data.train_files))
+            questions = [str(row['extra_info']['prompt_id']) for row in rows]
+            cumulative = CumulativeLSTD(questions, self.config.data.seed,
+                self.config.experiment.cumulative_epsilon, self.config.experiment.critic_lambda,
+                self.config.experiment.statistics_reset_interval)
+            original_log_prob = self.actor_rollout_wg.compute_log_prob
+            def log_prob(data):
+                data.meta_info['critic_update_step'] = int(self.global_steps)
+                data.meta_info['critic_refresh_interval'] = self.config.experiment.encoder_refresh_interval
+                return original_log_prob(data)
+            self.actor_rollout_wg.compute_log_prob = log_prob
         if self.linear and capacity:
             if feature_mode != 'frozen':
                 raise ValueError('Replay requires immutable frozen features')
@@ -49,13 +65,23 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
         def advantages(data, *args, **kwargs):
             if self.linear:
                 device = data.batch['token_level_rewards'].device
-                values, heads, metrics = cross_fitted_values(
-                    data.non_tensor_batch.pop('pretoken_features'),
-                    data.batch['token_level_rewards'], data.batch['response_mask'],
-                    [str(info['prompt_id']) for info in data.non_tensor_batch['extra_info']],
-                    self.method, alpha=self.config.experiment.critic_alpha,
-                    trace_lambda=self.config.experiment.critic_lambda,
-                    seed=self.config.data.seed + self.global_steps, replay=replay, step=self.global_steps)
+                features = data.non_tensor_batch.pop('pretoken_features')
+                questions = [str(info['prompt_id']) for info in data.non_tensor_batch['extra_info']]
+                if cumulative is not None:
+                    from math_rl.cumulative_lstd import encoder_epoch
+                    epoch = encoder_epoch(self.global_steps, self.config.experiment.encoder_refresh_interval)
+                    versions = data.non_tensor_batch.pop('critic_encoder_epoch')
+                    if any(int(v) != epoch for v in versions):
+                        raise RuntimeError('Workers returned features from a different encoder epoch')
+                    values, heads, metrics = cumulative.update(features,
+                        data.batch['token_level_rewards'], data.batch['response_mask'],
+                        questions, self.global_steps, epoch)
+                else:
+                    values, heads, metrics = cross_fitted_values(features,
+                        data.batch['token_level_rewards'], data.batch['response_mask'], questions,
+                        self.method, alpha=self.config.experiment.critic_alpha,
+                        trace_lambda=self.config.experiment.critic_lambda,
+                        seed=self.config.data.seed + self.global_steps, replay=replay, step=self.global_steps)
                 metrics['feature_mode'] = feature_mode
                 data.batch['values'] = values.to(device)
                 folder = self.output / 'linear-critic'
@@ -64,6 +90,10 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
                     feature_policy=feature_mode,
                     replay=metrics.get('replay')),
                     folder / f'{self.global_steps}.pt')
+                if cumulative is not None:
+                    temporary = folder / 'statistics.tmp'
+                    torch.save(cumulative.state_dict(), temporary)
+                    temporary.replace(folder / 'statistics.pt')
                 with (folder / 'metrics.jsonl').open('a') as handle:
                     handle.write(json.dumps(dict(metrics, step=self.global_steps)) + '\n')
             result = original(data, *args, **kwargs)
@@ -78,6 +108,8 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
             super().fit()
         finally:
             ray_trainer.compute_advantage = original
+            if original_log_prob is not None:
+                self.actor_rollout_wg.compute_log_prob = original_log_prob
         self.completed_updates = self.global_steps - 1
         if self.completed_updates != self.total_training_steps:
             raise RuntimeError('Training ended before the requested update budget')
