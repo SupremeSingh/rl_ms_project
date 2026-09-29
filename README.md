@@ -4,19 +4,21 @@ We want to improve a math-solving LLM with reinforcement learning while avoiding
 PPO's usual second, large neural network for value prediction. Our candidate is a
 small linear critic fitted to hidden features the actor already computes.
 
-**Main finding so far: a small linear critic can support useful PPO learning.**
-In the latest frozen-feature pilot, LSTD without the buffer reached **57.7%**
-MATH accuracy, matching GRPO's aggregate score at about 5% greater training cost.
-The initial actor-feature pilot reached 60.0%. These are single-seed experiments;
-conventional PPO needs validation-based tuning before strong cost-saving claims.
+**Completed three-seed finding:** PPO-LSTD(0.99) reached **59.67% mean MATH
+accuracy**, up from 52.33%, using **3.557 allocated GPU-hours per run**. Both
+linear critics improved accuracy in every seed and used substantially less
+training compute than our calibrated conventional PPO baseline. LSTD had the
+highest mean score, but **superiority over ridge or GRPO is not established**.
 
-[SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands,
-monitoring and resumption. This page explains the experiment and results.
+[SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands, monitoring
+and resumption. This README explains the approach, completed results and their
+limits. Results updated **29 September 2026**.
 
-**Current path:** ordinary completion → Math-Verify → PPO, PPO-ridge,
-PPO-LSTD(0.99), and GRPO. **Planning and the buffer are paused.** Next, calibrate
-and audit conventional PPO on validation data, then lock its settings for a
-three-seed comparison. [Run instructions](SETUP.MD#calibrated-ppo-comparison).
+**Current status:** the calibrated PPO/ridge/LSTD/GRPO comparison is complete.
+The main pipeline uses ordinary completion prompts, Math-Verify and current actor
+features, with **no buffer**. Explicit planning and the buffer are paused.
+AlphaProof-lite is a proposed next experiment, not an implemented or validated
+result.
 
 ## One example, from tokens to reinforcement learning
 
@@ -61,7 +63,149 @@ studies exclude answers without a usable verifier label. Thus their metrics are
 failures and verifier timeouts as zero for every method, retaining their status for
 audit; infrastructure errors fail the run.
 
-## Results so far
+## Latest result: calibrated PPO comparison completed
+
+### Protocol and baseline selection
+
+All four methods started from the same base Qwen model and identical initial test
+scores: **157/300 correct (52.33%)**. Each method ran **60 updates × 64 answers =
+3,840 training answers per seed**, across seeds **42, 43 and 44**: 12 completed
+runs and 46,080 generated training answers in the final comparison. These are
+repeated answers, not that many distinct questions. Evaluation used greedy
+decoding on the same **300 MATH level 4/5 numeric-answer questions**.
+
+We matched prompts, reward, response budget, actor optimizer settings and the
+allocation of two GPUs. Each batch contained 16 questions × four answers.
+Linear critics captured detached features from the current actor's existing
+forward pass, fitted two heads on opposite question folds, and predicted values
+without using the evaluated question's outcomes. Each update refitted the heads
+on fresh answers: **no buffer and no reuse of offline critic weights**.
+
+The discount was **gamma=1**, critic trace **lambda=0.99**, and PPO GAE
+**lambda=0.95**. Both linear methods used fixed regularization **0.01** on
+standardized features, leaving the intercept unpenalized. Rewards were binary and
+terminal, with no KL shaping; EOS and the response cap were treated as terminal.
+Raw linear values were not clipped or passed through a sigmoid.
+
+Conventional PPO was calibrated separately on **200 validation questions**, using
+seed 17 and 30 updates per candidate. It used a zero-initialized scalar head over
+a trainable pretrained backbone, a persistent critic optimizer, detached raw GAE
+return targets and mean loss over valid tokens per answer. Selection used
+validation and health checks, not final test scores.
+
+| Critic learning rate / fitting epochs | Initial validation | Final validation |
+|---|---:|---:|
+| 1e-5 / 2 | 51.5% | 49.5% |
+| 5e-5 / 2 | 51.5% | 52.5% |
+| **1e-5 / 4, selected** | **51.5%** | **54.5%** |
+
+The selected `more_fitting` configuration was locked for all three final PPO
+runs. Calibration cost an additional **8.860 training GPU-hours**, disclosed
+separately. Only conventional PPO received this extra tuning budget. This is an
+audited, validation-selected baseline, not a claim of optimal PPO tuning or an
+exact paper replication. [Baseline protocol](docs/ppo_baseline.md).
+
+### Accuracy and measured training cost
+
+| Method | Mean final accuracy | Gain from base | Sample SD across seeds | Mean GPU-hours ↓ |
+|---|---:|---:|---:|---:|
+| Conventional PPO | 48.11% | −4.22 pp | 2.91 pp | 6.707 |
+| PPO-ridge | 55.44% | +3.11 pp | **1.39 pp** | 3.505 |
+| **PPO-LSTD(0.99)** | **59.67%** | **+7.33 pp** | 5.13 pp | 3.557 |
+| GRPO | 58.22% | +5.89 pp | 2.22 pp | **3.445** |
+
+SD describes seed variation; it is **not a confidence interval**. The three runs
+reuse the same test questions, so they do not constitute 900 distinct questions.
+
+| Seed | Conventional PPO | Ridge | LSTD(0.99) | GRPO |
+|---|---:|---:|---:|---:|
+| 42 | 51.33% | 57.00% | **65.33%** | 60.67% |
+| 43 | 47.33% | 55.00% | **58.33%** | 56.33% |
+| 44 | 45.67% | 54.33% | 55.33% | **57.67%** |
+
+LSTD improved over the base in every seed, with net gains of **39, 18 and 9**
+correct answers. It beat ridge in all three runs, and GRPO in two. Its particularly
+strong seed 42 contributes substantially to its average lead.
+
+### What the uncertainty permits us to say
+
+The following differences use **2,000 paired seed/question bootstrap samples**.
+Positive differences favor the first method. Intervals are descriptive,
+exploratory and not adjusted for multiple comparisons.
+
+| Comparison | Mean difference | Descriptive 95% interval |
+|---|---:|---:|
+| LSTD − conventional PPO | +11.56 pp | [+6.33, +17.11] |
+| Ridge − conventional PPO | +7.33 pp | [+1.44, +12.89] |
+| LSTD − ridge | +4.22 pp | [−1.11, +9.67] |
+| LSTD − GRPO | +1.44 pp | [−3.44, +6.11] |
+
+**Interpretation:** both cheap-critic systems outperform our calibrated
+conventional PPO system in this experiment. LSTD's lead over ridge is encouraging
+but still uncertain, even though it won each seed. The data establish neither
+superiority nor equivalence against GRPO. Three seeds provide a limited view of
+training variability; further gains cannot be inferred from the best run alone.
+
+### Difficulty, cost and scoring checks
+
+Mean final answer accuracy by difficulty:
+
+| Method | Level 4: 152 questions | Level 5: 148 questions |
+|---|---:|---:|
+| Conventional PPO | 54.17% | 41.89% |
+| Ridge | 64.91% | 45.72% |
+| LSTD(0.99) | **66.23%** | **52.93%** |
+| GRPO | 65.57% | 50.68% |
+
+LSTD's larger gap over ridge on level 5 is a useful diagnostic, not proof that
+longer reasoning caused the advantage. These subgroup means have not established
+separate superiority claims.
+
+- **Cost:** LSTD used about **47% less measured training compute** than conventional
+  PPO, or **45% less** after subtracting PPO's estimated diagnostic-forward
+  overhead. It cost **3.2% more than GRPO** and **1.5% more than ridge**.
+- **Fitting:** LSTD fitting averaged **192.5 seconds across 60 updates**, about
+  **3.0%** of training time. Ridge averaged **106.7 seconds**, about **1.7%**.
+- **Accounting:** training includes generation, feature capture/transport, fitting,
+  validation and checkpoints; it excludes setup, initialization and initial/final
+  test evaluation. GPU-hours reflect allocated GPUs × elapsed training time.
+  PPO's diagnostic overhead estimate was **0.187 GPU-hours per run**, leaving
+  **6.520 GPU-hours** after subtraction. Calibration is additional.
+- **Memory:** logged peak allocated memory was similar across methods. This
+  experiment demonstrates time savings, not substantial GPU-memory savings.
+- **Scoring:** final evaluations had **1–4 parse failures out of 300** each, with
+  no verifier timeouts reported. Average truncation was **3.00% PPO, 4.44% ridge,
+  3.56% LSTD and 4.89% GRPO**, versus 7.67% initially. Ordinary parse failures or
+  excess truncation do not explain PPO's poor result; silent scoring mistakes
+  still require a human audit.
+
+### Why PPO's health checks are not a success guarantee
+
+Every conventional PPO run passed checks for completion, finite values, nonzero
+updates, zero initial values and improved fitting to its training targets.
+
+| Seed | Mean target MSE before critic update | After | Reduction |
+|---|---:|---:|---:|
+| 42 | 0.00740 | 0.00375 | 49% |
+| 43 | 0.00702 | 0.00393 | 44% |
+| 44 | 0.00721 | 0.00387 | 46% |
+
+The critic was fitting its **bootstrapped training targets**, yet final actor
+accuracy regressed in every seed. These checks do not measure held-out value
+accuracy or establish useful advantages, and they do not rule out every
+implementation or tuning problem. The cause of the regression remains unresolved.
+
+The comparison changes complete critic systems: architecture, fitting targets,
+persistence and cross-fitting differ. It cannot attribute the entire advantage
+to LSTD alone or establish that conventional PPO is generally inferior.
+
+**Finding to carry forward:** a cheaply fitted linear critic supported consistent
+PPO improvement at approximately GRPO's training cost. LSTD achieved the highest
+mean accuracy; superiority over ridge or GRPO remains unproven. Results are from
+an inspected test split with an incomplete independent reward audit, not an
+untouched benchmark.
+
+## Earlier experiments: how we got here
 
 ### Phases 0–3: working RL, not proven improvement
 
@@ -196,7 +340,7 @@ are exploratory results on repeatedly inspected sets. Intervals are descriptive,
 not adjusted for multiple comparisons. Raw Brier across datasets also depends on
 their success rates; compare methods within each dataset.
 
-### Phase 11: online MATH training — a positive LSTD-PPO pilot
+### Phase 11: initial single-seed online pilot
 
 We tested whether the small critics help **learning**, not just prediction.
 All four methods started from the same base Qwen and used the saved MATH level 4/5
@@ -258,9 +402,8 @@ error alone therefore does not determine which critic will help PPO most.
 This compares complete critic systems, not just solvers: conventional PPO also
 differs in architecture, targets, persistence and cross-fitting. Test questions
 were already inspected offline, the reward audit remains incomplete, and all
-p-values are exploratory and unadjusted. Replication across training seeds,
-review of changed answers and checks of conventional PPO's critic learning are
-needed before claiming a reliable advantage. Commands are in
+p-values are exploratory and unadjusted. The completed comparison above adds three-seed replication and conventional
+PPO calibration; changed-answer auditing and untouched evaluation remain needed. Commands are in
 [SETUP.MD](SETUP.MD#phase-11--online-ppo-lstd-ridge-conventional-ppo-and-grpo).
 
 ### Buffer experiment — completed; buffer paused
@@ -286,38 +429,11 @@ change does not establish harm, but there is no demonstrated benefit. LSTD
 without the buffer matched GRPO's aggregate accuracy at about 5% greater cost.
 This is one seed on inspected questions, not proof of equal performance.
 
-The cheap-critic idea remains promising, but conventional PPO's repeated poor
-results require a better baseline before claiming savings against strong PPO.
+These pilot results motivated the completed calibration and three-seed
+comparison above. Conventional PPO's regression remains unresolved even after
+that calibration.
 These frozen-feature runs also differ from the initial actor-feature pilot;
 do not attribute differences between those pilots solely to the buffer.
-
-### Next comparison: calibrated PPO, no buffer
-
-The new job first runs three **validation-only** conventional PPO candidates:
-critic learning rate 1e-5 / two epochs, 5e-5 / two epochs, and 1e-5 / four epochs.
-All use a zero-initialized scalar value head over a trainable pretrained backbone,
-and mean loss over valid tokens per answer. The previous loss divided by padded
-response width; that was a different weighting/scaling choice, not a proven
-explanation of PPO's poor accuracy. VERL's clipped PPO loss, GAE, detached return
-targets and persistent critic optimizer remain in use.
-
-Full-precision diagnostics check initial values, gradients and whether each
-critic update reduces error on the same raw GAE targets. These are training-fit
-checks, not held-out value accuracy. A candidate must pass aggregate health
-checks and avoid a final validation-accuracy regression. Selection uses only
-validation accuracy with a declared tie-break. If none qualifies, the job stops.
-
-The selected PPO configuration is then locked. **PPO, ridge, LSTD(0.99) and GRPO
-each run 60 updates × 64 answers across seeds 42, 43 and 44.** Linear critics
-reuse current actor features on fresh batches; the buffer is disabled. Prompts,
-reward, actor optimizer, decoding and budgets are matched. Reports include
-per-seed accuracy, seed variation, paired comparisons, costs and PPO health.
-PPO calibration costs and its extra diagnostic forward passes are disclosed.
-
-This is a more rigorous internal comparison, not a completed result or a paper
-replication. Only PPO receives this additional tuning budget; the test split has
-already been inspected, and an independent reward audit and untouched evaluation
-are still needed for strong external claims. See [baseline protocol and sources](docs/ppo_baseline.md).
 
 ### Phase 12: explicit planning — paused
 
@@ -346,5 +462,27 @@ show that planning cannot help a reasoning-trained model. We return to Phase 11'
 ordinary-completion pipeline. Planning code and outputs remain as historical
 experiments, not prerequisites for further PPO work.
 
+## What remains open, and the proposed next direction
+
+Before broad claims, audit answers where methods disagree, investigate
+conventional PPO's value/advantage quality, and evaluate locked settings on
+untouched questions. Unknown pretraining overlap, numeric-only MATH coverage,
+short training budgets and only three seeds limit generalization. Passing local
+numerical checks is not the same as demonstrating a strong learning baseline.
+Checkpoint saving works; save/resume equivalence remains unestablished.
+
+**AlphaProof-lite is a proposed new application of the cheap critic.** A
+proof-capable LLM would propose Lean tactics, Lean would check transitions, and a
+small critic would rank unfinished proof states so search spends its budget on
+promising branches. The critic would not replace the formal proof checker.
+Our natural-language critic weights are not validated for this task: we would
+collect formal proof trajectories and refit, then compare against policy-only
+search and repeated independent attempts under matched compute budgets.
+
+The positive PPO results justify testing this direction; the pivot is not a
+rescue from a failed cheap-critic experiment. No formal-search performance has
+yet been established here. The target would be more verified proofs per unit of
+compute, with ridge and LSTD both retained as candidates.
+
 We aim to turn an LLM's own hidden representations into a lightweight critic that improves learning without a separately trained transformer critic.
-The broader goal is reliable gains per unit of compute, with honest comparisons against conventional PPO, ridge and critic-free GRPO.
+The broader vision is reliable gains per unit of compute, in both policy learning and eventually verified proof search.
