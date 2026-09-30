@@ -15,8 +15,12 @@ and resumption. This README explains the approach, completed results and their
 limits. Results updated **29 September 2026**.
 
 **Current status:** the calibrated PPO/ridge/LSTD/GRPO comparison is complete.
-The main pipeline uses ordinary completion prompts, Math-Verify and current actor
-features, with **no buffer**. Explicit planning and the buffer are paused.
+The next comparison uses ordinary completion prompts, Math-Verify, a permanently
+frozen base encoder and accumulated linear-critic matrices, with **no answer
+buffer**. It compares two-thirds and final-layer features. The completed headline
+results above used current actor features and fresh-batch fitting; they do not
+establish the performance of this newer configuration. Explicit planning and the
+buffer are paused.
 AlphaProof-lite is a proposed next experiment, not an implemented or validated
 result.
 
@@ -48,6 +52,32 @@ Solving TD equations accurately does not guarantee accurate values.
 LSTD's critic-fitting lambda is separate from PPO's actor GAE lambda. GRPO, our
 other infrastructure baseline, compares rewards across answers to the same prompt
 without training a critic.
+
+## Current architecture: frozen encoder and accumulated statistics
+
+![PPO architecture with a frozen base encoder, accumulated cross-fitted critic statistics, and fresh-data actor updates](docs/figures/ppo-architecture.png)
+
+The current actor generates fresh answers. A separate, frozen copy of the base
+encoder extracts causal prefix features at the selected layer. Rewards and
+features update persistent critic statistics; fitted heads supply prefix values
+to GAE. PPO changes the actor, not the encoder. The listed layers and fitting
+methods are alternative experiment conditions, not an ensemble. The frozen
+encoder requires an additional forward pass, included in compute accounting.
+
+![Token transitions, persistent question folds, LSTD matrix updates, and token advantages](docs/figures/cross-fitted-lstd.png)
+
+Each question stays in one fold. Group A fits the head that predicts values for
+group B, and vice versa, including across historical updates. Values describe
+the prefix before each action. Eligibility traces reset between answers while
+matrices accumulate; terminal features are explicitly zero. In the diagram,
+`X` includes the intercept, `ZT` denotes the eligibility trace at token `T`, and
+`RT` denotes its reward. Critic lambda (0.95 or 0.99) is distinct from GAE lambda
+(0.95). Cross-fitting prevents own-question fitting leakage; it does not make
+historical-policy data on-policy.
+
+Both figures are generated raster illustrations. The reusable
+[generation prompts](docs/figures/image-prompts.md) and
+[refinement prompts](docs/figures/refinement-prompts.md) are stored alongside them.
 
 ## What runs the experiment
 
