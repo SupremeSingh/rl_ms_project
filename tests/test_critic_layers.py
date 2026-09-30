@@ -37,3 +37,16 @@ def test_refresh_copies_actor_backbone_only():
     copy_backbone_state(encoder,state)
     for k,v in actor.state_dict().items():torch.testing.assert_close(encoder.state_dict()[k],v)
     assert not encoder.training and all(not p.requires_grad for p in encoder.parameters())
+
+
+def test_online_frozen_layer_capture_matches_offline_and_padding():
+    from math_rl.online_critic import frozen_prefixes
+    model=Backbone().eval()
+    tokens=torch.tensor([[1,2,3,4,5,6]])
+    padded=torch.tensor([[0,1,2,3,4,5,6,0]])
+    mask=torch.tensor([[0,1,1,1,1,1,1,0]])
+    offline=sampled_layer_states(model,tokens,3,3,[0,1,2])
+    for layer in ('final','two_thirds'):
+        online=frozen_prefixes(model,padded,mask,4,layer=layer)
+        torch.testing.assert_close(torch.from_numpy(online[0]),offline[layer])
+    assert all(not layer._forward_hooks for layer in model.layers)

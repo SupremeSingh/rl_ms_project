@@ -57,7 +57,8 @@ class FeatureActorWorker(ActorRolloutRefWorker):
             self._critic_encoder_epoch = epoch
             try:
                 self._critic_encoder.to(torch.cuda.current_device())
-                features = frozen_prefixes(self._critic_encoder, ids, masks, width)
+                features = frozen_prefixes(self._critic_encoder, ids, masks, width,
+                    layer=self.config.model.get('critic_feature_layer', 'final'))
             finally:
                 self._critic_encoder.cpu()
                 torch.cuda.empty_cache()

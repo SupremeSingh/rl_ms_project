@@ -462,9 +462,9 @@ show that planning cannot help a reasoning-trained model. We return to Phase 11'
 ordinary-completion pipeline. Planning code and outputs remain as historical
 experiments, not prerequisites for further PPO work.
 
-## Pre-prover follow-up studies: implementation added, results pending
+## Pre-prover follow-up studies: results and closing comparison
 
-Three ablations extend the completed comparison before formal proof search:
+Three ablations extend the completed comparison before formal proof search. The layer and accumulation/refresh studies have now completed:
 
 | Study | Comparison | What it tests |
 |---|---|---|
@@ -478,7 +478,53 @@ The layer study reuses saved answers and identical prefix positions at approxima
 one-third, two-thirds and final model depth. It fits the same supervised heads with
 matched budgets and validation-only tuning. Intermediate features are block
 outputs; final features include Qwen's final RMSNorm. This tests those extraction
-conventions, not depth independently of normalization. No new result is claimed.
+conventions, not depth independently of normalization.
+
+| Head | Final-layer Brier | Two-thirds Brier | Final / two-thirds prediction accuracy |
+|---|---:|---:|---:|
+| Linear logistic | 0.18378 | **0.17518** | 72.5% / 74.1% |
+| MLP2 | 0.18181 | **0.17525** | 73.1% / 74.0% |
+| ResNet10 | 0.18305 | **0.17583** | 72.8% / 73.9% |
+| Linear value | 0.18644 | **0.17751** | 72.5% / 74.1% |
+| Ridge | 0.18514 | **0.17714** | 72.6% / 74.2% |
+
+Two-thirds features improved every head; all five descriptive paired Brier
+intervals excluded zero. These are outcome-prediction results, not PPO gains.
+
+The accumulation study found 59.67% actor accuracy with fresh-batch matrices
+versus 58.56% with cumulative matrices (difference -1.11 pp, interval
+[-5.33, 3.56]). The separate refresh study found 60.89% for permanently frozen
+cumulative features, 58.22% for resets alone, and 56.89% for refresh plus reset.
+All refresh comparisons included zero; costs were about 3.6 GPU-hours/run.
+The repeated cumulative control varied between studies, so these do not establish
+a winner. **Our design choice is nevertheless to proceed with accumulation and
+a permanently frozen encoder**, not to claim that it has proven superior.
+
+### Closing online comparison: depth and critic target
+
+The new `layers` study compares conventional PPO (the previously
+validation-selected `more_fitting` profile) with six linear-critic variants:
+Ridge, LSTD(0.95), and LSTD(0.99), each using two-thirds or final features.
+No GRPO run is added in this requested comparison; its earlier results remain
+context, not a newly matched control.
+
+Each condition starts from the same base actor. Linear heads start with zero
+statistics, load no offline fitted weights, never refresh the encoder, and never
+reset the matrices. All use 60 updates, 64 generated answers/update, the same
+three seeds, question folds, reward, evaluation and raw-sum epsilon=0.01.
+Ridge accumulates `A += phi.T @ phi` and `b += phi.T @ returns`; LSTD accumulates
+eligibility-trace TD statistics. No iterative head-training budget favors one
+layer: both receive the full same rollout budget and an exact linear solve at
+every update. Policies may diverge, so generated trajectories and token counts
+need not match. Both extraction paths execute the whole frozen backbone and
+include that cost. Intermediate and final feature scales differ; shared raw
+regularization is a specified control, not normalization-invariant tuning.
+
+This can close the pre-prover phase, but it is still an exploratory study on
+inspected questions. A final independent generalization claim would require an
+untouched evaluation set and a completed reward audit. Run instructions are in
+[SETUP.MD](SETUP.MD#closing-comparison-cumulative-frozen-critics-at-two-depths).
+
 
 ### Cumulative LSTD: how closely we follow the proposed algorithm
 

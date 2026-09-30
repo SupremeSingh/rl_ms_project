@@ -707,3 +707,34 @@ Online training does not support mid-run resume; start a fresh output directory.
 `--epsilon 1` reproduces a single identity prior on raw sums; it is not added
 again at each update. Encoder refresh resets matrices; it does not silently mix
 old and new feature spaces or replay old data into PPO actor updates.
+
+
+## Closing comparison: cumulative frozen critics at two depths
+
+Sync the updated code before submission. Seven variants: conventional PPO with
+locked `more_fitting`, plus Ridge/LSTD(0.95)/LSTD(0.99) at two-thirds and final
+depth. The `source` supplies questions and model identity; offline heads are not
+loaded. No buffer, encoder refresh, or matrix reset. Both layers start fresh.
+
+First exercise all seven paths with a short smoke:
+
+```bash
+source scripts/cluster_env.sh
+sbatch --time=04:00:00 scripts/submit_critic_followups.sh   outputs/math-fit-12688752 --study layers --steps 3 --seeds 42
+```
+
+After that finishes successfully, run the full comparison:
+
+```bash
+sbatch --time=3-00:00:00 scripts/submit_critic_followups.sh   outputs/math-fit-12688752 --study layers --steps 60 --seeds 42 43 44   --epsilon 0.01
+```
+
+The full study has 21 training runs. Earlier timings suggest roughly 43 hours
+for training alone, plus setup and evaluation; the requested three-day limit is
+headroom, not a promise or a statement of your partition's permitted maximum.
+If your partition disallows that duration, do not shorten the scientific budget;
+use a longer-time partition or arrange separate seed jobs before submission.
+The study fixes the requested traces per condition; `--trace-lambda` does not
+change them. Read `outputs/critic-followups-<JOBID>/report.txt` and `summary.json`.
+The summary contains every seed and paired comparison, including same-method
+layer comparisons. All intervals are exploratory and unadjusted.

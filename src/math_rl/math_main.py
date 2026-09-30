@@ -33,7 +33,7 @@ def validate(config):
     if cumulative:
         import math
         e = config.experiment
-        if (e.method != 'lstd' or config.actor_rollout_ref.model.critic_feature_mode != 'frozen'
+        if (e.method not in ('lstd', 'ridge') or config.actor_rollout_ref.model.critic_feature_mode != 'frozen'
                 or e.replay_capacity or not math.isfinite(e.cumulative_epsilon) or e.cumulative_epsilon <= 0
                 or not 0 <= e.critic_lambda <= 1 or e.statistics_reset_interval < 0
                 or e.encoder_refresh_interval < 0
@@ -59,6 +59,9 @@ def validate(config):
     if config.experiment.evaluation_split == 'val' and str(config.experiment.test_file) != str(config.data.val_files):
         raise ValueError('Calibration must evaluate validation data only')
     mode = config.actor_rollout_ref.model.critic_feature_mode
+    layer = config.actor_rollout_ref.model.get('critic_feature_layer', 'final')
+    if layer not in ('final', 'two_thirds') or (layer != 'final' and mode != 'frozen'):
+        raise ValueError('Intermediate features require a frozen encoder')
     capacity = config.experiment.replay_capacity
     if mode not in ('actor', 'frozen') or capacity < 0:
         raise ValueError('Invalid critic feature/replay mode')

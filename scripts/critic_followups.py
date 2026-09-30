@@ -13,6 +13,13 @@ from math_rl.provenance import snapshot, write_json
 def conditions(study, interval):
     if interval < 1:
         raise ValueError('Refresh/reset interval must be positive')
+    if study == 'layers':
+        result = {'ppo': dict(method='ppo', reset=0, refresh=0)}
+        for layer in ('two_thirds', 'final'):
+            for method, trace in [('ridge', 1.), ('lstd', .95), ('lstd', .99)]:
+                name = f'{method}-{trace:g}-{layer}' if method == 'lstd' else f'ridge-{layer}'
+                result[name] = dict(method=method, trace=trace, layer=layer, reset=0, refresh=0)
+        return result
     if study == 'cumulative':
         return {'frozen_batch': dict(reset=1, refresh=0),
                 'frozen_cumulative': dict(reset=0, refresh=0)}
@@ -24,8 +31,14 @@ def conditions(study, interval):
 
 
 def command(out, name, seed, steps, epsilon, trace_lambda, setting):
-    return comparison.command(out, 'lstd', seed, steps, feature_mode='frozen',
+    method = setting.get('method', 'lstd')
+    if method == 'ppo':
+        return comparison.command(out, method, seed, steps, ppo_profile='more_fitting',
+            case_name=f'{name}-seed{seed}')
+    trace_lambda = setting.get('trace', trace_lambda)
+    return comparison.command(out, method, seed, steps, feature_mode='frozen',
         case_name=f'{name}-seed{seed}') + ['experiment.critic_statistics=cumulative',
+        f'actor_rollout_ref.model.critic_feature_layer={setting.get("layer", "final")}',
         f'experiment.cumulative_epsilon={epsilon}', f'experiment.critic_lambda={trace_lambda}',
         f'experiment.statistics_reset_interval={setting["reset"]}',
         f'experiment.encoder_refresh_interval={setting["refresh"]}']
@@ -55,6 +68,9 @@ def report(out, manifest):
             arrays.append([r['score'] for r in rows])
             costs.append(result['training_gpu_hours'])
             accuracies.append(result['final_test']['accuracy'])
+            if manifest['conditions'][name].get('method') == 'ppo':
+                runs[case.name] = dict(result=result)
+                continue
             metrics = [json.loads(x) for x in (case / 'linear-critic/metrics.jsonl').read_text().splitlines()]
             if len(metrics) != manifest['steps']:
                 raise ValueError('Missing critic diagnostics')
@@ -77,9 +93,9 @@ def report(out, manifest):
             descriptive_95_interval_pp=np.quantile(draws,[.025,.975]).tolist())
     summary = dict(methods=methods, runs=runs, paired=paired,
         scope='Inspected MATH split; uncorrected historical-policy critic fitting. Actor updates use fresh data only. '
-              'Seed/question bootstrap is exploratory; one seed cannot measure training variability.')
+              f'Seed/question bootstrap is exploratory; {len(manifest["seeds"])} training seeds; no superiority gate.')
     write_json(out / 'summary.json',summary)
-    lines = [f"LSTD({manifest['lambda']}) frozen encoder follow-up; raw sums, epsilon={manifest['epsilon']}",
+    lines = [f"Frozen encoder study: {manifest['study']}; raw sums, epsilon={manifest['epsilon']}",
              'No per-update normalization; fixed coordinates and persistent question folds.',
              'method                  accuracy mean    GPU hours mean']
     lines += [f"{name:25} {r['accuracy_mean']:.4f}           {r['gpu_hours_mean']:.3f}" for name,r in methods.items()]
@@ -92,7 +108,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('source',type=Path)
     p.add_argument('--out',type=Path,required=True)
-    p.add_argument('--study',choices=['cumulative','refresh'],default='cumulative')
+    p.add_argument('--study',choices=['cumulative','refresh','layers'],default='cumulative')
     p.add_argument('--steps',type=int,default=60)
     p.add_argument('--seeds',type=int,nargs='+',default=[42,43,44])
     p.add_argument('--epsilon',type=float,default=.01)
@@ -108,7 +124,8 @@ def main():
         data=comparison.prepare(args.source,out)
         manifest=dict(protocol='critic-followups-v1',study=args.study,conditions=conditions(args.study,args.refresh_interval),
             steps=args.steps,seeds=args.seeds,epsilon=args.epsilon,**{'lambda':args.trace_lambda},data=data,
-            feature='Frozen Qwen final normalized hidden state; raw coordinates plus penalized intercept',
+            feature='Frozen Qwen; condition-specific layer (default final RMSNorm); raw coordinates plus penalized intercept',
+            fairness='All heads start with zero statistics; same updates, answers per update, seeds, folds and epsilon; no offline weights loaded. PPO uses locked more_fitting profile in layers study.',
             regularization='Raw A,b sums; epsilon*I added once at solve, never divided by count',
             refresh='Copy current actor at updates 1+interval, 1+2*interval; reset A,b',
             provenance=snapshot(comparison.ROOT))

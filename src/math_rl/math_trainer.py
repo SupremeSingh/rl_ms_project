@@ -49,7 +49,7 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
             questions = [str(row['extra_info']['prompt_id']) for row in rows]
             cumulative = CumulativeLSTD(questions, self.config.data.seed,
                 self.config.experiment.cumulative_epsilon, self.config.experiment.critic_lambda,
-                self.config.experiment.statistics_reset_interval)
+                self.config.experiment.statistics_reset_interval, method=self.config.experiment.method)
             original_log_prob = self.actor_rollout_wg.compute_log_prob
             def log_prob(data):
                 data.meta_info['critic_update_step'] = int(self.global_steps)

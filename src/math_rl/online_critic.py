@@ -155,7 +155,7 @@ def cross_fitted_values(features, rewards, mask, question_ids, method, alpha=.01
 
 
 @torch.inference_mode()
-def frozen_prefixes(encoder, input_ids, attention_mask, response_width):
+def frozen_prefixes(encoder, input_ids, attention_mask, response_width, layer="final"):
     """One causal encoder pass per unpadded answer, retaining pre-action states."""
     device = next(encoder.parameters()).device
     features = []
@@ -165,7 +165,23 @@ def frozen_prefixes(encoder, input_ids, attention_mask, response_width):
         if prompt < 1 or response < 1:
             raise ValueError('Empty frozen-feature prompt or response')
         tokens = ids[mask.bool()].unsqueeze(0).to(device)
-        hidden = encoder(input_ids=tokens, use_cache=False, return_dict=True).last_hidden_state
+        if layer == 'final':
+            hidden = encoder(input_ids=tokens, use_cache=False, return_dict=True).last_hidden_state
+        elif layer == 'two_thirds':
+            from math_rl.critic_layers import layer_spec
+            captured = []
+            def capture(module, inputs, output):
+                captured.append(output[0] if isinstance(output, tuple) else output)
+            hook = encoder.layers[layer_spec(len(encoder.layers))['two_thirds'] - 1].register_forward_hook(capture)
+            try:
+                encoder(input_ids=tokens, use_cache=False, return_dict=True)
+            finally:
+                hook.remove()
+            if len(captured) != 1:
+                raise ValueError('Expected exactly one intermediate feature capture')
+            hidden = captured[0]
+        else:
+            raise ValueError('Unknown critic feature layer')
         states = hidden[0, prompt-1:prompt+response-1].float().cpu().numpy().copy()
         if len(states) != response or not np.isfinite(states).all():
             raise ValueError('Invalid frozen features')

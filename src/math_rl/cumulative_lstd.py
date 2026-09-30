@@ -34,9 +34,12 @@ def trajectory_statistics(states, outcome, trace_lambda=0.):
 
 
 class CumulativeLSTD:
-    def __init__(self, question_ids, seed=42, epsilon=.01, trace_lambda=0., reset_interval=0):
+    def __init__(self, question_ids, seed=42, epsilon=.01, trace_lambda=0., reset_interval=0, method="lstd"):
         if not np.isfinite(epsilon) or epsilon <= 0 or not 0 <= trace_lambda <= 1 or reset_interval < 0:
             raise ValueError('Invalid cumulative LSTD settings')
+        if method not in ('lstd', 'ridge'):
+            raise ValueError('Unknown cumulative method')
+        self.method = method
         ids = sorted(set(question_ids))
         self.assignment = dict(zip(ids, question_folds(ids, seed).tolist()))
         self.epsilon, self.trace_lambda, self.reset_interval = epsilon, trace_lambda, reset_interval
@@ -78,8 +81,12 @@ class CumulativeLSTD:
             following = torch.cat((phi[1:], torch.zeros_like(phi[:1])))
             z = phi if self.trace_lambda == 0 else eligibility(phi, self.trace_lambda, torch.zeros(k, dtype=phi.dtype))
             stats = self.stats[self.assignment[q]]
-            stats['a'] += z.T @ (phi - following)
-            stats['b'] += z[-1] * outcome
+            if self.method == 'ridge':
+                stats['a'] += phi.T @ phi
+                stats['b'] += phi.sum(0) * outcome
+            else:
+                stats['a'] += z.T @ (phi - following)
+                stats['b'] += z[-1] * outcome
             stats['transitions'] += len(phi)
             stats['answers'] += 1
         values = torch.zeros_like(rewards, dtype=torch.float32)
@@ -106,7 +113,7 @@ class CumulativeLSTD:
         self.step, self.epoch = step, epoch
         valid = values[mask.bool()]
         target = outcomes[:, None].expand_as(mask)[mask.bool()]
-        return values, heads, dict(method='lstd', fitting_mode='cumulative_raw_sum', step=step,
+        return values, heads, dict(method=self.method, fitting_mode='cumulative_raw_sum', step=step,
             feature_epoch=feature_epoch, statistics_epoch=epoch, reset=reset, epsilon=self.epsilon,
             intercept_penalized=True, critic_lambda=self.trace_lambda, folds=checks,
             fit_seconds=time.perf_counter()-started, transitions=int(lengths.sum()), answers=len(states),
@@ -115,5 +122,5 @@ class CumulativeLSTD:
             scope='Uncorrected mixture of behavior policies within each statistics epoch')
 
     def state_dict(self):
-        return dict(step=self.step, epoch=self.epoch, stats=self.stats, assignment=self.assignment,
+        return dict(method=self.method, step=self.step, epoch=self.epoch, stats=self.stats, assignment=self.assignment,
                     epsilon=self.epsilon, trace_lambda=self.trace_lambda, reset_interval=self.reset_interval)

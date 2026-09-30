@@ -65,3 +65,18 @@ def test_reward_shape_and_terminal_checks():
     f,r,m,q=batch();c=CumulativeLSTD(q)
     r[0,0]=1
     with pytest.raises(ValueError,match='terminal'):c.update(f,r,m,q,1)
+
+
+def test_accumulated_ridge_matches_direct_returns_and_lstd_one():
+    f,r,m,q=batch()
+    ridge=CumulativeLSTD(q,method='ridge')
+    lstd=CumulativeLSTD(q,trace_lambda=1.)
+    for step in (1,2):
+        vr,hr,_=ridge.update(f,r,m,q,step)
+        vl,_,_=lstd.update(f,r,m,q,step)
+        torch.testing.assert_close(vr,vl)
+        for fold in range(2):
+            x=torch.cat([raw_design(x) for x,question in zip(f,q) if ridge.assignment[question]!=fold])
+            y=torch.cat([torch.full((len(x),),float(y),dtype=torch.float64) for x,y,question in zip(f,r.sum(1),q) if ridge.assignment[question]!=fold])
+            expected=torch.linalg.solve(step*x.T@x+.01*torch.eye(x.shape[1]),step*x.T@y)
+            torch.testing.assert_close(hr[fold]['weights'],expected)

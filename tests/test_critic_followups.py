@@ -48,3 +48,21 @@ def test_layer_report_requires_identical_prefixes(tmp_path):
     data['position'][0]=2;torch.save(data,tmp_path/'third/test.pt')
     with pytest.raises(ValueError,match='Unpaired'):
         summarize(tmp_path,dict(config=dict(seeds=[42])))
+
+
+def test_seven_way_layer_study_budget_and_locked_ppo():
+    variants=conditions('layers',10)
+    assert len(variants)==7
+    for name,setting in variants.items():
+        args=command(Path('/tmp/study'),name,42,60,.01,.99,setting)
+        assert 'trainer.total_training_steps=60' in args
+        if name=='ppo':
+            assert 'experiment.ppo_profile=more_fitting' in args
+            assert 'experiment.critic_statistics=cumulative' not in args
+        else:
+            assert 'experiment.critic_statistics=cumulative' in args
+            assert 'experiment.encoder_refresh_interval=0' in args
+            assert 'experiment.statistics_reset_interval=0' in args
+            assert f'actor_rollout_ref.model.critic_feature_layer={setting["layer"]}' in args
+            assert f'experiment.method={setting["method"]}' in args
+            assert f'experiment.critic_lambda={setting["trace"]}' in args
