@@ -738,3 +738,36 @@ The study fixes the requested traces per condition; `--trace-lambda` does not
 change them. Read `outputs/critic-followups-<JOBID>/report.txt` and `summary.json`.
 The summary contains every seed and paired comparison, including same-method
 layer comparisons. All intervals are exploratory and unadjusted.
+
+
+## Final direct LSTD versus GRPO comparison
+
+Sync the updated repository first. The final study locks LSTD(0.99), two-thirds
+features, a frozen encoder, accumulated raw matrices, epsilon=0.01 and no resets.
+GRPO uses the same 64-answer rollout budget per update. Both start from the base
+actor; no fitted offline heads or previous PPO checkpoints are loaded.
+
+Smoke-test the new GRPO/reporting branch:
+
+```bash
+source scripts/cluster_env.sh
+sbatch --time=03:00:00 scripts/submit_critic_followups.sh \
+  outputs/math-fit-12688752 --study grpo_final --steps 3 --seeds 100
+```
+
+Once `status.json` says `complete`, run the locked comparison:
+
+```bash
+sbatch --time=2-00:00:00 scripts/submit_critic_followups.sh \
+  outputs/math-fit-12688752 --study grpo_final \
+  --steps 60 --seeds 101 102 103 104 105 --epsilon 0.01
+```
+
+Ten runs should require approximately 18 hours of training plus startup and test
+evaluation based on earlier timings; the 48-hour allocation supplies headroom.
+Read `outputs/critic-followups-<JOBID>/report.txt`, `summary.json` and `audit.jsonl`.
+The latter contains every pair of final responses, with disagreements, verifier
+failures and capped answers first. Flags are review priorities, not automatic
+errors. Inspect a random agreement sample too. Results are a replication across
+fresh training seeds on inspected questions, not an untouched benchmark. No
+automatic superiority or equivalence claim is made. No mid-training resume.

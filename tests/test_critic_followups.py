@@ -66,3 +66,48 @@ def test_seven_way_layer_study_budget_and_locked_ppo():
             assert f'actor_rollout_ref.model.critic_feature_layer={setting["layer"]}' in args
             assert f'experiment.method={setting["method"]}' in args
             assert f'experiment.critic_lambda={setting["trace"]}' in args
+
+
+def test_final_grpo_protocol_and_report(tmp_path):
+    import json
+    from critic_followups import report
+    variants=conditions('grpo_final',10)
+    assert list(variants)==['grpo','lstd-0.99-two_thirds']
+    for name,setting in variants.items():
+        args=command(tmp_path,name,101,60,.01,.99,setting)
+        assert 'trainer.total_training_steps=60' in args
+        if name=='grpo':
+            assert 'algorithm.adv_estimator=grpo' in args
+            assert 'experiment.critic_statistics=cumulative' not in args
+        else:
+            assert 'experiment.critic_statistics=cumulative' in args
+            assert 'actor_rollout_ref.model.critic_feature_layer=two_thirds' in args
+            assert 'experiment.encoder_refresh_interval=0' in args
+            assert 'experiment.statistics_reset_interval=0' in args
+    (tmp_path/'data').mkdir()
+    questions=[dict(id='q0',ground_truth='1',question='Q0',split='test'),
+               dict(id='q1',ground_truth='2',question='Q1',split='test')]
+    (tmp_path/'data/questions.json').write_text(json.dumps(dict(questions=questions)))
+    def answers(scores):
+        return [dict(id=f'q{i}',ground_truth=str(i+1),score=score,
+                     verifier_status='correct' if score else 'incorrect',
+                     capped=False,level=4+i,response='test') for i,score in enumerate(scores)]
+    for name in variants:
+        folder=tmp_path/f'{name}-seed101';folder.mkdir()
+        scores=[1,0] if name=='grpo' else [1,1]
+        result=dict(updates=1,answers=64,training_gpu_hours=2.,initialization_seconds=10.,
+                    initial_test=dict(seconds=20.),final_test=dict(seconds=30.,accuracy=sum(scores)/2))
+        (folder/'result.json').write_text(json.dumps(result))
+        for filename, rows in [('base-test.jsonl',answers([0,0])),('final-test.jsonl',answers(scores))]:
+            (folder/filename).write_text('\n'.join(map(json.dumps,rows)))
+        if name!='grpo':
+            (folder/'linear-critic').mkdir()
+            (folder/'linear-critic/metrics.jsonl').write_text(json.dumps(dict(step=1,fit_seconds=1.,reset=True)))
+    manifest=dict(conditions=variants,seeds=[101],steps=1,study='grpo_final',epsilon=.01)
+    report(tmp_path,manifest)
+    result=json.loads((tmp_path/'summary.json').read_text())
+    assert result['paired']['lstd-0.99-two_thirds_minus_grpo']['mean_pp']==50.
+    assert result['audit']['pairs']==2 and result['audit']['flagged']==1
+    assert result['audit']['review_complete'] is False
+    assert result['methods']['grpo']['accounted_gpu_hours_mean']>2.
+    assert '1 training seeds' in result['scope']

@@ -4,25 +4,23 @@ We want to improve a math-solving LLM with reinforcement learning while avoiding
 PPO's usual second, large neural network for value prediction. Our candidate is a
 small linear critic fitted to hidden features the actor already computes.
 
-**Completed three-seed finding:** PPO-LSTD(0.99) reached **59.67% mean MATH
-accuracy**, up from 52.33%, using **3.557 allocated GPU-hours per run**. Both
-linear critics improved accuracy in every seed and used substantially less
-training compute than our calibrated conventional PPO baseline. LSTD had the
-highest mean score, but **superiority over ridge or GRPO is not established**.
+**Latest completed three-seed finding:** frozen-encoder, cumulative
+PPO-LSTD(0.99) using two-thirds-layer features reached **61.22% mean MATH
+accuracy**, versus **51.00%** for calibrated conventional PPO, at **3.594 versus
+6.709 allocated GPU-hours/run** (about 46% less training compute). It had the
+highest observed mean, but superiority over the other linear critics is not
+established. GRPO was not included in this latest run.
 
 [SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands, monitoring
 and resumption. This README explains the approach, completed results and their
-limits. Results updated **29 September 2026**.
+limits. Results updated **2 October 2026**.
 
-**Current status:** the calibrated PPO/ridge/LSTD/GRPO comparison is complete.
-The next comparison uses ordinary completion prompts, Math-Verify, a permanently
-frozen base encoder and accumulated linear-critic matrices, with **no answer
-buffer**. It compares two-thirds and final-layer features. The completed headline
-results above used current actor features and fresh-batch fitting; they do not
-establish the performance of this newer configuration. Explicit planning and the
-buffer are paused.
-AlphaProof-lite is a proposed next experiment, not an implemented or validated
-result.
+**Current status:** the layer/critic comparison is complete. Our selected design
+uses ordinary completion prompts, Math-Verify, a permanently frozen base encoder
+and accumulated LSTD(0.99) statistics at two-thirds depth, with no answer buffer.
+A locked direct comparison with GRPO over five fresh training seeds is prepared,
+not yet reported. The questions remain the inspected MATH split. Explicit
+planning and the buffer are paused; AlphaProof-lite remains a proposed direction.
 
 ## One example, from tokens to reinforcement learning
 
@@ -93,7 +91,7 @@ studies exclude answers without a usable verifier label. Thus their metrics are
 failures and verifier timeouts as zero for every method, retaining their status for
 audit; infrastructure errors fail the run.
 
-## Latest result: calibrated PPO comparison completed
+## Earlier result: calibrated PPO comparison completed
 
 ### Protocol and baseline selection
 
@@ -532,7 +530,7 @@ a permanently frozen encoder**, not to claim that it has proven superior.
 
 ### Closing online comparison: depth and critic target
 
-The new `layers` study compares conventional PPO (the previously
+The completed `layers` study compared conventional PPO (the previously
 validation-selected `more_fitting` profile) with six linear-critic variants:
 Ridge, LSTD(0.95), and LSTD(0.99), each using two-thirds or final features.
 No GRPO run is added in this requested comparison; its earlier results remain
@@ -555,6 +553,53 @@ inspected questions. A final independent generalization claim would require an
 untouched evaluation set and a completed reward audit. Run instructions are in
 [SETUP.MD](SETUP.MD#closing-comparison-cumulative-frozen-critics-at-two-depths).
 
+
+### Completed online layer study
+
+| Method | Mean answer accuracy | Training GPU-hours/run |
+|---|---:|---:|
+| Conventional PPO | 51.00% | 6.709 |
+| Ridge, two-thirds | 57.78% | 3.619 |
+| LSTD(0.95), two-thirds | 58.22% | 3.590 |
+| **LSTD(0.99), two-thirds** | **61.22%** | **3.594** |
+| Ridge, final | 57.67% | 3.594 |
+| LSTD(0.95), final | 56.56% | 3.588 |
+| LSTD(0.99), final | 60.33% | 3.567 |
+
+All six linear variants accumulated raw statistics with epsilon=0.01, frozen
+encoders, persistent question folds, no resets and no offline head initialization.
+The LSTD(0.99) two-thirds minus PPO accuracy difference was +10.22 percentage
+points, with descriptive paired seed/question interval [3.11, 17.67]. Its
+advantage over same-layer Ridge was +3.44 pp [-2.34, 9.44], and over the final-layer
+LSTD(0.99) was +0.89 pp [-3.00, 4.78]. The stronger offline two-thirds features
+therefore did not establish a reliable online layer advantage. These are three-seed,
+inspected-test, unadjusted exploratory comparisons of complete critic systems.
+The experiment supports lower-cost useful critics here; it does not establish
+that accumulation itself causes the gains or that LSTD beats GRPO.
+
+### Final direct comparison with GRPO: locked protocol, results pending
+
+We carry forward LSTD(0.99), two-thirds features, frozen base encoder, cumulative
+raw matrices and epsilon=0.01 as a design choice. The `grpo_final` study runs it
+against GRPO from the same base actor for 60 updates × 64 answers, with five fresh
+training seeds (101–105). Each LSTD run starts from zero statistics. Both methods
+use the same questions, actor settings, decoding, reward and final greedy test;
+there is no new tuning or best-checkpoint selection. Run order alternates by seed.
+
+The single primary comparison is final LSTD minus GRPO accuracy. Report every
+seed, its paired difference, a descriptive paired seed/question interval, and
+costs including frozen feature extraction and fitting. Additional accounted
+costs include initialization and base/final evaluation; environment setup and
+queue time are outside that accounting. Per-level scores, truncation, verifier
+statuses and all paired test responses are exported for auditing. Review both
+flagged disagreements and a random sample of agreements before a final claim.
+
+This is an equal-rollout-budget comparison, not an equal-time experiment. It can
+show repeatability on this task after locking the selected configuration; fresh
+training seeds do not turn reused questions into an untouched benchmark. An
+interval spanning zero is inconclusive, not evidence of equivalence. Earlier
+GRPO numbers use a different configuration/run and are not substitutes for this
+comparison. See [submission instructions](SETUP.MD#final-direct-lstd-versus-grpo-comparison).
 
 ### Cumulative LSTD: how closely we follow the proposed algorithm
 
