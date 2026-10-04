@@ -77,6 +77,17 @@ Both figures are generated raster illustrations. The reusable
 [generation prompts](docs/figures/image-prompts.md) and
 [refinement prompts](docs/figures/refinement-prompts.md) are stored alongside them.
 
+## Reference audit qualification
+
+A manual spot-check found a multi-answer MATH question whose stored reference
+retained only the last answer. Both methods were falsely rejected in the shown
+case. Reported automated accuracies therefore remain provisional pending a
+reference audit. The new audit applies one outcome-independent, conservative
+single-number eligibility rule to both methods, every seed and base evaluation;
+it preserves all original outputs and reports affected training questions
+separately. This corrects evaluation eligibility, not historical training rewards.
+[Run the CPU-only reference audit](SETUP.MD#reference-integrity-correction-no-gpu).
+
 ## What runs the experiment
 
 - **Qwen/Qwen2.5-Math-1.5B base:** the actor, not the instruct model.

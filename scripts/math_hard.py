@@ -3,10 +3,11 @@ from collections import Counter
 import json
 import re
 from math_rl.reward import parse_number
+from math_rl.reference_audit import reference_decision
 from math_rl.prompts import encode_completion
 
 DATASET = 'HuggingFaceH4/MATH-500'
-POLICY = 'Levels 4/5; no diagram markers; plain integer/decimal reference; prompt <=512 tokens; all eligible rows'
+POLICY = 'Levels 4/5; no diagram markers; single-reference-box-decimal-v1; no explicit multi-answer request; prompt <=512 tokens; all eligible rows'
 
 
 def select(rows, tokenizer):
@@ -22,6 +23,8 @@ def select(rows, tokenizer):
             reason = 'level_not_4_or_5'
         elif re.search(r'\[asy\]|\\includegraphics|<img|\bdiagram\b|\bfigure\b', problem, re.I):
             reason = 'diagram_or_figure'
+        elif not reference_decision(problem, row['solution'], row['answer'])['eligible']:
+            reason = 'ambiguous_or_non_numeric_reference'
         elif parse_number(row['answer']) is None:
             reason = 'not_plain_integer_or_decimal'
         prompt, tokens = encode_completion(tokenizer, problem)

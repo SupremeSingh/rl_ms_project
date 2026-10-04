@@ -771,3 +771,35 @@ failures and capped answers first. Flags are review priorities, not automatic
 errors. Inspect a random agreement sample too. Results are a replication across
 fresh training seeds on inspected questions, not an untouched benchmark. No
 automatic superiority or equivalence claim is made. No mid-training resume.
+
+
+## Reference-integrity correction (no GPU)
+
+The audit reads complete original reference solutions already preserved in
+`data/questions.json`. It does not download a newer dataset revision or change
+an existing run. Run after syncing code:
+
+```bash
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/audit_math_references.py \
+  outputs/critic-followups-12754254 \
+  --out outputs/reference-audit-12754254
+cat outputs/reference-audit-12754254/report.txt
+```
+
+The command needs NumPy, not a GPU or Math-Verify environment. The output must be
+new; choose a new output name for a second audit. The policy retains exactly one
+balanced numeric reference box, rejects explicit requests for multiple answers,
+and verifies agreement with the saved reference. Multiple boxes are conservatively
+excluded even if they repeat a single valid answer. `reference-audit.jsonl`
+contains all decisions and complete references for manual review. It is a
+structural eligibility audit, not automatic mathematical verification.
+
+Filtered base and final answers are copied for every method/seed. `summary.json`
+recomputes means, gains and paired exploratory intervals on identical retained
+test questions, preserving the original scores of those retained answers.
+Costs are unchanged because the models are not rerun. Check `excluded_by_split`:
+training/validation exclusions mean historical rewards or selection may also be
+affected; evaluation correction cannot undo that. Do not claim retraining was
+performed. New dataset creation uses the same stricter policy; existing source
+snapshots are never silently rewritten. Keep both original and corrected reports.
