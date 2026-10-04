@@ -2,25 +2,27 @@
 
 We want to improve a math-solving LLM with reinforcement learning while avoiding
 PPO's usual second, large neural network for value prediction. Our candidate is a
-small linear critic fitted to hidden features the actor already computes.
+small linear critic fitted to an LLM’s hidden representations. Our final design
+uses a frozen copy of the base model to keep those features consistent.
 
-**Latest completed three-seed finding:** frozen-encoder, cumulative
-PPO-LSTD(0.99) using two-thirds-layer features reached **61.22% mean MATH
-accuracy**, versus **51.00%** for calibrated conventional PPO, at **3.594 versus
-6.709 allocated GPU-hours/run** (about 46% less training compute). It had the
-highest observed mean, but superiority over the other linear critics is not
-established. GRPO was not included in this latest run.
+**First stage complete: a cheap critic can support useful PPO learning.** In our
+locked five-seed comparison, cumulative PPO-LSTD(0.99) reached **67.80% mean
+MATH accuracy versus 59.60% for GRPO**, at about **5% more training GPU-hours**.
+After a conservative reference-eligibility audit, the scores were **67.49% versus
+59.31%** on 291 retained questions: a **+8.18 percentage-point** difference.
+This is encouraging evidence on our inspected numeric MATH split, not a universal
+advantage or an independent benchmark result.
 
 [SETUP.MD](SETUP.MD) contains installation, phase-by-phase commands, monitoring
 and resumption. This README explains the approach, completed results and their
-limits. Results updated **2 October 2026**.
+limits. Results updated **4 October 2026**.
 
-**Current status:** the layer/critic comparison is complete. Our selected design
-uses ordinary completion prompts, Math-Verify, a permanently frozen base encoder
-and accumulated LSTD(0.99) statistics at two-thirds depth, with no answer buffer.
-A locked direct comparison with GRPO over five fresh training seeds is prepared,
-not yet reported. The questions remain the inspected MATH split. Explicit
-planning and the buffer are paused; AlphaProof-lite remains a proposed direction.
+**Selected design:** ordinary completion prompts, Math-Verify, a permanently
+frozen base encoder, two-thirds-depth features and accumulated LSTD(0.99)
+statistics, with question cross-fitting and no answer buffer. Planning and
+encoder refresh did not show a compelling benefit. The next direction is a
+small Lean proof-search system for properties of small programs, using a cheap
+critic to guide search while Lean remains the correctness authority.
 
 ## One example, from tokens to reinforcement learning
 
@@ -37,9 +39,10 @@ How many servings can I make?”**
 4. **PPO:** combines rewards and value estimates into advantages using GAE, then
    adjusts the actor's token probabilities with a clipped policy objective.
 
-Our conventional PPO baseline trains a separate transformer critic. We instead take Qwen's final
-normalized hidden vector at the last prefix token, **before the next action**, and
-fit a small head. The final answer and future tokens never enter that state vector.
+Our conventional PPO baseline trains a separate transformer critic. We instead take
+a hidden vector at the last prefix token, **before the next action**, and fit a
+small head. Early experiments used the final normalized layer; our selected
+design uses the block output approximately two-thirds through the frozen model. The final answer and future tokens never enter that state vector.
 
 **Ridge** fits each prefix directly to the eventual outcome. **LSTD(lambda)** fits
 linear value-consistency equations across consecutive states using eligibility
@@ -77,16 +80,29 @@ Both figures are generated raster illustrations. The reusable
 [generation prompts](docs/figures/image-prompts.md) and
 [refinement prompts](docs/figures/refinement-prompts.md) are stored alongside them.
 
-## Reference audit qualification
+## Reference audit: the result survives conservative filtering
 
-A manual spot-check found a multi-answer MATH question whose stored reference
-retained only the last answer. Both methods were falsely rejected in the shown
-case. Reported automated accuracies therefore remain provisional pending a
-reference audit. The new audit applies one outcome-independent, conservative
-single-number eligibility rule to both methods, every seed and base evaluation;
-it preserves all original outputs and reports affected training questions
-separately. This corrects evaluation eligibility, not historical training rewards.
-[Run the CPU-only reference audit](SETUP.MD#reference-integrity-correction-no-gpu).
+A spot-check found a question requiring multiple answers whose saved reference
+contained only one. Both methods were falsely rejected in that example. We then
+applied the same outcome-independent, conservative single-number eligibility rule
+to all methods, seeds and base scores, preserving the original outputs.
+
+| Evaluation | Questions | Base | GRPO | PPO-LSTD(0.99) | LSTD − GRPO |
+|---|---:|---:|---:|---:|---:|
+| Original | 300 | 52.33% | 59.60% | 67.80% | +8.20 pp |
+| Reference-filtered | 291 | 52.23% | 59.31% | 67.49% | +8.18 pp |
+
+The filtered paired seed/question 95% interval is **[+3.85, +12.92] pp**;
+all five seed differences remain positive. The observed advantage is therefore
+not explained by these nine excluded test questions.
+
+The rule also flagged **18 training and 5 validation questions**. These are
+conservative exclusions, not all confirmed mathematical errors. This post-hoc
+check retains existing verifier scores; it does not audit every response,
+repair historical training rewards or create an untouched test set. Future
+dataset creation uses the stricter eligibility rule. Original studies below
+retain their original scores unless explicitly marked reference-filtered.
+[Audit procedure](SETUP.MD#reference-integrity-correction-no-gpu).
 
 ## What runs the experiment
 
@@ -588,29 +604,53 @@ inspected-test, unadjusted exploratory comparisons of complete critic systems.
 The experiment supports lower-cost useful critics here; it does not establish
 that accumulation itself causes the gains or that LSTD beats GRPO.
 
-### Final direct comparison with GRPO: locked protocol, results pending
+### Final direct comparison with GRPO: five fresh training seeds
 
-We carry forward LSTD(0.99), two-thirds features, frozen base encoder, cumulative
-raw matrices and epsilon=0.01 as a design choice. The `grpo_final` study runs it
-against GRPO from the same base actor for 60 updates × 64 answers, with five fresh
-training seeds (101–105). Each LSTD run starts from zero statistics. Both methods
-use the same questions, actor settings, decoding, reward and final greedy test;
-there is no new tuning or best-checkpoint selection. Run order alternates by seed.
+We locked LSTD(0.99), two-thirds features, a frozen base encoder, cumulative raw
+matrices and epsilon=0.01 before this comparison. Both methods started from the
+same base actor and ran **60 updates × 64 answers = 3,840 answers per seed**, with
+five fresh seeds (101–105): **10 runs and 38,400 training answers** in total.
+Each LSTD run started with zero statistics; no offline critic weights were loaded.
+Prompts, reward, actor settings, decoding and the 300-question greedy evaluation
+were shared. There was no new tuning or best-checkpoint selection.
 
-The single primary comparison is final LSTD minus GRPO accuracy. Report every
-seed, its paired difference, a descriptive paired seed/question interval, and
-costs including frozen feature extraction and fitting. Additional accounted
-costs include initialization and base/final evaluation; environment setup and
-queue time are outside that accounting. Per-level scores, truncation, verifier
-statuses and all paired test responses are exported for auditing. Review both
-flagged disagreements and a random sample of agreements before a final claim.
+| Seed | GRPO accuracy | PPO-LSTD(0.99) accuracy | Difference |
+|---|---:|---:|---:|
+| 101 | 58.00% | 66.33% | +8.33 pp |
+| 102 | 58.33% | 66.33% | +8.00 pp |
+| 103 | 60.67% | 68.67% | +8.00 pp |
+| 104 | 62.00% | 68.00% | +6.00 pp |
+| 105 | 59.00% | 69.67% | +10.67 pp |
+| **Mean** | **59.60%** | **67.80%** | **+8.20 pp** |
+| Sample seed SD | 1.69 pp | 1.46 pp | — |
 
-This is an equal-rollout-budget comparison, not an equal-time experiment. It can
-show repeatability on this task after locking the selected configuration; fresh
-training seeds do not turn reused questions into an untouched benchmark. An
-interval spanning zero is inconclusive, not evidence of equivalence. Earlier
-GRPO numbers use a different configuration/run and are not substitutes for this
-comparison. See [submission instructions](SETUP.MD#final-direct-lstd-versus-grpo-comparison).
+The original descriptive paired seed/question 95% interval is **[+4.00, +12.60]
+pp**. The reference-filtered result above is nearly unchanged. Unlike the earlier
+three-seed comparison, this locked configuration led GRPO in every seed with an
+interval excluding zero. The test questions were still repeatedly inspected;
+these remain exploratory intervals, not an independent confirmation.
+
+| Mean cost per run | GRPO | PPO-LSTD(0.99) |
+|---|---:|---:|
+| Training GPU-hours | 3.435 | 3.605 |
+| Including initialization and initial/final evaluation | 3.749 | 3.915 |
+
+LSTD cost **4.96% more training compute**, or about **4.4% more** with the additional
+accounting. Training includes frozen-encoder feature extraction, fitting,
+validation and checkpointing. Environment setup and queue time are excluded.
+LSTD fitting itself averaged about **127 seconds**, roughly **2% of training
+wall time**; the encoder pass is an additional cost already included above.
+This is an equal-answer-budget experiment, not an equal-time comparison.
+
+**Interpretation:** our selected lightweight actor-critic system delivered a
+repeatable accuracy gain over GRPO at a modest measured cost premium in this
+setting. The experiment does not isolate accumulation, layer choice, cross-fitting
+or the LSTD solver as the sole cause. It does not establish that LSTD always beats
+ridge, GRPO or a differently tuned conventional PPO baseline.
+
+Paired responses and verifier statuses are exported for review. The reference
+check is complete as an automatic eligibility check; a full independent answer
+and reasoning audit is not. See [run instructions](SETUP.MD#final-direct-lstd-versus-grpo-comparison).
 
 ### Cumulative LSTD: how closely we follow the proposed algorithm
 
@@ -653,8 +693,9 @@ For each PPO update:
 
 **Settings:** gamma=1, LSTD lambda=0.99, GAE lambda=0.95, epsilon=0.01.
 The critic uses the 1,536-dimensional hidden vector plus an intercept, so each
-matrix is 1,537 × 1,537. Features are detached, in fixed raw coordinates after
-Qwen's final normalization; there is no per-update standardization. The terminal
+matrix is 1,537 × 1,537. Features are detached and use fixed raw coordinates: block 19 of 28 for the
+selected two-thirds encoder, or the final normalized output in the final-layer
+condition. There is no per-update standardization. The terminal
 reward is 1 for a verifier-accepted answer and 0 otherwise under the online
 scoring policy. EOS and the response cap both end the episode. Traces reset
 between answers; matrices persist between updates. Values have no sigmoid or
@@ -711,34 +752,64 @@ data outweigh stale-policy bias is an experimental question. Refreshing the
 encoder does not itself correct that bias.
 
 Local tests cover the equations, causal alignment, historical fold isolation and
-resets. They do not validate the cluster's distributed encoder-copy path; run the
-short smoke before full online comparisons. All three studies remain pending
-performance results.
+resets. Cluster smoke tests and the full layer, accumulation and refresh studies
+have completed; their results are reported above.
 
 [Protocol and limitations](docs/critic-followups.md) ·
 [Commands](SETUP.MD#critic-follow-up-studies).
 
-## What remains open, and the proposed next direction
+## First-stage conclusion: useful cheap critics, with a defined scope
 
-Before broad claims, audit answers where methods disagree, investigate
-conventional PPO's value/advantage quality, and evaluate locked settings on
-untouched questions. Unknown pretraining overlap, numeric-only MATH coverage,
-short training budgets and only three seeds limit generalization. Passing local
-numerical checks is not the same as demonstrating a strong learning baseline.
-Checkpoint saving works; save/resume equivalence remains unestablished.
+We progressed from a working RL pipeline to offline value prediction, matched
+ridge/LSTD fits, online PPO comparisons, layer and history ablations, and a locked
+five-seed comparison with GRPO. The central result is practical: **a small linear
+critic over frozen LLM representations can support substantial policy learning**.
+Our final system improved over GRPO by **8.18 pp after reference filtering**, with
+about **5% more training compute**. Earlier matched runs used roughly **46% less
+training compute than our calibrated conventional PPO system**.
 
-**AlphaProof-lite is a proposed new application of the cheap critic.** A
-proof-capable LLM would propose Lean tactics, Lean would check transitions, and a
-small critic would rank unfinished proof states so search spends its budget on
-promising branches. The critic would not replace the formal proof checker.
-Our natural-language critic weights are not validated for this task: we would
-collect formal proof trajectories and refit, then compare against policy-only
-search and repeated independent attempts under matched compute budgets.
+The evidence supports this complete system on the tested 1.5B model and numeric
+MATH levels 4/5 workload. It does not prove that accumulation is better than fresh
+fitting, that two-thirds features always improve PPO, or that LSTD has a universal
+advantage over ridge. Conventional PPO's regression remains unexplained despite
+passing numerical and training-target-fit checks. Historical-policy critic
+statistics are uncorrected; only the actor updates use fresh data.
 
-The positive PPO results justify testing this direction; the pivot is not a
-rescue from a failed cheap-critic experiment. No formal-search performance has
-yet been established here. The target would be more verified proofs per unit of
-compute, with ridge and LSTD both retained as candidates.
+Repeatedly inspected questions, unknown pretraining overlap, limited training
+budgets and incomplete independent reward auditing limit broader claims. The
+reference filter leaves historical training rewards unchanged. These limitations
+should accompany the result in any briefing or publication. We can close this
+pre-prover stage while keeping its artifacts and results reproducible.
 
-We aim to turn an LLM's own hidden representations into a lightweight critic that improves learning without a separately trained transformer critic.
-The broader vision is reliable gains per unit of compute, in both policy learning and eventually verified proof search.
+## Next direction: a manageable Lean proof-search experiment
+
+The next goal is **more verified proofs of properties of small Lean programs per
+unit of compute**. This is an AlphaProof-inspired experiment at a modest scale,
+not a reproduction of AlphaProof or a replacement for a proof checker.
+
+1. **Build the formal environment.** Connect a proof-capable LLM to an existing
+   Lean interface. Start with 20–30 development obligations, then a small benchmark
+   split by program/theorem family. Lean must validate tactics and completed proofs;
+   disallow unfinished proofs and changes to the statement being proved.
+2. **Establish simple baselines.** Measure standard proof automation, repeated
+   independent LLM attempts and policy-guided search. Fix retrieval, tactic limits
+   and evaluation budgets before judging a critic's contribution.
+3. **Collect new proof-state data.** Save the full pending goals and context,
+   proposed tactics, checked transitions, features and outcomes. Fit constant,
+   ridge and LSTD critics, retaining a small MLP as a diagnostic. Our natural-language
+   math weights are not validated for Lean; formal trajectories require new fits.
+4. **Test guidance before complex search.** After executing a valid tactic, score
+   its successor state and test whether the critic ranks promising branches.
+   Define value as success under a specified continuation policy and remaining
+   budget. Budget exhaustion means failure within that budget, not unprovability.
+5. **Add search only if it helps.** Compare value-guided search under matched total
+   costs, including LLM inference and Lean execution, on untouched theorem families.
+   More elaborate tree search, Gumbel exploration and policy training come later.
+
+The transition unit becomes a **tactic**, not a token, so trace length and other
+critic settings must be validated again. Search also changes the data distribution;
+freezing the encoder alone does not make accumulated data on-policy. The critic
+prioritizes work, while Lean independently certifies the completed proof.
+
+We aim to make LLM representations useful for inexpensive value prediction and better decisions.
+The next test is whether that same principle yields more formally verified proofs for the same compute budget.
