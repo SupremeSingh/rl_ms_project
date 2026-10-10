@@ -200,6 +200,9 @@ def fit(out, config, questions):
     from math_rl.critic_probe import HEADS, PREFIX_SAMPLING, assessment, fit_ridge, fit_trial, make_head, predict
     if (out / "summary.json").exists() and (out / "report.txt").exists():
         return
+    head_kinds = tuple(config.get("heads", HEADS))
+    if not head_kinds or not set(head_kinds) <= set(HEADS):
+        raise ValueError("Unknown probe heads")
     prepare_probes(out, questions)
     train, val = [torch.load(out / f"{s}.pt", weights_only=True) for s in ("train", "val")]
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -208,7 +211,7 @@ def fit(out, config, questions):
     baseline = float(train["y"].mean())
     save_tensor(out / "normalization.pt", dict(mean=mean.cpu(), scale=scale.cpu(), baseline=baseline))
     # Select all heads using validation only. The test tensors are opened afterward.
-    for kind in HEADS:
+    for kind in head_kinds:
         for seed in config["seeds"]:
             path = out / "heads" / f"{kind}-{seed}.pt"
             if path.exists():
@@ -229,7 +232,7 @@ def fit(out, config, questions):
     # Test data never determines fitting duration, learning rate or regularization.
     test = torch.load(out / "test.pt", weights_only=True)
     results = []
-    for kind in HEADS:
+    for kind in head_kinds:
         for seed in config["seeds"]:
             saved = torch.load(out / "heads" / f"{kind}-{seed}.pt", weights_only=True)
             head = make_head(kind, train["x"].shape[1], saved["width"]).to(device)
@@ -260,7 +263,8 @@ def fit(out, config, questions):
     timeout_examples, excluded_examples = [], []
     review, rng = [], random.Random(42)
     for i in range(len(questions)):
-        for response_index, row in enumerate(json.loads(shard_path(out, i, "trajectories").read_text())["responses"]):
+        rows = json.loads(shard_path(out, i, "trajectories").read_text())["responses"]
+        for response_index, row in enumerate(rows[:config.get("response_limit")]):
             trajectory_count += 1
             split_counts[questions[i]['split']] += 1
             status_counts[row["verifier_status"]] += 1
@@ -315,7 +319,7 @@ def fit(out, config, questions):
              f"Constant baseline Brier: {summary['constant']['brier']:.5f}",
              f"Question-only constant Brier: {summary['constant']['by_prefix']['question_only']['brier']:.5f}",
              "head          Brier mean/std       question-only Brier   accuracy   total tuning seconds"]
-    for kind in HEADS:
+    for kind in head_kinds:
         rows = [r for r in results if r["kind"] == kind]
         scores = [r["test"]["brier"] for r in rows]
         early = np.mean([r["test"]["by_prefix"]["question_only"]["brier"] for r in rows])

@@ -803,3 +803,70 @@ training/validation exclusions mean historical rewards or selection may also be
 affected; evaluation correction cannot undo that. Do not claim retraining was
 performed. New dataset creation uses the same stricter policy; existing source
 snapshots are never silently rewritten. Keep both original and corrected reports.
+
+## J-space supervised probes on saved MATH answers
+
+This adds a separate offline study; no PPO parameters, old feature caches or saved
+answers are changed. Read the [protocol](docs/jspace-probes.md), particularly the
+distinction between the official lens and our sparse reconstruction extension.
+
+After syncing the code, prepare the **separate** lens environment once on the
+cluster login node (network access required for pinned packages):
+
+```bash
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh bash scripts/setup_jlens.sh
+```
+
+Run the small GPU smoke first. It uses two calibration prompts, up to 12/8/8
+train/validation/test questions, two answers per question, and two fitting epochs.
+It verifies the pipeline, not accuracy:
+
+```bash
+sbatch --time=03:00:00 scripts/submit_jspace_probes.sh \
+  outputs/math-fit-12688752 --smoke
+```
+
+Replace JOB_ID with the returned number:
+
+```bash
+sacct -j JOB_ID --format=JobID,State,ExitCode,Elapsed
+cat outputs/jspace-JOB_ID/status.json
+cat outputs/jspace-JOB_ID/report.txt
+tail -n 30 outputs/jspace-JOB_ID/lens.log
+tail -n 30 outputs/jspace-JOB_ID/extract.log
+```
+
+Once the smoke completes, run the full matched comparison:
+
+```bash
+sbatch --time=2-00:00:00 scripts/submit_jspace_probes.sh \
+  outputs/math-fit-12688752
+```
+
+Full defaults: 100 reserved training questions for calibration; all other eligible
+saved questions/answers; sparsity at most 16; seeds 42/43/44; 200 maximum epochs;
+linear logistic and two-layer MLP heads, plus ridge regression. To also include
+the ten-layer ResNet, append `--heads linear_logit mlp2 resnet10`. This increases
+fitting work for every representation. There is no promise of completion within
+a day: measure the full-width lens backward pass and sparse extraction in the
+smoke. A 48-hour allocation is a limit, not an estimate.
+
+Resume a timed-out run using its **original** output directory and identical flags
+(add `--smoke` again when resuming a smoke):
+
+```bash
+sbatch --time=2-00:00:00 scripts/submit_jspace_probes.sh \
+  outputs/math-fit-12688752 --out outputs/jspace-ORIGINAL_JOB_ID
+```
+
+Do not edit the code/environment mid-run or reuse the smoke directory for a full
+run. Resume checks pinned inputs and the code snapshot. The source directory is
+read-only. `lens.log`, `extract.log`, and `fit-REPRESENTATION.log` identify the
+failed stage; numerical/infrastructure errors fail explicitly. Saved parse
+failures are excluded equally across arms, not silently treated as new labels.
+
+Review `responses.html` after copying it locally, `summary.json` for paired
+comparisons, and each representation's `summary.json` for calibration, prefix
+metrics, parameter counts and fit-budget warnings. All sparse readouts are in
+`question-*.json`. No additional generation or reward-verifier job is necessary.

@@ -781,6 +781,23 @@ reference filter leaves historical training rewards unchanged. These limitations
 should accompany the result in any briefing or publication. We can close this
 pre-prover stage while keeping its artifacts and results reproducible.
 
+## New offline follow-up: J-space value probes
+
+Before proof search, we will test whether verbalizable features make eventual
+answer correctness easier to predict. This reuses the saved MATH answers and
+compares full hidden vectors, estimated J-space components, their residuals, and
+J-space plus final-layer features. Matched full-layer and random-reconstruction
+controls separate J-space effects from extra inputs or sparse filtering.
+
+We use Anthropic's pinned **Jacobian Lens** directly to fit a lens on reserved
+training questions. Our separate, documented sparse nonnegative reconstruction
+extension estimates the J-space component; it is not supplied by that library.
+One-layer logistic and two-layer MLP probes, plus ridge, use the same examples and
+fitting budgets. The study is implemented but **has no cluster results yet**.
+It does not change the completed PPO conclusions or establish that J-space is a
+better or cheaper critic. [Protocol](docs/jspace-probes.md) ·
+[Setup and commands](SETUP.MD#j-space-supervised-probes-on-saved-math-answers).
+
 ## Next direction: a manageable Lean proof-search experiment
 
 The next goal is **more verified proofs of properties of small Lean programs per
