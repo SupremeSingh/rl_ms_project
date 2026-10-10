@@ -818,6 +818,12 @@ source scripts/cluster_env.sh
 bash scripts/container_exec.sh bash scripts/setup_jlens.sh
 ```
 
+The setup uses `venv --without-pip` and the existing project's pip with an
+explicit `--python` target for `.venv-jlens`, so the container does not need
+`ensurepip`, `apt`, or `sudo`. If an earlier attempt failed at `ensurepip`, rerun
+the setup command above after syncing this fix; no directory deletion is needed.
+The existing PPO environment is used only to invoke pip, not as its install target.
+
 Run the small GPU smoke first. It uses two calibration prompts, up to 12/8/8
 train/validation/test questions, two answers per question, and two fitting epochs.
 It verifies the pipeline, not accuracy:
