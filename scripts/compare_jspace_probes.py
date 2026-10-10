@@ -137,6 +137,11 @@ def validate(manifest, environment):
 def load_model():
     from transformers import AutoModelForCausalLM, AutoTokenizer
     if not torch.cuda.is_available(): raise RuntimeError('Run extraction on the cluster GPU')
+    if os.environ.get('TORCH_ALLOW_TF32_CUBLAS_OVERRIDE') == '1':
+        raise RuntimeError('Unset TORCH_ALLOW_TF32_CUBLAS_OVERRIDE for float32 lens fitting')
+    torch.set_float32_matmul_precision('highest')
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
     # No Flash Attention dependency; float32 for derivative accuracy and parity.
     hf = AutoModelForCausalLM.from_pretrained(MODEL, local_files_only=True,
         torch_dtype=torch.float32, attn_implementation='eager').cuda().eval().requires_grad_(False)
@@ -212,11 +217,22 @@ def extract(out, m):
             captured=sampled_layer_states(hf.model,tokens,len(q['prompt_token_ids']),length,prefix)
             h=captured['two_thirds'].cuda().float();final=captured['final'].cuda().float()
             if not checked:
-                # The sampled pre-action vector must not depend on future tokens.
-                cut=prefix[1]; short=tokens[:,:len(q['prompt_token_ids'])+cut+1]
-                causal=sampled_layer_states(hf.model,short,len(q['prompt_token_ids']),cut+1,[cut])
+                # Same shapes isolate future-token leakage from GEMM shape rounding.
+                cut=prefix[1]
+                changed=tokens.clone()
+                boundary=len(q['prompt_token_ids'])+cut
+                changed[:,boundary:]=(changed[:,boundary:]+1)%hf.config.vocab_size
+                causal=sampled_layer_states(hf.model,changed,len(q['prompt_token_ids']),length,[cut])
+                diagnostics={}
                 for name in ('two_thirds','final'):
                     torch.testing.assert_close(captured[name][1],causal[name][0],rtol=1e-4,atol=1e-4)
+                    diagnostics[name]=float((captured[name][1]-causal[name][0]).abs().max())
+                frozen.atomic_json(out/'causality-check.json',dict(question_id=q['id'],
+                    response_index=ri,prefix_length=cut,changed_from_token=boundary,
+                    check='Same-length replacement of all tokens after the causal prefix',
+                    max_absolute_difference=diagnostics,rtol=1e-4,atol=1e-4,
+                    float32_matmul_precision=torch.get_float32_matmul_precision(),
+                    cuda_matmul_allow_tf32=torch.backends.cuda.matmul.allow_tf32))
                 checked=True
             j, ids, coeff = reconstruct(h,dictionary,m['config']['sparsity'])
             rand,_,_=reconstruct(h,control,m['config']['sparsity'])

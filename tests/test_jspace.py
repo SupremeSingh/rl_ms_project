@@ -157,6 +157,14 @@ def test_official_hf_adapter_on_tiny_qwen_without_download():
     captured=sampled_layer_states(hf.model,tokens,4,20,[0,2,19])
     short=sampled_layer_states(hf.model,tokens[:,:7],4,3,[2])
     torch.testing.assert_close(captured['two_thirds'][1],short['two_thirds'][0])
+    # Change the next action and every later token, including at prefix zero.
+    for position, index in ((0, 0), (2, 1), (19, 2)):
+        changed=tokens.clone()
+        changed[:,4+position:]=(changed[:,4+position:]+1)%config.vocab_size
+        future_changed=sampled_layer_states(hf.model,changed,4,20,[position])
+        for name in ('two_thirds','final'):
+            torch.testing.assert_close(captured[name][index],future_changed[name][0],
+                                       rtol=1e-4,atol=1e-4)
     h=captured['two_thirds'].float()
     dictionary=vocabulary_directions(hf.lm_head.weight,hf.model.norm.weight,lens.jacobians[2])
     raw=(hf.lm_head.weight*hf.model.norm.weight)@lens.jacobians[2]

@@ -112,6 +112,13 @@ answers remain excluded for every arm. Full reference-audit details and answer
 status counts are saved. Existing labels are not repaired: this remains
 conditional on retained verifier outcomes on repeatedly inspected questions.
 
+Lens fitting and extraction explicitly disable TF32 matrix multiplication. The
+extraction causal guard replaces every token after a sampled prefix while keeping
+the sequence length unchanged, then checks the two-thirds and final features at
+that prefix. This avoids confusing sequence-shape numerical differences with
+future-token leakage. Its tolerances, precision settings and observed differences
+are saved in `causality-check.json`; a failed check still stops extraction.
+
 Report Brier, correctness-prediction accuracy, cross-entropy, AUROC, calibration,
 question-only/early-prefix metrics and paired question-bootstrap intervals.
 The top-level report compares average per-seed losses, not an ensemble predictor.
