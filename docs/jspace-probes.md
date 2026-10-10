@@ -113,6 +113,9 @@ status counts are saved. Existing labels are not repaired: this remains
 conditional on retained verifier outcomes on repeatedly inspected questions.
 
 Lens fitting and extraction explicitly disable TF32 matrix multiplication. The
+J-space launcher clears `TORCH_ALLOW_TF32_CUBLAS_OVERRIDE` inside the container
+before Python starts, since the container image can force it on independently
+of host settings. Other training launchers are unchanged. The
 extraction causal guard replaces every token after a sampled prefix while keeping
 the sequence length unchanged, then checks the two-thirds and final features at
 that prefix. This avoids confusing sequence-shape numerical differences with

@@ -13,6 +13,10 @@ cd "${SLURM_SUBMIT_DIR:?Submit from project root}"
 source scripts/cluster_env.sh
 export MATH_RL_GPU=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONUNBUFFERED=1
 [[ -x .venv-jlens/bin/python ]] || { echo 'Run setup_jlens.sh inside container first.' >&2; exit 1; }
-bash scripts/container_exec.sh "$PWD/.venv-jlens/bin/python" -m pytest -q tests/test_jspace.py
-srun bash scripts/container_exec.sh "$PWD/.venv-jlens/bin/python" scripts/compare_jspace_probes.py \
+# Clear the image's TF32 override inside the container, before importing PyTorch.
+# Unsetting it on the host alone does not override the image environment.
+bash scripts/container_exec.sh env -u TORCH_ALLOW_TF32_CUBLAS_OVERRIDE \
+  "$PWD/.venv-jlens/bin/python" -m pytest -q tests/test_jspace.py
+srun bash scripts/container_exec.sh env -u TORCH_ALLOW_TF32_CUBLAS_OVERRIDE \
+  "$PWD/.venv-jlens/bin/python" scripts/compare_jspace_probes.py \
   --out "outputs/jspace-${SLURM_JOB_ID:?}" "$@"
