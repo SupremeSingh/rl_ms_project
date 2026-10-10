@@ -823,6 +823,12 @@ explicit `--python` target for `.venv-jlens`, so the container does not need
 `ensurepip`, `apt`, or `sudo`. If an earlier attempt failed at `ensurepip`, rerun
 the setup command above after syncing this fix; no directory deletion is needed.
 The existing PPO environment is used only to invoke pip, not as its install target.
+Runtime dependencies are installed from public PyPI, followed by the pinned
+`jlens` package with `--no-deps`. This avoids trying to download the container's
+custom CUDA PyTorch wheel. Setup verifies that the new environment imports the
+same PyTorch module and version as the container. The optional NVIDIA pip index
+is disabled for this setup. A previous resolver failure can be retried with the
+same command after syncing; no deletion is necessary.
 
 Run the small GPU smoke first. It uses two calibration prompts, up to 12/8/8
 train/validation/test questions, two answers per question, and two fitting epochs.
