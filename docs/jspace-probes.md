@@ -186,3 +186,42 @@ residuals need not be orthogonal to the selected atoms or to a global J-space.
 This economical first step does not refit the lens or search new layers. If needed,
 a subsequent validation-only experiment should compare calibration context coverage
 and nearby source layers, with matched controls and new extraction provenance.
+
+## Geometric multi-layer extension
+
+`geometric_jspace_probes.py` uses reverse ranks b**j starting at 1, stopping at the
+block count. For 28 blocks and b=2, zero-based indices are 27/26/24/20/12; outputs
+are concatenated in that final-to-earlier order. The last selected layer is not
+necessarily the first network block. Base 3 is supported but is a separate fixed
+configuration, not silently selected using test results.
+
+The official fitter estimates the earlier source Jacobians jointly, targeting the
+last block output. Upstream requires each source to precede the target. At the last
+block itself, the derivative of target residual with respect to that residual is I,
+with zero influence on other positions at that same depth. Consequently its dictionary
+is the normalized row directions of U diag(final RMSNorm gain). No bogus final-layer
+fit is requested. All selected features, including final, are pre-final-norm residuals;
+this differs from the normalized final baseline in the original single-layer study.
+
+This implementation holds calibration fixed to the original recipe (reserved train
+questions, first answer, first 128 tokens). It tests aggregation, not changed context
+coverage. Questions and attempts are bounded before reward inspection. One causal
+forward pass captures all selected block outputs plus the ordinary two-thirds baseline.
+Each block has its own sparse reconstruction and random-orientation control.
+The same-shape future-token perturbation check covers every captured block.
+
+All heads are ridge return regressors. Concatenation keeps five complete 1,536-vectors
+(7,680 coordinates), train-only standardized independently by coordinate. Ordinary
+hidden concatenation and random-dictionary concatenation have matching dimensions.
+Per-layer heads use the same data and alpha grid; validation selects the best
+individual J-space and hidden layer. These and the ordinary two-thirds baseline
+are compared with the fixed concatenation. Test data are loaded by fitting only
+after validation choices are saved, although extraction necessarily processes all
+splits and the underlying test questions have been inspected in earlier studies.
+
+Pursuit defaults to our nonnegative gradient variant, 25 atoms per layer, fixed
+before the run. It is not automatically imported as a winner from an unfinished
+refinement study. Costs include multi-source lens fitting, feature extraction and
+all ridge fits. In a later LSTD integration, fivefold feature dimension entails
+approximately 25-fold dense matrix storage and potentially 125-fold dense solve
+work; this experiment does not claim that aggregation remains computationally cheap.

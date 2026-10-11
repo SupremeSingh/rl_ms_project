@@ -11,6 +11,21 @@ REPRESENTATIONS = ('final', 'two_thirds', 'jspace', 'jspace_final',
                    'two_thirds_final', 'residual', 'random', 'random_final')
 
 
+def geometric_layers(n_layers, base=2):
+    """Zero-based blocks ordered by 1, base, base**2, ... from the end.
+
+    For 28 blocks/base 2: indices [27, 26, 24, 20, 12], i.e. blocks
+    [28, 27, 25, 21, 13]. The final block is always first.
+    """
+    if n_layers < 1 or base < 2:
+        raise ValueError('Positive layer count and integer base >= 2 required')
+    layers, distance = [], 1
+    while distance <= n_layers:
+        layers.append(n_layers-distance)
+        distance *= base
+    return layers
+
+
 def vocabulary_directions(unembedding, norm_weight, jacobian):
     """Qwen RMSNorm gain folded into U; the state-dependent RMS divisor is scalar.
 

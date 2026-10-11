@@ -806,10 +806,21 @@ lens and cached features, selects on validation, and refits matched ridge baseli
 Reconstruction diagnostics and readable concept examples help distinguish sparse
 solver limitations from a lack of predictive information. This implementation is
 closer to the paper's pursuit approach but is not its exact decomposition code.
-No follow-up results are available yet; calibration and layer changes remain
-separate, conditional experiments. Neither study changes the completed PPO
+No follow-up results are available yet; calibration changes remain a separate
+conditional experiment, while the layer extension is described below. Neither study changes the completed PPO
 conclusions or establishes cheaper inference. [Protocol](docs/jspace-probes.md) ·
 [Setup and commands](SETUP.MD#j-space-supervised-probes-on-saved-math-answers).
+
+A second planned comparison concatenates J-space components at geometric depths
+counted from the end: distances **1, 2, 4, 8, 16** select blocks **28, 27, 25, 21,
+13** in our 28-block model. Earlier blocks get separately fitted official lenses;
+the last block uses the exact identity transport. A ridge critic sees the full
+**7,680-dimensional** concatenation. Matched ordinary-hidden and random-dictionary
+concatenations, validation-selected individual layers, and the ordinary two-thirds
+baseline distinguish aggregation benefits from a J-space-specific benefit.
+This is implemented but has no cluster results yet. It is our multi-layer critic
+extension, not a reproduction of a critic from the workspace paper. Larger features
+also imply larger ridge/LSTD systems; reduced cost is an empirical question.
 
 ## Next direction: a manageable Lean proof-search experiment
 

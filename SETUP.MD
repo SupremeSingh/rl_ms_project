@@ -930,3 +930,69 @@ a cap, not a measured runtime guarantee. Resume with identical options and
 a fresh output. Original data are unchanged. This remains an exploratory reuse of
 inspected questions, not an untouched test. Calibration/layer changes are deferred
 until these diagnostics justify their extra compute.
+
+### Geometric multi-layer J-space critic
+
+This separate study implements reverse layer ranks **1, 2, 4, 8, 16**, not offsets
+0, 1, 2, 4, 8. For 28 blocks the concatenation order is **28, 27, 25, 21, 13**.
+Every selected block uses its own dictionary and reconstruction. Official `jlens.fit`
+fits all earlier sources together with the final block as target; the final block's
+transport is identity and does not need estimation. All features are pre-final-norm
+block outputs, including the last block. The final normalization gain is folded
+into each J-lens dictionary.
+
+Use a completed original J-space study (which supplies eligible questions,
+reserved calibration contexts and source provenance). This experiment refits the
+multi-layer lenses and extracts new features from the existing saved answers;
+it does not regenerate or rescore answers. Sync code, then run a smoke:
+
+```bash
+source scripts/cluster_env.sh
+sbatch --time=03:00:00 scripts/submit_geometric_jspace.sh \
+  outputs/jspace-12871996 --smoke
+```
+
+After smoke completion:
+
+```bash
+sbatch --time=1-00:00:00 scripts/submit_geometric_jspace.sh \
+  outputs/jspace-12871996
+```
+
+Defaults: base 2, projected gradient pursuit with 25 atoms per layer, 100 reserved
+training calibration contexts, up to 400 train/100 validation questions, all eligible
+test questions, first four saved attempts per question, and the original random
+prefix rule. Unverifiable attempts are counted but excluded equally from probes.
+Unlike the cached reconstruction follow-up's retained-answer limit, this experiment
+limits attempts before checking labels. All comparisons within this run are matched.
+Smoke uses 4/3/3 questions, two attempts, two calibration contexts and three atoms.
+
+`--geometric-base 3` selects reverse ranks 1/3/9/27 when they fit the network.
+`--pursuit matching --sparsity 16` can explicitly change the decomposition; choose
+these settings before test evaluation, for example using the separate validation
+refinement study. The default 25 is prespecified, not a claim that refinement selected it.
+
+Full concatenation is used: no averaging or dimensionality reduction. At 1,536
+features and five layers the ridge input is 7,680-dimensional. Every head uses
+train-only coordinate standardization and the common validation-selected ridge
+alpha grid. Single-layer J-space and hidden probes are fitted at every selected
+depth; validation selects each family's best single layer before test scores are
+computed. Test reports these plus J-space/hidden/random concatenations and a newly
+fitted ordinary two-thirds-layer baseline on exactly the same examples.
+
+```bash
+cat outputs/jspace-geometric-JOB_ID/status.json
+cat outputs/jspace-geometric-JOB_ID/report.txt
+cat outputs/jspace-geometric-JOB_ID/selection.json
+cat outputs/jspace-geometric-JOB_ID/causality-check.json
+```
+
+`lens.log`, `extract.log` and `fit.log` identify progress or failures.
+`lens-metadata.json` distinguishes fitted layers from the identity layer.
+`summary.json` includes all fitting costs, validation trials, counts and exploratory
+paired question intervals. `responses.html` shows full answers with readouts at
+each selected layer; `question-*.json` retains all sampled readouts and diagnostics.
+Original data are unchanged. A day is an allocation cap, not a measured runtime:
+multiple dictionaries and 7,680-dimensional ridge fitting cost more than one layer.
+Resume with identical flags and `--out outputs/jspace-geometric-ORIGINAL_JOB_ID`;
+changed code, settings or inputs require a new output directory.
