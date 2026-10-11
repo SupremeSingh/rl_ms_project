@@ -147,3 +147,42 @@ words as approximate readouts, not verified explanations of the model's reasonin
 Only a useful, cost-justified offline result would motivate integrating this fixed
 feature map into cumulative LSTD and PPO. A frozen base lens does not measure how
 J-space changes with post-training; that would need a separate checkpoint study.
+
+## Reconstruction follow-up
+
+`refine_jspace_probes.py` reuses the official lens and cached hidden vectors from
+a completed run. It changes the sparse solver and budget while holding the lens,
+layer, labels and selected examples fixed. The bounded defaults use up to 400/100
+train/validation questions and four retained answers per question; test uses all
+available questions with the same answer limit. Question selection hashes IDs,
+independent of outcomes. All original cached prefixes of chosen answers remain.
+
+The original matching method is compared with our projected nonnegative
+gradient-pursuit variant. At each iteration the latter selects a previously
+unselected atom with maximal residual correlation, adds its nonnegative line-search
+coefficient, then takes four joint coefficient refinement steps on the active
+dictionary. Refinement uses a projected gradient and backtracking to prevent an
+increase in squared reconstruction error. Coefficients may decrease or reach zero.
+This is explicitly our implementation, not an upstream API, exact nonnegative
+least-squares solve, or bitwise reproduction of the paper's gradient pursuit.
+Budgets 16, 25 and 64 count selection iterations; matching may repeat atoms and
+gradient pursuit may leave coefficients at zero. Report actual active distinct atoms.
+
+All six candidates and matched random controls are reconstructed on train/validation.
+Ridge uses train-only standardization and the existing common alpha grid. A single
+J-only validation Brier winner selects solver and budget; `selection.json` is saved
+before loading test features. Only that winner, its final-feature concatenation and
+matched random controls are tested alongside newly fitted full-feature baselines.
+All validation results remain visible. Test questions were previously inspected:
+locking this selection prevents further within-run test tuning, not historical bias.
+
+Diagnostics include uncentered residual energy fractions (not conventional explained
+variance), active atom counts, runtime shared across sparsity checkpoints, and
+readouts linked to full saved answers. The previous probe convergence flags are
+copied to an audit without selecting on their test scores. Ridge avoids an
+iterative-head optimization-budget confound in this follow-up. Reconstruction
+residuals need not be orthogonal to the selected atoms or to a global J-space.
+
+This economical first step does not refit the lens or search new layers. If needed,
+a subsequent validation-only experiment should compare calibration context coverage
+and nearby source layers, with matched controls and new extraction provenance.

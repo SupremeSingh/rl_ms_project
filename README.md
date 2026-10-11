@@ -783,7 +783,7 @@ pre-prover stage while keeping its artifacts and results reproducible.
 
 ## New offline follow-up: J-space value probes
 
-Before proof search, we will test whether verbalizable features make eventual
+Before proof search, we tested whether verbalizable features make eventual
 answer correctness easier to predict. This reuses the saved MATH answers and
 compares full hidden vectors, estimated J-space components, their residuals, and
 J-space plus final-layer features. Matched full-layer and random-reconstruction
@@ -793,9 +793,22 @@ We use Anthropic's pinned **Jacobian Lens** directly to fit a lens on reserved
 training questions. Our separate, documented sparse nonnegative reconstruction
 extension estimates the J-space component; it is not supplied by that library.
 One-layer logistic and two-layer MLP probes, plus ridge, use the same examples and
-fitting budgets. The study is implemented but **has no cluster results yet**.
-It does not change the completed PPO conclusions or establish that J-space is a
-better or cheaper critic. [Protocol](docs/jspace-probes.md) ·
+fitting budgets. The first full run retained 21,037 of 21,888 answers across splits.
+Ridge Brier was **0.17802** on two-thirds hidden features, **0.20003** on our
+J-space reconstruction, and **0.18603** on J-space plus final features versus
+**0.18585** on final features alone. J-space beat the random reconstruction but
+did not improve the full-feature critic. These are offline correctness predictions,
+not policy accuracy. The run took approximately 3.5 hours on one GPU.
+
+A bounded follow-up now compares our original greedy reconstruction with our
+nonnegative gradient-pursuit variant at 16, 25 and 64 atoms. It reuses the official
+lens and cached features, selects on validation, and refits matched ridge baselines.
+Reconstruction diagnostics and readable concept examples help distinguish sparse
+solver limitations from a lack of predictive information. This implementation is
+closer to the paper's pursuit approach but is not its exact decomposition code.
+No follow-up results are available yet; calibration and layer changes remain
+separate, conditional experiments. Neither study changes the completed PPO
+conclusions or establishes cheaper inference. [Protocol](docs/jspace-probes.md) ·
 [Setup and commands](SETUP.MD#j-space-supervised-probes-on-saved-math-answers).
 
 ## Next direction: a manageable Lean proof-search experiment

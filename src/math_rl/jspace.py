@@ -78,3 +78,62 @@ def representations(two_thirds, final, jspace, random):
                 two_thirds_final=torch.cat((two_thirds, final), 1),
                 residual=two_thirds-jspace, random=random,
                 random_final=torch.cat((random, final), 1))
+
+
+@torch.no_grad()
+def pursuit_path(hidden, dictionary, budgets=(16, 25, 64), method='gradient', refinements=4):
+    """Sparse nonnegative reconstruction at several budgets in a single pass.
+
+    Our gradient-pursuit variant: select a new positive-correlation atom, then
+    update all active coefficients along their projected gradient with backtracking.
+    Not upstream code, an exact cone projection, or a bitwise paper reproduction.
+    Matching preserves the original algorithm (including repeated atoms).
+    """
+    budgets = sorted(set(budgets))
+    if (not budgets or budgets[0] < 1 or refinements < 1
+            or method not in ('gradient', 'matching') or hidden.ndim != 2
+            or dictionary.ndim != 2 or hidden.shape[1] != dictionary.shape[1]
+            or budgets[-1] > len(dictionary)):
+        raise ValueError('Invalid pursuit configuration')
+    if not torch.isfinite(hidden).all() or not torch.isfinite(dictionary).all():
+        raise ValueError('Nonfinite pursuit inputs')
+    h = hidden.float()
+    dictionary = dictionary.float()
+    result = torch.zeros_like(h)
+    ids = torch.empty((len(h), 0), dtype=torch.long, device=h.device)
+    weights = torch.empty((len(h), 0), device=h.device)
+    snapshots = {}
+    for step in range(1, budgets[-1] + 1):
+        residual = h - result
+        scores = residual @ dictionary.T
+        if method == 'gradient' and ids.shape[1]:
+            scores.scatter_(1, ids, -torch.inf)
+        correlation, index = scores.max(1)
+        atom = dictionary[index]
+        weight = correlation.clamp_min(0) / atom.square().sum(1).clamp_min(1e-12)
+        ids = torch.cat((ids, index[:, None]), 1)
+        weights = torch.cat((weights, weight[:, None]), 1)
+        result = result + weight[:, None] * atom
+        if method == 'gradient':
+            atoms = dictionary[ids]
+            for _ in range(refinements):
+                residual = h - result
+                gradient = torch.einsum('bkd,bd->bk', atoms, residual)
+                gradient = torch.where((weights > 0) | (gradient > 0), gradient, 0.)
+                direction = torch.einsum('bk,bkd->bd', gradient, atoms)
+                rate = gradient.square().sum(1) / direction.square().sum(1).clamp_min(1e-20)
+                old_error = residual.square().sum(1)
+                accepted = torch.zeros(len(h), dtype=torch.bool, device=h.device)
+                for _ in range(16):
+                    candidate_weights = (weights + rate[:, None] * gradient).clamp_min(0)
+                    candidate = torch.einsum('bk,bkd->bd', candidate_weights, atoms)
+                    good = (~accepted) & ((h-candidate).square().sum(1) <= old_error)
+                    weights = torch.where(good[:, None], candidate_weights, weights)
+                    result = torch.where(good[:, None], candidate, result)
+                    accepted |= good
+                    if accepted.all():
+                        break
+                    rate = torch.where(accepted, rate, rate * .5)
+        if step in budgets:
+            snapshots[step] = (result.clone(), ids.clone(), weights.clone())
+    return snapshots

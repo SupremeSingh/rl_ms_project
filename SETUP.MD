@@ -882,3 +882,51 @@ Review `responses.html` after copying it locally, `summary.json` for paired
 comparisons, and each representation's `summary.json` for calibration, prefix
 metrics, parameter counts and fit-budget warnings. All sparse readouts are in
 `question-*.json`. No additional generation or reward-verifier job is necessary.
+
+### Bounded J-space reconstruction follow-up
+
+Use a completed full J-space output as input, not the original MATH fitting output.
+The official lens and saved hidden vectors are reused; no generation, Jacobian
+refitting, or transformer feature forward pass is needed. Sync the code first.
+
+```bash
+source scripts/cluster_env.sh
+sbatch --time=03:00:00 scripts/submit_jspace_refinement.sh \
+  outputs/jspace-12871996 --smoke
+```
+
+After the smoke completes, submit the real bounded study:
+
+```bash
+sbatch --time=1-00:00:00 scripts/submit_jspace_refinement.sh \
+  outputs/jspace-12871996
+```
+
+Default: 400 training questions, 100 validation questions, all available test
+questions, at most four retained answers per question, and every cached prefix of
+each chosen answer. All methods use the identical selected examples. Selection
+is independent of labels. Smaller source splits simply use all available questions.
+The smoke uses 4/3/3 questions, two answers and budgets 2/3; it is only a pipeline check.
+
+The runner compares matching and projected nonnegative gradient pursuit at budgets
+16/25/64. Each selects ridge regularization on validation. J-only validation Brier
+locks a single method/budget before test features are loaded; its concatenated and
+random controls use that same setting. Full hidden, final, and concatenated hidden
+baselines are refitted with exactly the same data and ridge grid.
+
+```bash
+cat outputs/jspace-refinement-JOB_ID/status.json
+cat outputs/jspace-refinement-JOB_ID/selection.json
+cat outputs/jspace-refinement-JOB_ID/report.txt
+```
+
+Inspect `diagnostics/` for residual energy, active atom counts and reconstruction
+timings; `responses.html` for answers and decoded concept weights;
+`original-fitting-audit.json` for the earlier probes' convergence flags; and
+`summary.json` for all validation ridge trials and locked test comparisons.
+All runtime logs are in `slurm-jspace-refine-JOB_ID.out`. The 24-hour allocation is
+a cap, not a measured runtime guarantee. Resume with identical options and
+`--out outputs/jspace-refinement-ORIGINAL_JOB_ID`; code/environment changes require
+a fresh output. Original data are unchanged. This remains an exploratory reuse of
+inspected questions, not an untouched test. Calibration/layer changes are deferred
+until these diagnostics justify their extra compute.
