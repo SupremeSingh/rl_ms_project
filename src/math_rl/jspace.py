@@ -26,6 +26,31 @@ def geometric_layers(n_layers, base=2):
     return layers
 
 
+def load_readout_weights(model_path):
+    """Resolve the actual Qwen readout through HF, including tied/sharded weights.
+
+    CPU loading only; no forward pass or feature regeneration. Looking solely for
+    an explicit lm_head tensor in safetensors misses valid shared-weight exports.
+    """
+    from transformers import AutoModelForCausalLM
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path, local_files_only=True, torch_dtype=torch.float32,
+        attn_implementation='eager', device_map=None).cpu().eval()
+    head = model.get_output_embeddings()
+    if head is None or getattr(head, 'bias', None) is not None:
+        raise ValueError('Expected an unbiased output embedding')
+    norm = getattr(getattr(model, 'model', None), 'norm', None)
+    if norm is None or not hasattr(norm, 'weight'):
+        raise ValueError('Expected Qwen final RMSNorm')
+    unembedding = head.weight.detach().cpu()
+    gain = norm.weight.detach().cpu()
+    if unembedding.ndim != 2 or gain.shape != (unembedding.shape[1],):
+        raise ValueError('Incompatible output embedding and final norm')
+    if not torch.isfinite(unembedding).all() or not torch.isfinite(gain).all():
+        raise ValueError('Nonfinite readout weights')
+    return {'lm_head.weight': unembedding, 'model.norm.weight': gain}
+
+
 def vocabulary_directions(unembedding, norm_weight, jacobian):
     """Qwen RMSNorm gain folded into U; the state-dependent RMS divisor is scalar.
 

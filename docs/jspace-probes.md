@@ -152,7 +152,10 @@ J-space changes with post-training; that would need a separate checkpoint study.
 
 `refine_jspace_probes.py` reuses the official lens and cached hidden vectors from
 a completed run. It changes the sparse solver and budget while holding the lens,
-layer, labels and selected examples fixed. The bounded defaults use up to 400/100
+layer, weights, labels and selected examples fixed. Readout weights are resolved through the Hugging Face
+model loader on CPU, including shared (tied) or sharded output embeddings; no
+transformer forward pass is run. An explicit `lm_head.weight` tensor need not
+appear in the checkpoint. The bounded defaults use up to 400/100
 train/validation questions and four retained answers per question; test uses all
 available questions with the same answer limit. Question selection hashes IDs,
 independent of outcomes. All original cached prefixes of chosen answers remain.

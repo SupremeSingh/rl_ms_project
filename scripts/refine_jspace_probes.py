@@ -11,7 +11,7 @@ import torch
 
 import compare_jspace_probes as original
 from math_rl.critic_probe import fit_ridge, make_head, metrics, predict
-from math_rl.jspace import pursuit_path, rotated_dictionary, vocabulary_directions
+from math_rl.jspace import load_readout_weights, pursuit_path, rotated_dictionary, vocabulary_directions
 from math_rl.provenance import sha256, snapshot, write_json
 
 
@@ -184,7 +184,6 @@ def main():
     try:
         # Reuse the official fitted Jacobian and cached states. No model forward passes.
         import jlens
-        from safetensors import safe_open
         from transformers import AutoTokenizer
         if not torch.cuda.is_available(): raise RuntimeError('Run on a GPU')
         torch.set_float32_matmul_precision('highest')
@@ -192,12 +191,7 @@ def main():
         import os
         if os.environ.get('TORCH_ALLOW_TF32_CUBLAS_OVERRIDE') == '1':
             raise RuntimeError('Unset TF32 override before starting Python')
-        tensors = {}
-        for path in original.MODEL.glob('*.safetensors'):
-            with safe_open(path, framework='pt', device='cpu') as handle:
-                for name in ('lm_head.weight', 'model.norm.weight'):
-                    if name in handle.keys(): tensors[name] = handle.get_tensor(name)
-        if len(tensors) != 2: raise ValueError('Expected explicit Qwen unembedding and final norm weights')
+        tensors = load_readout_weights(original.MODEL)
         lens = jlens.JacobianLens.load(str(source/'lens.pt'))
         dictionary = vocabulary_directions(tensors['lm_head.weight'].cuda(),
             tensors['model.norm.weight'].cuda(), lens.jacobians[info['source_layer_zero_based']].cuda())

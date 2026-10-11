@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from math_rl.jspace import pursuit_path, reconstruct
+from math_rl.jspace import load_readout_weights, pursuit_path, reconstruct
 
 
 def module():
@@ -28,6 +28,20 @@ def test_matching_path_reproduces_original():
     for k, result in pursuit_path(h,dictionary,[2,4,6],'matching').items():
         for actual, expected in zip(result,reconstruct(h,dictionary,k)):
             torch.testing.assert_close(actual,expected)
+
+
+@pytest.mark.parametrize('tied', [False, True])
+def test_readout_loader_resolves_sharded_and_tied_checkpoints(tmp_path, tied):
+    transformers=pytest.importorskip('transformers')
+    config=transformers.Qwen2Config(vocab_size=32,hidden_size=8,intermediate_size=16,
+        num_hidden_layers=2,num_attention_heads=2,num_key_value_heads=1,
+        tie_word_embeddings=tied)
+    model=transformers.Qwen2ForCausalLM(config).float().eval()
+    model.save_pretrained(tmp_path,safe_serialization=True,max_shard_size='1KB')
+    result=load_readout_weights(tmp_path)
+    torch.testing.assert_close(result['lm_head.weight'],model.get_output_embeddings().weight)
+    torch.testing.assert_close(result['model.norm.weight'],model.model.norm.weight)
+    assert result['lm_head.weight'].device.type=='cpu'
 
 
 def test_gradient_refits_correlated_atoms_and_handles_zero():
@@ -126,12 +140,8 @@ def test_runner_locks_selection_before_reading_test(tmp_path, monkeypatch):
     monkeypatch.setattr(torch.cuda,'is_available',lambda:True)
     monkeypatch.setattr(torch.Tensor,'cuda',lambda self:self)
     monkeypatch.delenv('TORCH_ALLOW_TF32_CUBLAS_OVERRIDE',raising=False)
-    class Weights:
-        def __enter__(self):return self
-        def __exit__(self,*args):pass
-        def keys(self):return ['lm_head.weight','model.norm.weight']
-        def get_tensor(self,key):return torch.ones(4) if key=='model.norm.weight' else torch.randn(10,4)
-    monkeypatch.setitem(sys.modules,'safetensors',SimpleNamespace(safe_open=lambda *a,**k:Weights()))
+    monkeypatch.setattr(m,'load_readout_weights',lambda path:{
+        'lm_head.weight':torch.randn(10,4),'model.norm.weight':torch.ones(4)})
     monkeypatch.setitem(sys.modules,'jlens',SimpleNamespace(JacobianLens=SimpleNamespace(
         load=lambda path:SimpleNamespace(jacobians={2:torch.eye(4)}))))
     tokens=SimpleNamespace(decode=lambda ids:str(ids))
