@@ -1112,3 +1112,92 @@ these features at every transition, not merely the saved sampled prefixes. The
 five-layer concatenation still has 7,680 coordinates: accumulation needs roughly
 25 times the dense matrix storage and a solve can require roughly 125 times the
 work of a single 1,536-dimensional head. No cheaper-critic claim follows from this run.
+
+## Large-N full-readout J-lens study
+
+This is a new experiment on NuminaMath-1.5 `cn_k12`, with 104,000 main-study
+answers, five representations, three neural probe architectures, ridge and
+LSTD(0.99). Read the
+[locked protocol](docs/large-jlens-study.md) for filtering, sampling, comparisons
+and limitations. Existing model, generation/verifier and pinned J-lens environments
+must already be installed. Sync this code before submitting; do not edit source
+files during the study, because workers check their recorded hashes.
+
+Run the launcher **with bash, not sbatch**. It submits the dependent jobs itself:
+
+```bash
+source scripts/cluster_env.sh
+df -h .
+bash scripts/submit_large_jlens.sh --full --out outputs/jlens-large-numina-v1
+```
+
+Allow at least 200 GB free for this study, plus space for dataset downloads.
+Arrays use up to four generation/extraction GPUs and three probe-fitting GPUs;
+lens fitting may overlap generation, and four matrix-accumulation workers may
+overlap neural fitting. Each GPU worker uses one A5000, not a
+multi-GPU model. RAM is 96 GB per worker. First-run runtime is not measured;
+48-hour GPU-stage limits are restartable ceilings, not promised completion times.
+
+For a small end-to-end hardware check first, use a **different output directory**:
+
+```bash
+bash scripts/submit_large_jlens.sh --smoke --out outputs/jlens-large-smoke-v1
+```
+
+The smoke run checks mechanics only; its tiny sample bypasses statistical screen
+gates. It cannot be promoted into or mixed with the full study.
+
+The sequence is preparation → screen → generation and lens fitting → extraction
+→ packing → neural fitting and full-transition matrix accumulation → linear
+solves → final report. Preparation pins dataset revisions,
+question families and source/model hashes. The full screen stops the pipeline
+if answer accuracy is outside 20–80%, exclusions exceed 10%, or capped answers
+exceed 15%. An insufficient eligible-question pool also stops; no test-dependent
+fallback to GSM8K or looser filters occurs.
+
+```bash
+cat outputs/jlens-large-numina-v1/jobs.tsv
+squeue -u "$USER"
+cat outputs/jlens-large-numina-v1/screen.json
+cat outputs/jlens-large-numina-v1/report.txt
+```
+
+`jobs.tsv` identifies every job/array. `logs/` contains stage logs and `status/`
+contains per-worker state/timing. Inspect `screen-responses.html` early and
+`responses.html` / `audit.jsonl` after completion. The viewer contains a fixed
+outcome-independent audit sample; every full answer and token sequence remains
+in `trajectories/`. `features/` saves float32 block vectors at the eight sampled
+prefixes, `packed/` saves each representation, and `fits/` saves every trial,
+learning curve, selected checkpoint and final prediction. `summary.json` includes
+accuracy, Brier, calibration, counts and paired intervals. Verifier labels remain
+automated until audited.
+
+If a stage fails, inspect its log and stop any old pending descendants before
+resubmitting. Resume from the failed stage using the same mode/output directory:
+
+```bash
+# Example: generation interrupted; completed answers are reused.
+bash scripts/submit_large_jlens.sh --full --out outputs/jlens-large-numina-v1 \
+  --resume-from generate
+```
+
+Allowed stages: `prepare`, `screen`, `lens`, `generate`, `extract`, `pack`, `fit`,
+`linear-stats`, `linear-fit`, `report`. A resume starting at `generate` assumes the independent lens job is
+already complete; otherwise resume from `lens` after stopping its old job.
+Completed per-question batches and completed probe trials are reused. Interrupted
+probe trials restart from epoch zero; official lens fitting resumes its running
+checkpoint. Never run two writers against the same output directory. Source or
+protocol changes require a new directory; do not bypass hash checks.
+
+`linear-statistics/` saves cumulative all-token matrix checkpoints, and
+`linear-fits/` saves ridge/LSTD weights, numerical checks and predictions. The
+added stages use gamma=1, LSTD lambda=0.99 and epsilon=0.01 on raw sums. No
+matrix normalization or actor update is performed. They add substantial compute
+for the 7,680-dimensional concatenations. All-token features are streamed into
+matrices rather than saved individually to disk.
+
+Use a new output directory (for example `outputs/jlens-large-numina-v2`) if the
+earlier neural-only protocol has already been initialized. Its locked manifest
+cannot be resumed under changed code. The new study does not alter the earlier
+LSTD/PPO configuration; an offline advantage still needs an online PPO comparison
+and total-cost measurement before claiming a better or cheaper training method.

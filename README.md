@@ -838,14 +838,57 @@ The paper's conflict/failure examples motivate this hypothesis; they do not esta
 that such words predict upcoming mathematical errors. The tool neither changes
 the lens objective nor fits a new critic. [Run the inspector](SETUP.MD#inspect-j-lens-concepts-and-critic-values).
 
-The next linear-probe comparison removes sparse reconstruction entirely. It uses
+The complete-readout comparison removed sparse reconstruction entirely. It uses
 **complete pre-softmax J-lens readouts** at blocks 28/27/25/21/13, with the model's
 RMS normalization, and compares matched raw-hidden and RMS-normalized-hidden
 concatenations plus the two-thirds baseline. An untruncated factorization preserves
 the full vocabulary readout's inner products in 1,536 coordinates per layer;
 no words or directions are selected. All heads remain linear. This screens features
 for future LSTD integration; it does not yet replace the successful PPO critic.
+On 291 inspected MATH questions, the results were:
+
+| Ridge inputs | Brier ↓ | Correctness-prediction accuracy ↑ |
+|---|---:|---:|
+| Complete J-lens concatenation | 0.18800 | 72.1% |
+| Raw hidden concatenation | 0.19337 | 71.3% |
+| RMS-normalized hidden concatenation | 0.18908 | 72.4% |
+| Two-thirds hidden layer | **0.18406** | **73.2%** |
+
+Full readouts beat raw concatenation, but their advantage over the normalization
+control was inconclusive, and the two-thirds layer remained better. This is a
+useful improvement over our sparse experiments, not yet evidence for replacing
+the successful critic. Normalization and fitting changed too, so comparisons
+between separate experiments do not isolate the effect of removing sparsity.
 [Run the direct-readout comparison](SETUP.MD#complete-direct-j-lens-readout-comparison).
+
+### Next comparison: large N on new question families
+
+The implemented follow-up targets **104,000 new answers from 13,000 questions**
+using the same frozen base model. It uses the conservatively filtered `cn_k12`
+part of NuminaMath-1.5, blocking exact/number-template matches to GSM8K and MATH.
+This reduces reuse of our inspected questions; pretraining and paraphrase overlap
+remain unknown. A separate screen checks difficulty and data quality before the
+large jobs proceed.
+
+Every retained answer supplies the same eight random-prefix states to five
+representations: full J-lens, raw and RMS-normalized geometric concatenations,
+two-thirds hidden and final hidden. Each gets a one-layer logistic probe, two-layer
+MLP and ten-layer residual MLP, trained with cross-entropy, **plus ridge and
+LSTD(0.99)**. The latter two accumulate matched complete-token training statistics
+with a frozen encoder, gamma=1 and raw sums plus epsilon=0.01; traces reset between
+answers. They are evaluated on the same held-out prefixes as the neural probes.
+Separate calibration,
+training, validation and test questions prevent direct fitting leakage. All
+readout coordinates and generated answers are saved; **no sparse reconstruction**
+is used. Validation locks all choices before test reporting, with paired
+question-level uncertainty and explicit normalization controls.
+
+The primary comparisons ask whether complete J-lens readouts beat two-thirds
+hidden features under ridge and LSTD(0.99). Ridge/LSTD share all-token training;
+neural probes use sampled prefixes, so comparisons between those head families
+also change state weighting. No new results are available yet, and the completed PPO/LSTD pipeline
+is unchanged. [Study protocol](docs/large-jlens-study.md) ·
+[Run instructions](SETUP.MD#large-n-full-readout-j-lens-study).
 
 ## Next direction: a manageable Lean proof-search experiment
 
