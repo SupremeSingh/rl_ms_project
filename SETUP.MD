@@ -1058,3 +1058,57 @@ a later train/validation-only supervised probe can combine selected concept scor
 with hidden features. Changing the Jacobian objective would be a new method, not
 the original J-lens. Validate any selected feature recipe on fresh questions before
 claiming a better critic or changing the successful LSTD/PPO pipeline.
+
+## Complete direct J-lens readout comparison
+
+After syncing the code, use the completed geometric study:
+
+```bash
+source scripts/cluster_env.sh
+sbatch scripts/submit_direct_jlens.sh outputs/jspace-geometric-GEOMETRIC_JOB_ID
+```
+
+The job allocates one A5000, eight CPU cores, 64 GB host memory and three hours.
+Runtime is not yet measured. It reuses all cached train/validation/test prefixes,
+ordinary block activations and the official saved lenses. No answer generation,
+sparse pursuit, transformer passes or lens fitting are performed. All four linear
+ridge heads are fitted afresh on exactly matched examples and alpha grids:
+
+1. Full direct J-lens pre-softmax scores, blocks 28/27/25/21/13.
+2. Raw hidden concatenation at those blocks.
+3. RMS-normalized raw hidden concatenation, controlling for state normalization.
+4. Ordinary two-thirds hidden features.
+
+Each arm is centered and given one scalar scale from training data only, rather
+than coordinatewise standardization. This preserves its Euclidean geometry up to
+a scalar. Thus the raw baseline results need not equal previous coordinatewise-
+standardized runs. Alpha selection is completed for all arms before test evaluation.
+
+For column features, full scores are `z = B x`, where `B = U diag(g)` and
+`x = J h / sqrt(mean((J h)^2) + eps)`. With `B.T B = Q diag(s²) Q.T`, store
+`phi = diag(s) Q.T x`. This uses every vocabulary row; no positive singular value
+is truncated. The dot product of any two `phi` vectors equals that of their full
+score vectors. Linear ridge with isotropic weight decay is equivalent in these
+coordinates (with the same centering/scalar scaling), including rank-deficient
+readouts. This is **not** softmax probability regression or lossy compression.
+The identity lens is used at the final block. Other blocks use official
+`JacobianLens.transport` on cached activations.
+
+```bash
+cat outputs/jlens-direct-JOB_ID/status.json
+cat outputs/jlens-direct-JOB_ID/report.txt
+cat outputs/jlens-direct-JOB_ID/readout-checks.json
+```
+
+`readout-factor.pt` saves the complete factorization, `readout-checks.json` checks
+explicit vocabulary-score Gram parity on actual examples, and `selection.json`
+saves all validation trials. Inputs are hashed; source outputs remain unchanged.
+Use a new output directory for each invocation. These are the same inspected
+questions and retained labels; paired question intervals are exploratory.
+
+The critic remains `V = w.T phi + b`: nonlinear frozen feature construction is
+compatible with linear LSTD. Online LSTD/PPO is a later comparison and would need
+these features at every transition, not merely the saved sampled prefixes. The
+five-layer concatenation still has 7,680 coordinates: accumulation needs roughly
+25 times the dense matrix storage and a solve can require roughly 125 times the
+work of a single 1,536-dimensional head. No cheaper-critic claim follows from this run.

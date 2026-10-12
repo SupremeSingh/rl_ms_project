@@ -228,3 +228,21 @@ refinement study. Costs include multi-source lens fitting, feature extraction an
 all ridge fits. In a later LSTD integration, fivefold feature dimension entails
 approximately 25-fold dense matrix storage and potentially 125-fold dense solve
 work; this experiment does not claim that aggregation remains computationally cheap.
+
+## Complete readout follow-up (no sparse reconstruction)
+
+`compare_direct_jlens.py` reuses the geometric cache but ignores every reconstructed
+J-space feature. Official layer transports and Qwen RMSNorm/unembedding define
+complete **pre-softmax vocabulary scores**. The untruncated vocabulary Gram factor
+provides exact compact coordinates, not selected words, PCA truncation or top-k
+filtering. Gram parity is tested against explicit scores and linear ridge equivalence
+is unit-tested, including a rank-deficient readout. This does not establish equivalence
+to a linear head over softmax probabilities.
+
+The arms are direct-score concatenation, raw-hidden concatenation, RMS-hidden
+concatenation, and single two-thirds hidden features. All receive the same cached
+examples, training-only centering plus one isotropic scalar scale, and the same
+validation-selected ridge alpha grid. No per-coordinate rescaling is used: that
+would change the metric behind the explicit-score ridge equivalence. Report all
+arms on the inspected test split with paired question intervals. Keep these offline
+results separate from the previous successful online cumulative LSTD configuration.

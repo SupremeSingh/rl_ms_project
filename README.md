@@ -838,6 +838,15 @@ The paper's conflict/failure examples motivate this hypothesis; they do not esta
 that such words predict upcoming mathematical errors. The tool neither changes
 the lens objective nor fits a new critic. [Run the inspector](SETUP.MD#inspect-j-lens-concepts-and-critic-values).
 
+The next linear-probe comparison removes sparse reconstruction entirely. It uses
+**complete pre-softmax J-lens readouts** at blocks 28/27/25/21/13, with the model's
+RMS normalization, and compares matched raw-hidden and RMS-normalized-hidden
+concatenations plus the two-thirds baseline. An untruncated factorization preserves
+the full vocabulary readout's inner products in 1,536 coordinates per layer;
+no words or directions are selected. All heads remain linear. This screens features
+for future LSTD integration; it does not yet replace the successful PPO critic.
+[Run the direct-readout comparison](SETUP.MD#complete-direct-j-lens-readout-comparison).
+
 ## Next direction: a manageable Lean proof-search experiment
 
 The next goal is **more verified proofs of properties of small Lean programs per
