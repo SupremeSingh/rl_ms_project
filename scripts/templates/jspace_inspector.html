@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>J-lens and critic inspector</title>
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#f6f8fa,#14171b);--panel:light-dark(#fff,#20242b);--fg:light-dark(#192331,#ecf0f5);--muted:light-dark(#536174,#b4bfce);--border:light-dark(#d5dce5,#485363);--a:light-dark(#1466ad,#6bbcff);--b:light-dark(#995400,#ffc07b)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}main{max-width:1250px;margin:auto;padding:24px}h1{font-size:28px;margin:0}h2{font-size:19px;margin:0 0 10px}p{margin:8px 0}.muted{color:var(--muted)}.controls{display:flex;gap:14px;flex-wrap:wrap;margin:20px 0}label{display:flex;flex-direction:column;gap:4px}select,button{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:8px}button{cursor:pointer}.card{padding:18px;background:var(--panel);border:1px solid var(--border);border-radius:10px;margin-bottom:16px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.grid>.card{min-width:0}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.6 ui-monospace,monospace;max-height:420px;overflow:auto}svg{width:100%;height:auto}text{fill:var(--fg);font:12px system-ui}table{border-collapse:collapse;width:100%;font-size:14px}td,th{text-align:left;border-bottom:1px solid var(--border);padding:5px 8px}.token{font-family:ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere}.bar{height:10px;background:var(--a);min-width:1px}.negative{background:var(--b)}.scroll{overflow:auto}.badge{font-weight:600}input[type=range]{width:100%}.legend{display:flex;gap:20px;flex-wrap:wrap}.a{color:var(--a)}.b{color:var(--b)}@media(max-width:760px){.grid{grid-template-columns:1fr}main{padding:14px}}
+</style>
+<main>
+<h1>What the lens reads · What the critic predicts</h1>
+<p id="scope" class="muted"></p>
+<div class="controls">
+<label>Display filter<select id="filter"><option value="all">All retained answers</option><option value="1">Verifier-correct</option><option value="0">Verifier-incorrect</option></select></label>
+<label>Question / attempt<select id="answer"></select></label>
+<label>J-lens block<select id="block"></select></label>
+<label>Concept group<select id="group"></select></label>
+</div>
+<section class="card"><h2 id="question"></h2><p id="outcome" class="badge"></p>
+<label>Observed prefix <span id="position"></span><input id="slider" type="range" min="0" value="0"></label>
+<pre id="prefix"></pre><details><summary>Reveal full continuation and verifier reference (not critic inputs)</summary><pre id="full"></pre></details></section>
+<div class="grid">
+<section class="card"><h2>Critic value along the saved prefixes</h2><div class="legend"><span class="a">● Ordinary two-thirds hidden features</span><span class="b">■ Concatenated J-space reconstruction</span></div><div id="values"></div><p class="muted">Saved ridge outputs; can exceed [0,1]. Points are sparse observations. Lines are visual guides, not token-by-token measurements.</p></section>
+<section class="card"><h2>Direct J-lens concept mass</h2><div id="concept"></div><p id="mention"></p><p class="muted">Lens vocabulary probability mass, not the probability of an error. A mentioned “wrong” can mean recognizing and correcting a mistake.</p></section>
+</div>
+<div class="grid">
+<section class="card"><h2>Direct lens: top vocabulary readouts</h2><div id="tokens"></div><p class="muted">Official readout formula using the saved Jacobian. This differs from sparse reconstruction coefficients.</p></section>
+<section class="card"><h2>Sparse reconstruction: selected concepts</h2><div id="sparse"></div><p id="residual" class="muted"></p></section>
+<section class="card"><h2>What drives the ordinary hidden critic?</h2><div id="contributions"></div><p id="bias" class="muted"></p><p class="muted">Signed standardized-coordinate contributions sum with the intercept to the exact ridge value. Coordinate IDs have no assigned semantic meaning; these are not causal attributions.</p></section>
+<section class="card"><h2>Concept mass across depth and prefix</h2><div id="heatmap" class="scroll"></div><p class="muted">Darker cells mean larger mass within this answer/group. Each block uses its own lens; color is descriptive, not calibration across layers.</p></section>
+</div>
+<section class="card"><h2>All selected questions: do these signals rank failures higher?</h2><p class="muted">One mean signal per answer over unique nonzero sampled prefixes. AUROC 0.5 is chance ranking; larger is better for predicting failure. Display filters above do not change this table. No-visible-mention is a descriptive subset, not a causal correction.</p><div id="associations" class="scroll"></div></section>
+<details class="card"><summary>Exact concept words, token coverage and scope</summary><pre id="coverage"></pre></details>
+</main>
+<script type="application/json" id="payload">__PAYLOAD__</script>
+<script>
+'use strict';
+const D=JSON.parse(document.getElementById('payload').textContent), $=id=>document.getElementById(id);
+const el=(name,text)=>{const n=document.createElement(name);if(text!==undefined)n.textContent=text;return n};
+const fmt=x=>x===null?'—':Number(x).toPrecision(4);
+let visible=[];
+$('scope').textContent=D.summary.scope;
+$('coverage').textContent=JSON.stringify({concepts:D.summary.concepts,coverage:D.summary.token_coverage},null,2);
+for(const b of D.summary.blocks){const o=el('option',`Block ${b}${b===D.summary.baseline_block?' (two-thirds)':''}`);o.value=b;$('block').append(o)}
+$('block').value=D.summary.baseline_block;
+for(const g of Object.keys(D.summary.concepts)){const o=el('option',g);o.value=g;$('group').append(o)}
+function table(headers,rows){const t=el('table'),h=el('tr');headers.forEach(x=>h.append(el('th',x)));t.append(h);for(const row of rows){const tr=el('tr');row.forEach(x=>tr.append(el('td',x)));t.append(tr)}return t}
+function options(){visible=D.answers.filter(a=>$('filter').value==='all'||String(a.correct)===$('filter').value);$('answer').replaceChildren();visible.forEach((a,i)=>{const o=el('option',`${a.id} · attempt ${a.response+1} · ${a.correct?'correct':'incorrect'}`);o.value=i;$('answer').append(o)});$('slider').value=0;render()}
+const ns='http://www.w3.org/2000/svg';
+function chart(container,points,series,label){const s=document.createElementNS(ns,'svg');s.setAttribute('viewBox','0 0 500 230');s.setAttribute('role','img');s.setAttribute('aria-label',label);let all=series.flatMap(x=>points.map(x.get));const lo=Math.min(0,...all),hi=Math.max(...all,1e-6),span=hi-lo||1;const maxX=Math.max(1,...points.map(p=>p.position));const X=p=>50+p.position/maxX*425,Y=v=>185-(v-lo)/span*155;
+function node(name,attrs,text){const n=document.createElementNS(ns,name);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;s.append(n);return n}
+for(let i=0;i<=4;i++){const v=lo+span*i/4,y=Y(v);node('line',{x1:50,x2:475,y1:y,y2:y,stroke:'var(--border)'});node('text',{x:2,y:y+4},fmt(v))}
+node('text',{x:50,y:210},'0');node('text',{x:445,y:210},maxX);node('text',{x:180,y:228},'Generated prefix tokens');
+series.forEach((line,k)=>{node('polyline',{points:points.map(p=>`${X(p)},${Y(line.get(p))}`).join(' '),fill:'none',stroke:line.color,'stroke-width':2});points.forEach(p=>{const n=node(k===1?'rect':'circle',k===1?{x:X(p)-3,y:Y(line.get(p))-3,width:6,height:6,fill:line.color}:{cx:X(p),cy:Y(line.get(p)),r:3,fill:line.color});const t=document.createElementNS(ns,'title');t.textContent=`Prefix ${p.position}: ${fmt(line.get(p))}`;n.append(t)})});const selected=points[+$('slider').value];node('line',{x1:X(selected),x2:X(selected),y1:25,y2:185,stroke:'var(--muted)','stroke-dasharray':'3 3'});container.replaceChildren(s)}
+function render(){const a=visible[+$('answer').value||0];if(!a){$('question').textContent='No answers match';return}const slider=$('slider');slider.max=a.points.length-1;if(+slider.value>=a.points.length)slider.value=0;const p=a.points[+slider.value],block=$('block').value,g=$('group').value,r=p.layers[block];
+$('question').textContent=a.question;$('outcome').textContent=`Final verifier label: ${a.correct?'CORRECT':'INCORRECT'} · ${a.status}`;$('position').textContent=`${p.position} response tokens`;$('prefix').textContent=p.prefix||'[Question only: no response tokens observed]';$('full').textContent=a.full_response+'\n\nReference: '+a.reference;
+chart($('values'),a.points,[{get:p=>p.hidden_value,color:'var(--a)'},{get:p=>p.jspace_value,color:'var(--b)'}],'Ridge values versus prefix length');chart($('concept'),a.points,[{get:p=>p.layers[block].mass[g],color:'var(--a)'}],'Lens concept mass versus prefix length');
+$('mention').textContent=`Group “${g}” visible in question/prefix: ${p.mentions[g]?'YES':'NO'} · mass ${fmt(r.mass[g])}`;
+$('tokens').replaceChildren(table(['Token','Lens probability'],r.top.map(t=>[JSON.stringify(t.token),fmt(t.probability)])));
+$('sparse').replaceChildren(r.sparse?table(['Token','Coefficient'],r.sparse.map(t=>[JSON.stringify(t.token),fmt(t.coefficient)])):el('p','No cached sparse reconstruction at this block. Direct lens readouts are available.'));
+$('residual').textContent=r.residual_energy===undefined?'':`Residual squared norm / original squared norm: ${fmt(r.residual_energy)}. Not “fraction of thoughts missing”.`;
+const c=p.contributions,ct=table(['Coordinate','Contribution','Magnitude'],[]),max=Math.max(1e-9,...c.contributions.map(Math.abs));c.dimensions.forEach((dim,i)=>{const tr=el('tr');tr.append(el('td',dim),el('td',fmt(c.contributions[i])));const td=el('td'),bar=el('div');bar.className='bar'+(c.contributions[i]<0?' negative':'');bar.style.width=`${Math.abs(c.contributions[i])/max*100}%`;td.append(bar);tr.append(td);ct.append(tr)});$('contributions').replaceChildren(ct);$('bias').textContent=`Intercept ${fmt(c.bias)} + shown contributions + remaining coordinates ${fmt(c.other)} = ${fmt(p.hidden_value)}`;
+const ht=table(['Block',...a.points.map(p=>p.position)],[]),hm=Math.max(1e-12,...a.points.flatMap(p=>D.summary.blocks.map(b=>p.layers[b].mass[g])));for(const b of D.summary.blocks){const tr=el('tr');tr.append(el('td',b));for(const point of a.points){const v=point.layers[b].mass[g],td=el('td',fmt(v));td.style.background=`color-mix(in srgb, var(--a) ${Math.round(8+42*v/hm)}%, var(--panel))`;tr.append(td)}ht.append(tr)}$('heatmap').replaceChildren(ht);
+const rows=Object.entries(D.summary.associations).filter(([k])=>k.startsWith(`block${block}/${g}/`)).map(([k,v])=>[k.split('/')[2],v.answers,v.wrong_answers,fmt(v.failure_auroc),fmt(v.wrong_minus_correct_mean_mass),v.descriptive_95_interval?v.descriptive_95_interval.map(fmt).join(' … '):'—']);$('associations').replaceChildren(table(['Prefixes included','Answers','Wrong','Failure AUROC','Wrong − correct mass','Descriptive 95% interval'],rows));}
+$('filter').addEventListener('change',options);$('answer').addEventListener('change',()=>{$('slider').value=0;render()});['block','group'].forEach(id=>$(id).addEventListener('change',render));$('slider').addEventListener('input',render);options();
+</script></html>

@@ -996,3 +996,65 @@ Original data are unchanged. A day is an allocation cap, not a measured runtime:
 multiple dictionaries and 7,680-dimensional ridge fitting cost more than one layer.
 Resume with identical flags and `--out outputs/jspace-geometric-ORIGINAL_JOB_ID`;
 changed code, settings or inputs require a new output directory.
+
+## Inspect J-lens concepts and critic values
+
+Use a completed geometric study. This job reads cached activations and saved ridge
+heads; it does not regenerate answers, refit lenses/critics or update the actor.
+Default: all validation questions (100 in the full geometric run), with the
+original retained attempts and sampled prefixes. It intentionally does not open
+the test split unless `--split test` is explicitly supplied.
+
+```bash
+source scripts/cluster_env.sh
+sbatch scripts/submit_jspace_inspection.sh outputs/jspace-geometric-GEOMETRIC_JOB_ID
+```
+
+One GPU, 48 GB host RAM, one-hour allocation. This is much less work than the
+geometric study, but its runtime has not yet been measured on the cluster. For a
+small check add `--questions 4`. The model is loaded briefly on CPU to resolve
+tied/sharded unembedding weights; no transformer forward/backward passes are run.
+
+```bash
+cat outputs/jspace-inspection-JOB_ID/status.json
+cat outputs/jspace-inspection-JOB_ID/report.txt
+```
+
+Download `outputs/jspace-inspection-JOB_ID/inspector.html` using your usual cluster
+file transfer and open it in a browser. It is self-contained and needs no server.
+`inspection.json` holds all displayed values; `summary.json` includes word/token
+coverage, retained counts and descriptive signal associations.
+
+The viewer provides:
+
+- Question/attempt selection, correct/incorrect display filters, and a prefix slider.
+- Saved two-thirds-hidden and concatenated-J-space ridge values at identical prefixes.
+- Official `JacobianLens.transport` applied to cached block activations, followed
+  by the model's RMSNorm and unembedding readout formula. Blocks 13/21/25/27 use
+  the geometric lenses; block 19 uses the original two-thirds lens; block 28 uses
+  identity transport. Direct readouts are distinct from sparse pursuit coefficients.
+- Direct top-token probabilities, fixed concept-group mass and a depth/prefix table.
+- Sparse reconstruction concepts where cached, and signed coordinate contributions
+  to the ordinary hidden critic. Coordinates have no human-assigned semantic labels.
+- Full continuations hidden behind a disclosure; future text never enters the readout.
+
+Error words are `error, wrong, incorrect, mistake, fault, fail, failure`;
+uncertainty words are `uncertain, unsure, maybe, perhaps, doubt`; revision words
+are `however, but, instead, reconsider, check`. Only exact single-token words
+(including case/whitespace variants) count. Actual IDs and coverage are saved.
+Lens mass is not a calibrated correctness probability and is not a value head.
+
+Association summaries average unique nonzero sampled prefixes per answer, report
+failure AUROC and wrong-minus-correct mean mass with question-clustered descriptive
+bootstrap intervals. A separate subset excludes prefixes whose question or visible
+answer already contains a group word. This is not a causal adjustment: task/topic,
+prefix position and answer length can still confound associations. No word/layer
+threshold is selected, and intervals are not multiplicity-adjusted. The split was
+already used to select critic regularization, so this is development inspection.
+Eight original sampled prefixes cannot establish when a mistake first occurred.
+
+These diagnostics keep the official lens objective intact. If a signal is useful,
+a later train/validation-only supervised probe can combine selected concept scores
+with hidden features. Changing the Jacobian objective would be a new method, not
+the original J-lens. Validate any selected feature recipe on fresh questions before
+claiming a better critic or changing the successful LSTD/PPO pipeline.

@@ -806,21 +806,37 @@ lens and cached features, selects on validation, and refits matched ridge baseli
 Reconstruction diagnostics and readable concept examples help distinguish sparse
 solver limitations from a lack of predictive information. This implementation is
 closer to the paper's pursuit approach but is not its exact decomposition code.
-No follow-up results are available yet; calibration changes remain a separate
-conditional experiment, while the layer extension is described below. Neither study changes the completed PPO
+The validation-selected gradient-pursuit/64-atom follow-up gave ridge Brier
+**0.19653** for J-space versus **0.18395** for ordinary two-thirds hidden features.
+Adding J-space to final features did not show a clear improvement over final
+features alone. Neither study changes the completed PPO
 conclusions or establishes cheaper inference. [Protocol](docs/jspace-probes.md) ·
 [Setup and commands](SETUP.MD#j-space-supervised-probes-on-saved-math-answers).
 
-A second planned comparison concatenates J-space components at geometric depths
+A second comparison concatenates J-space components at geometric depths
 counted from the end: distances **1, 2, 4, 8, 16** select blocks **28, 27, 25, 21,
 13** in our 28-block model. Earlier blocks get separately fitted official lenses;
 the last block uses the exact identity transport. A ridge critic sees the full
 **7,680-dimensional** concatenation. Matched ordinary-hidden and random-dictionary
 concatenations, validation-selected individual layers, and the ordinary two-thirds
 baseline distinguish aggregation benefits from a J-space-specific benefit.
-This is implemented but has no cluster results yet. It is our multi-layer critic
-extension, not a reproduction of a critic from the workspace paper. Larger features
-also imply larger ridge/LSTD systems; reduced cost is an empirical question.
+On 291 inspected test questions, J-space concatenation gave Brier **0.20183**
+and correctness-prediction accuracy **69.1%**, versus **0.18533 / 73.0%** for
+ordinary two-thirds features and **0.18656 / 72.4%** for ordinary concatenation.
+The random reconstruction control also beat J-space (**0.19712 / 69.7%**).
+J-space concatenation's small advantage over the validation-selected individual
+J-space layer was inconclusive. These matched results do not support replacing
+the successful hidden-feature critic. They concern our sparse reconstruction and
+ridge predictor, not a universal claim about the paper's reasoning findings.
+Larger features also imply larger ridge/LSTD systems; no cost advantage is established.
+
+A read-only inspection tool now compares direct official J-lens readouts, sparse
+concept coefficients, and both saved critic predictions at the same prefix.
+It measures predeclared error/uncertainty/revision word signals on validation
+answers, including a separate diagnostic without visible mentions of those words.
+The paper's conflict/failure examples motivate this hypothesis; they do not establish
+that such words predict upcoming mathematical errors. The tool neither changes
+the lens objective nor fits a new critic. [Run the inspector](SETUP.MD#inspect-j-lens-concepts-and-critic-values).
 
 ## Next direction: a manageable Lean proof-search experiment
 
