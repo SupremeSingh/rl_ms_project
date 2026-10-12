@@ -124,6 +124,42 @@ def repair_context(out):
     print(f'Preserved all prepared questions. Answer budget {new["max_tokens"]}; total context {total}. Resume screen.', flush=True)
 
 
+def repair_verifier(out):
+    """Repair explicit rule dispatch before scoring; keep pending token batches intact."""
+    path = out/'manifest.json'; m = read(path)
+    if m['config'] != config(m['config']['smoke']):
+        raise ValueError('Expected current context-safe protocol; repair context first')
+    if sha256(out/'questions.json') != m['questions_sha256']:
+        raise ValueError('Question manifest changed')
+    for name, checksum in m['model_hashes'].items():
+        if sha256(MODEL/name) != checksum:
+            raise ValueError(f'Model/tokenizer changed: {name}')
+    current = snapshot(ROOT)['files']
+    changed = sorted(name for name in set(current)|set(m['code'])
+                     if current.get(name) != m['code'].get(name))
+    if not changed and 'verifier_repair' in m:
+        print('Verifier repair already applied; ready to resume screen.', flush=True)
+        return
+    allowed = {'scripts/large_jlens_study.py', 'src/math_rl/verifier_batch.py'}
+    if set(changed)-allowed:
+        raise ValueError(f'Unrelated code/config changes prevent migration: {changed}')
+    for folder in ('trajectories', 'features', 'packed', 'fits', 'linear-statistics', 'linear-fits'):
+        if (out/folder).exists() and any(p.is_file() for p in (out/folder).rglob('*')):
+            raise ValueError(f'Cannot repair dispatch after scored/fitted data exist: {folder}')
+    if any((out/name).exists() for name in ('screen.json', 'lens.pt', 'summary.json')):
+        raise ValueError('Cannot repair a study with completed results')
+    backup = out/'manifest.before-verifier-fix.json'
+    if backup.exists() and backup.read_bytes() != path.read_bytes():
+        raise ValueError('Existing migration backup differs; inspect before proceeding')
+    if not backup.exists():
+        backup.write_bytes(path.read_bytes())
+    m['code'] = current
+    m['verifier_repair'] = dict(previous_manifest_sha256=sha256(backup), changed_code=changed,
+        reason='Accept explicit math-verify-v1 as the existing default grader; no scoring or generation policy change')
+    write(path, m)
+    print('Verifier dispatch repaired; pending answers preserved. Resume screen.', flush=True)
+
+
 def prepare(args):
     from datasets import load_dataset
     from huggingface_hub import HfApi
@@ -734,7 +770,7 @@ def report(out, m, questions):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--stage', choices=('prepare', 'repair-context', 'screen', 'generate', 'lens', 'extract', 'pack', 'fit', 'linear-stats', 'linear-fit', 'report'), required=True)
+    parser.add_argument('--stage', choices=('prepare', 'repair-context', 'repair-verifier', 'screen', 'generate', 'lens', 'extract', 'pack', 'fit', 'linear-stats', 'linear-fit', 'report'), required=True)
     parser.add_argument('--task', type=int, default=0)
     parser.add_argument('--smoke', action='store_true')
     args = parser.parse_args(); args.out = args.out.resolve()
@@ -744,7 +780,7 @@ def main():
     invocation = f'{args.stage}-{args.task}-{time.time_ns()}'
     def finish(state, **extra):
         record = dict(state=state, stage=args.stage, task=args.task, seconds=time.perf_counter()-started,
-            gpu=args.stage not in ('prepare', 'repair-context', 'pack', 'linear-fit'), job=os.environ.get('SLURM_JOB_ID'), **extra)
+            gpu=args.stage not in ('prepare', 'repair-context', 'repair-verifier', 'pack', 'linear-fit'), job=os.environ.get('SLURM_JOB_ID'), **extra)
         write(status, record)
         write(args.out/'timings'/f'{invocation}.json', record)
     write(status, dict(state='running', job=os.environ.get('SLURM_JOB_ID')))
@@ -753,6 +789,8 @@ def main():
             prepare(args)
         elif args.stage == 'repair-context':
             repair_context(args.out)
+        elif args.stage == 'repair-verifier':
+            repair_verifier(args.out)
         else:
             m, questions = validate(args.out)
             torch.set_num_threads(int(os.environ.get('OMP_NUM_THREADS', '8')))

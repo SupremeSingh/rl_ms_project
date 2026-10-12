@@ -3,7 +3,7 @@ from contextlib import redirect_stdout
 import json
 import sys
 
-from math_rl.math_verify_reward import grade, provenance
+from math_rl.math_verify_reward import RULE_VERSION, grade, provenance
 
 
 def score_batch(rows, exclude_errors=False):
@@ -11,7 +11,7 @@ def score_batch(rows, exclude_errors=False):
     scores = []
     for row in rows:
         grader = grade
-        if row.get('rule') is not None:
+        if row.get('rule') not in (None, RULE_VERSION):
             from math_rl.conclusion_reward import RULE, grade_conclusion
             if row['rule'] != RULE:
                 raise ValueError('Unknown verifier rule')

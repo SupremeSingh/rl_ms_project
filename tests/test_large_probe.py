@@ -189,6 +189,38 @@ def test_context_repair(tmp_path, monkeypatch, blocker):
     m.repair_context(out)
 
 
+@pytest.mark.parametrize('blocker', [None, 'scored', 'code'])
+def test_verifier_repair_preserves_pending_answers(tmp_path, monkeypatch, blocker):
+    m = module(monkeypatch)
+    out = tmp_path/'study'; model = tmp_path/'model'
+    monkeypatch.setattr(m, 'MODEL', model)
+    m.write(model/'config.json', dict(max_position_embeddings=4096))
+    m.write(out/'questions.json', [])
+    current = {'scripts/large_jlens_study.py': 'new', 'src/math_rl/verifier_batch.py': 'new'}
+    monkeypatch.setattr(m, 'snapshot', lambda _: dict(files=current))
+    m.write(out/'manifest.json', dict(config=m.config(False),
+        questions_sha256=m.sha256(out/'questions.json'),
+        model_hashes={'config.json': m.sha256(model/'config.json')},
+        code={name: 'old' for name in current}))
+    m.write(out/'pending/00000.json', dict(responses=[dict(response='4', token_ids=[4])]))
+    original = (out/'manifest.json').read_bytes()
+    pending = (out/'pending/00000.json').read_bytes()
+    if blocker == 'scored':
+        m.write(out/'trajectories/00000.json', {})
+    if blocker == 'code':
+        current['unrelated.py'] = 'new'
+    if blocker:
+        with pytest.raises(ValueError):
+            m.repair_verifier(out)
+        assert (out/'manifest.json').read_bytes() == original
+    else:
+        m.repair_verifier(out)
+        assert (out/'manifest.before-verifier-fix.json').read_bytes() == original
+        assert m.read(out/'manifest.json')['config'] == m.config(False)
+        m.repair_verifier(out)
+    assert (out/'pending/00000.json').read_bytes() == pending
+
+
 def test_submission_graph_without_slurm(tmp_path):
     """Use a fake sbatch executable: no cluster work is submitted by this test."""
     import os

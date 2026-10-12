@@ -9,6 +9,19 @@ from math_rl import math_verify_reward as reward
 from math_rl import verifier_batch
 
 
+@pytest.mark.parametrize('exclude_errors', [False, True])
+def test_explicit_standard_rule_matches_default(monkeypatch, exclude_errors):
+    monkeypatch.setattr(verifier_batch, 'provenance', lambda: {})
+    monkeypatch.setattr(verifier_batch, 'grade', lambda text, gold:
+        dict(diagnostic_reward=1, status='correct', extracted='4'))
+    row = dict(response='4', ground_truth='4')
+    expected = verifier_batch.score_batch([row], exclude_errors=exclude_errors)
+    assert verifier_batch.score_batch([dict(row, rule='math-verify-v1')],
+        exclude_errors=exclude_errors) == expected
+    with pytest.raises(ValueError, match='Unknown verifier rule'):
+        verifier_batch.score_batch([dict(row, rule='typo')], exclude_errors=exclude_errors)
+
+
 @pytest.mark.parametrize('failure,expected', [
     ('extraction_sympify', None), ('unexpected_parse', 'parse_error'),
     ('timeout', None), ('verify_timeout', None), ('verification_sympify', 'verify_error'),

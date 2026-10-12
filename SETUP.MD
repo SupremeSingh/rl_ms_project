@@ -1115,6 +1115,20 @@ work of a single 1,536-dimensional head. No cheaper-critic claim follows from th
 
 ## Large-N full-readout J-lens study
 
+**Verifier dispatch fix:** if screening failed with `Unknown verifier rule`, sync
+the code and run the commands below. This accepts the explicitly named
+`math-verify-v1` default grader; scoring policy is unchanged. The repair backs up
+the manifest, checks model/question hashes and unrelated source changes, and
+preserves pending generated answers. It refuses already scored/fitted studies.
+
+```bash
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/large_jlens_study.py \
+  --out outputs/jlens-large-numina-v2 --stage repair-verifier
+bash scripts/submit_large_jlens.sh --full --out outputs/jlens-large-numina-v2 \
+  --resume-from screen
+```
+
 **Context-budget fix:** the model permits 4,096 tokens total, so the full study
 now reserves 512 prompt tokens and allows 3,584 answer tokens. Do not set
 `VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`. For the v2 preparation whose screen failed
