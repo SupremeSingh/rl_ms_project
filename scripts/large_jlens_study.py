@@ -54,11 +54,11 @@ def review_html(path, records):
 
 
 def config(smoke):
-    return dict(version='full-readout-large-v2', smoke=smoke,
+    return dict(version='full-readout-large-v3', smoke=smoke,
         counts=dict(calibration=2, screen=8, train=12, val=6, test=6) if smoke else
                dict(calibration=512, screen=256, train=10000, val=1000, test=2000),
         responses=2 if smoke else 8, screen_responses=2 if smoke else 4,
-        max_tokens=512 if smoke else 4096, max_prompt_tokens=512,
+        max_tokens=512 if smoke else 3584, max_prompt_tokens=512,
         generation_seed=271828, temperature=1., prefix_seed=1729,
         lens_max_tokens=128 if smoke else 512, lens_dim_batch=2,
         seeds=[42] if smoke else [42, 43, 44], lrs=[.001] if smoke else [.0003, .001],
@@ -68,6 +68,60 @@ def config(smoke):
         verifier_rule='math-verify-v1', arms=list(ARMS), heads=list(HEADS), linear_heads=list(LINEAR_HEADS),
         primary_contrasts=['ridge/direct_minus_hidden_two_thirds', 'lstd-0.99/direct_minus_hidden_two_thirds'],
         screen_gate=dict(min_accuracy=.2, max_accuracy=.8, max_exclusion=.1, max_truncation=.15))
+
+
+def context_budget(cfg, model_config, questions=()):
+    """Prompt and answer share the model's native context; never extend RoPE here."""
+    limit = model_config.get('max_position_embeddings')
+    prompt, answer = cfg['max_prompt_tokens'], cfg['max_tokens']
+    if not isinstance(limit, int) or limit < 1 or prompt < 1 or answer < 1:
+        raise ValueError('Invalid or missing native context budget')
+    total = prompt+answer
+    if total > limit:
+        raise ValueError(f'Prompt reserve {prompt} + answer budget {answer} = {total} exceeds native context {limit}')
+    if any(not q['prompt_token_ids'] or len(q['prompt_token_ids']) > prompt for q in questions):
+        raise ValueError('Saved prompt exceeds its reserved context budget')
+    return total
+
+
+def repair_context(out):
+    """Explicit migration ONLY before any generation; preserve the locked questions."""
+    path = out/'manifest.json'; m = read(path)
+    new = config(m['config']['smoke'])
+    if m['config'] == new:
+        validate(out)
+        print('Context repair already applied; ready to resume screen.', flush=True)
+        return
+    expected = dict(new, version='full-readout-large-v2', max_tokens=512 if new['smoke'] else 4096)
+    if m['config'] != expected:
+        raise ValueError('Not the known v2 context-budget failure; use a new study')
+    for folder in ('trajectories', 'pending', 'features', 'packed', 'fits', 'linear-statistics', 'linear-fits'):
+        if (out/folder).exists() and any(p.is_file() for p in (out/folder).rglob('*')):
+            raise ValueError(f'Cannot change budgets after data exist: {folder}')
+    if any((out/name).exists() for name in ('screen.json', 'lens.pt', 'lens-checkpoint.pt', 'summary.json')):
+        raise ValueError('Cannot migrate a study with generated or fitted results')
+    if sha256(out/'questions.json') != m['questions_sha256']:
+        raise ValueError('Question manifest changed')
+    for name, checksum in m['model_hashes'].items():
+        if sha256(MODEL/name) != checksum:
+            raise ValueError(f'Model/tokenizer changed: {name}')
+    current = snapshot(ROOT)['files']
+    # Only this script implements the fix. Do not bless unrelated source changes.
+    changed = [name for name in set(current)|set(m['code']) if current.get(name) != m['code'].get(name)]
+    if set(changed)-{'scripts/large_jlens_study.py'}:
+        raise ValueError(f'Unrelated code/config changes prevent migration: {changed}')
+    total = context_budget(new, read(MODEL/'config.json'), read(out/'questions.json'))
+    backup = out/'manifest.before-context-fix.json'
+    if backup.exists() and backup.read_bytes() != path.read_bytes():
+        raise ValueError('Existing migration backup differs; inspect before proceeding')
+    if not backup.exists():
+        backup.write_bytes(path.read_bytes())
+    m.update(config=new, code=current)
+    m['context_repair'] = dict(previous_manifest_sha256=sha256(backup), changed_code=changed,
+        old_answer_budget=expected['max_tokens'], answer_budget=new['max_tokens'],
+        total_context=total, reason='Fix prompt-plus-answer overflow before any generation; questions/model unchanged')
+    write(path, m)
+    print(f'Preserved all prepared questions. Answer budget {new["max_tokens"]}; total context {total}. Resume screen.', flush=True)
 
 
 def prepare(args):
@@ -83,6 +137,7 @@ def prepare(args):
             raise ValueError('Existing protocol differs; use a new output directory')
         return
     cfg = config(args.smoke)
+    context_budget(cfg, read(MODEL/'config.json'))
     assets = read(ROOT/'configs/assets.json'); validate_assets(assets)
     revisions_path = out/'dataset-revisions.json'
     if revisions_path.exists():
@@ -117,6 +172,7 @@ def prepare(args):
         exclusions=dict(reasons), blocked_families=len(blocked),
         scope='Reference-only conservative eligibility; exact/number-template overlap blocked, not semantic or pretraining overlap.'))
     questions = assign_splits(eligible.values(), cfg['counts'])
+    context_budget(cfg, read(MODEL/'config.json'), questions)
     write(out/'questions.json', questions)
     model_config = read(MODEL/'config.json')
     model_hashes = {p.name: sha256(p) for p in MODEL.iterdir()
@@ -162,6 +218,7 @@ def generate(out, m, questions, stage, shard):
     from vllm import LLM, SamplingParams
     from math_rl.ppo_reward import compute_score
     cfg = m['config']
+    total_context = context_budget(cfg, read(MODEL/'config.json'), questions)
     if {name: version(name) for name in m['generation_environment']} != m['generation_environment']:
         raise ValueError('Generation environment changed since preparation')
     selected = [q for q in questions if (q['split'] in ('screen', 'calibration') if stage == 'screen'
@@ -171,7 +228,7 @@ def generate(out, m, questions, stage, shard):
     pending_questions = [q for q in selected if not trajectory(out, q).exists()]
     if pending_questions:
         engine = LLM(model=str(MODEL), dtype='bfloat16', tensor_parallel_size=1,
-            max_model_len=cfg['max_prompt_tokens']+cfg['max_tokens'], gpu_memory_utilization=.65,
+            max_model_len=total_context, gpu_memory_utilization=.65,
             max_num_seqs=8, enforce_eager=True, seed=cfg['generation_seed'], generation_config='vllm')
     for q in selected:
         count = 1 if q['split'] == 'calibration' else cfg['screen_responses'] if q['split'] == 'screen' else cfg['responses']
@@ -677,7 +734,7 @@ def report(out, m, questions):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--stage', choices=('prepare', 'screen', 'generate', 'lens', 'extract', 'pack', 'fit', 'linear-stats', 'linear-fit', 'report'), required=True)
+    parser.add_argument('--stage', choices=('prepare', 'repair-context', 'screen', 'generate', 'lens', 'extract', 'pack', 'fit', 'linear-stats', 'linear-fit', 'report'), required=True)
     parser.add_argument('--task', type=int, default=0)
     parser.add_argument('--smoke', action='store_true')
     args = parser.parse_args(); args.out = args.out.resolve()
@@ -687,13 +744,15 @@ def main():
     invocation = f'{args.stage}-{args.task}-{time.time_ns()}'
     def finish(state, **extra):
         record = dict(state=state, stage=args.stage, task=args.task, seconds=time.perf_counter()-started,
-            gpu=args.stage not in ('prepare', 'pack', 'linear-fit'), job=os.environ.get('SLURM_JOB_ID'), **extra)
+            gpu=args.stage not in ('prepare', 'repair-context', 'pack', 'linear-fit'), job=os.environ.get('SLURM_JOB_ID'), **extra)
         write(status, record)
         write(args.out/'timings'/f'{invocation}.json', record)
     write(status, dict(state='running', job=os.environ.get('SLURM_JOB_ID')))
     try:
         if args.stage == 'prepare':
             prepare(args)
+        elif args.stage == 'repair-context':
+            repair_context(args.out)
         else:
             m, questions = validate(args.out)
             torch.set_num_threads(int(os.environ.get('OMP_NUM_THREADS', '8')))

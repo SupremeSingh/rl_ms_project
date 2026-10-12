@@ -49,7 +49,11 @@ the actor solves it. Insufficient eligible families also stops preparation;
 there is no silent reduction in N or relaxation of eligibility.
 
 Generation uses the existing completion prompt, temperature 1, top-p 1, a fixed
-seed schedule and a **4,096-token** response limit. No planning headers or staged
+seed schedule and a **3,584-token** response limit, reserving 512 prompt tokens
+within the model's native **4,096-token total context**. Both preparation and
+generation check this limit; no context-extension override is used. The initial
+4,096-answer-token configuration failed before generation; corrected protocol v3
+respects the shared limit. No planning headers or staged
 generation. Correct/incorrect verifier statuses enter fitting; parsing/runtime
 failures remain saved and are reported as exclusions. All-attempt answer accuracy
 counts these attempts as unsuccessful. Probe metrics are explicitly conditional
@@ -89,7 +93,7 @@ We call the pinned official [Anthropic Jacobian Lens](https://github.com/anthrop
 Jacobian, including its current/future target-position convention. Calibration
 uses first continuations irrespective of rewards, with reward-blind truncated
 full contexts up to 512 tokens. This finite calibration corpus and context cap
-are limitations, particularly for late prefixes in 4,096-token answers.
+are limitations, particularly for late prefixes in 3,584-token answers.
 
 For each transported state x after RMS normalization, full vocabulary scores
 are `z = U diag(g) x`. Factor `B.T B = C C.T`, with `B = U diag(g)`, and store

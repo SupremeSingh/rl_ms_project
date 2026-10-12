@@ -1115,6 +1115,25 @@ work of a single 1,536-dimensional head. No cheaper-critic claim follows from th
 
 ## Large-N full-readout J-lens study
 
+**Context-budget fix:** the model permits 4,096 tokens total, so the full study
+now reserves 512 prompt tokens and allows 3,584 answer tokens. Do not set
+`VLLM_ALLOW_LONG_MAX_MODEL_LEN=1`. For the v2 preparation whose screen failed
+before generating any answers, sync the fix and preserve its questions with:
+
+```bash
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/large_jlens_study.py \
+  --out outputs/jlens-large-numina-v2 --stage repair-context
+bash scripts/submit_large_jlens.sh --full --out outputs/jlens-large-numina-v2 \
+  --resume-from screen
+```
+
+The repair backs up the original manifest, records the new budget/code hash,
+checks unchanged model/questions, and refuses any generated data or unrelated
+source changes. It is only for this pre-generation failure. All later stages
+retain normal provenance checks. The directory name can remain v2 while its
+manifest records corrected protocol v3.
+
 This is a new experiment on NuminaMath-1.5 `cn_k12`, with 104,000 main-study
 answers, five representations, three neural probe architectures, ridge and
 LSTD(0.99). Read the

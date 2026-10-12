@@ -139,6 +139,56 @@ def test_shell_scripts_parse():
         subprocess.run(['bash', '-n', str(root/'scripts'/name)], check=True)
 
 
+def test_native_context_budget(monkeypatch):
+    m = module(monkeypatch)
+    native = dict(max_position_embeddings=4096)
+    cfg = m.config(False)
+    assert cfg['max_tokens'] == 3584
+    assert m.context_budget(cfg, native, [dict(prompt_token_ids=[1]*512)]) == 4096
+    assert m.context_budget(m.config(True), native) == 1024
+    with pytest.raises(ValueError, match='exceeds native context'):
+        m.context_budget(dict(cfg, max_tokens=4096), native)
+    with pytest.raises(ValueError, match='Saved prompt'):
+        m.context_budget(cfg, native, [dict(prompt_token_ids=[1]*513)])
+
+
+@pytest.mark.parametrize('blocker', [None, 'pending', 'code', 'questions'])
+def test_context_repair(tmp_path, monkeypatch, blocker):
+    from math_rl.provenance import sha256
+    m = module(monkeypatch)
+    monkeypatch.setattr(m, 'ROOT', tmp_path)
+    model = tmp_path/'model'; model.mkdir()
+    monkeypatch.setattr(m, 'MODEL', model)
+    m.write(model/'config.json', dict(max_position_embeddings=4096))
+    script = tmp_path/'scripts/large_jlens_study.py'; script.parent.mkdir(); script.write_text('fixed')
+    current = {'scripts/large_jlens_study.py': sha256(script)}
+    monkeypatch.setattr(m, 'snapshot', lambda _: dict(files=current))
+    out = tmp_path/'study'; out.mkdir()
+    m.write(out/'questions.json', [dict(prompt_token_ids=[1, 2])])
+    old = dict(config=dict(m.config(False), version='full-readout-large-v2', max_tokens=4096),
+        code={'scripts/large_jlens_study.py': 'previous-code-hash'},
+        model_hashes={'config.json': sha256(model/'config.json')}, questions_sha256=sha256(out/'questions.json'))
+    m.write(out/'manifest.json', old)
+    original = (out/'manifest.json').read_bytes()
+    if blocker == 'pending':
+        m.write(out/'pending/00000.json', dict(response='already generated'))
+    elif blocker == 'code':
+        current['src/unrelated.py'] = 'unexpected'
+    elif blocker == 'questions':
+        m.write(out/'questions.json', [])
+    if blocker:
+        with pytest.raises(ValueError):
+            m.repair_context(out)
+        assert (out/'manifest.json').read_bytes() == original
+        return
+    m.repair_context(out)
+    repaired = m.read(out/'manifest.json')
+    assert repaired['config']['max_tokens'] == 3584
+    assert repaired['questions_sha256'] == old['questions_sha256']
+    assert (out/'manifest.before-context-fix.json').read_bytes() == original
+    m.repair_context(out)
+
+
 def test_submission_graph_without_slurm(tmp_path):
     """Use a fake sbatch executable: no cluster work is submitted by this test."""
     import os
