@@ -935,3 +935,12 @@ fits training-only PCA at 768, 1,536 and 3,072 dimensions, compares equally comp
 raw/normalized hidden features, and refits Ridge and LSTD(0.99) from the saved
 all-token matrices. It retains uncompressed and single-layer controls. Results are
 pending; reduced matrix size alone does not establish lower total PPO cost.
+
+### Learned sparse compression (next experiment)
+
+The [sparse bottleneck study](docs/sparse-critic-study.md) compares matched plain
+and sparsity-penalized 768-, 1,536- or 3,072-dimensional nonlinear features from the five normalized
+hidden layers. It screens on saved validation prefixes before rebuilding all-token
+Ridge/LSTD statistics, with PCA and full/single-layer controls. This is a
+supervised sparsity ablation, not a replication of the geometric RL paper's full
+rate-reduction architecture. No outcome or speedup is established yet.
