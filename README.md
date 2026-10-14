@@ -17,6 +17,10 @@ advantage or an independent benchmark result.
 and resumption. This README explains the approach, completed results and their
 limits. Results updated **4 October 2026**.
 
+For a first-principles walkthrough, read the four-part
+[Building a Cheaper Critic series](docs/articles/README.md), with a companion
+Jupyter notebook introducing J-lens through a tiny country–capital predictor.
+
 **Selected design:** ordinary completion prompts, Math-Verify, a permanently
 frozen base encoder, two-thirds-depth features and accumulated LSTD(0.99)
 statistics, with question cross-fitting and no answer buffer. Planning and
@@ -922,3 +926,12 @@ prioritizes work, while Lean independently certifies the completed proof.
 
 We aim to make LLM representations useful for inexpensive value prediction and better decisions.
 The next test is whether that same principle yields more formally verified proofs for the same compute budget.
+
+### J-lens compression follow-up
+
+We can now test whether the complete five-layer readout retains its predictive
+quality at the width of one or two layers. The CPU-only [compression study](docs/jlens-compression.md)
+fits training-only PCA at 768, 1,536 and 3,072 dimensions, compares equally compressed
+raw/normalized hidden features, and refits Ridge and LSTD(0.99) from the saved
+all-token matrices. It retains uncompressed and single-layer controls. Results are
+pending; reduced matrix size alone does not establish lower total PPO cost.

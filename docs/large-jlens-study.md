@@ -200,3 +200,11 @@ storage and 125 times the dense solve work of a 1,536-dimensional system. This
 comparison does not assume multi-layer J-lens is computationally cheaper.
 
 [Commands and recovery](../SETUP.MD#large-n-full-readout-j-lens-study).
+
+## Follow-up: smaller linear critics
+
+The [PCA compression study](jlens-compression.md) reuses the completed all-token
+statistics to compare full J-lens, raw hidden and normalized hidden concatenations
+at 768, 1,536 and 3,072 dimensions, with Ridge and LSTD(0.99). No new generation or
+encoder pass is needed. Uncompressed and single-layer controls are retained;
+validation chooses dimensions before test evaluation.
