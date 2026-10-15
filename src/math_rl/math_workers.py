@@ -27,9 +27,17 @@ class FeatureActorWorker(ActorRolloutRefWorker):
             result = super().compute_log_prob(data)
             if not hasattr(self, '_critic_encoder'):
                 from transformers import AutoModel
+                fp32 = self.config.model.get('critic_encoder_precision', 'bf16') == 'fp32'
+                if fp32:
+                    import os
+                    if os.environ.get('TORCH_ALLOW_TF32_CUBLAS_OVERRIDE') == '1':
+                        raise RuntimeError('Unset TF32 override for fixed FP32 features')
+                    torch.backends.cuda.matmul.allow_tf32 = False
+                    torch.backends.cudnn.allow_tf32 = False
+                    torch.set_float32_matmul_precision('highest')
                 self._critic_encoder = AutoModel.from_pretrained(
-                    self.config.model.path, torch_dtype=torch.bfloat16,
-                    attn_implementation='sdpa', trust_remote_code=False).eval().requires_grad_(False)
+                    self.config.model.path, torch_dtype=torch.float32 if fp32 else torch.bfloat16,
+                    attn_implementation='eager' if fp32 else 'sdpa', trust_remote_code=False).eval().requires_grad_(False)
             from math_rl.cumulative_lstd import encoder_epoch
             step = int(data.meta_info.get('critic_update_step', 1))
             interval = int(data.meta_info.get('critic_refresh_interval', 0))
@@ -57,8 +65,17 @@ class FeatureActorWorker(ActorRolloutRefWorker):
             self._critic_encoder_epoch = epoch
             try:
                 self._critic_encoder.to(torch.cuda.current_device())
-                features = frozen_prefixes(self._critic_encoder, ids, masks, width,
-                    layer=self.config.model.get('critic_feature_layer', 'final'))
+                layer = self.config.model.get('critic_feature_layer', 'final')
+                if layer == 'bottleneck':
+                    from math_rl.bottleneck_features import load_filter, bottleneck_prefixes
+                    if not hasattr(self, '_critic_filter'):
+                        self._critic_filter = load_filter(self.config.model.critic_bottleneck_path,
+                            self.config.model.critic_bottleneck_sha256)
+                    features = bottleneck_prefixes(self._critic_encoder, ids, masks, width,
+                        self._critic_filter, list(self.config.model.critic_bottleneck_layers),
+                        self.config.model.critic_bottleneck_rms_eps)
+                else:
+                    features = frozen_prefixes(self._critic_encoder, ids, masks, width, layer=layer)
             finally:
                 self._critic_encoder.cpu()
                 torch.cuda.empty_cache()

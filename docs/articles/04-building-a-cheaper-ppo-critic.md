@@ -1,179 +1,246 @@
-# Building a cheaper PPO critic: the experiment so far
+# Putting the pieces together: toward a cheaper PPO critic
 
-*Part 4 of Building a Cheaper Critic · 13 October 2026*
+*Part 4 of Building a Cheaper Critic · 14 October 2026*
 
-Our project asks a practical question: **can a language model's existing representations support a useful PPO critic without training another large transformer?**
+A language model already performs a great deal of computation before choosing its next token. It interprets the question, relates it to the answer so far, and constructs an internal representation. Could a small value estimator use that computation to help train the model, without repeatedly optimizing another large network?
 
-The first three articles explain the ingredients separately. [Article 1](01-from-an-answer-to-an-advantage.md) turns a final answer reward into token-level advantages. [Article 2](02-a-critic-built-from-matrices.md) derives a critic fitted from accumulated matrices. [Article 3](03-reading-a-model-through-jlens.md) explains how a Jacobian lens changes the representation available to a predictor. This article brings those ideas together through the experiments we actually ran.
+That is the organizing question of this project. This article develops the proposed system from its parts, rather than reporting experiments. The ambition is to reduce the cost of obtaining useful advantages while retaining PPO as the policy optimizer.
 
-Our evidence has three distinct stages: predicting correctness with small heads, using linear critics to train an actor, and testing whether J-lens can improve the critic's features. The first two have results. The large J-lens comparison is still underway at the last reported checkpoint.
+[Article 1](01-from-an-answer-to-an-advantage.md) explains how rewards become advantages. [Article 2](02-a-critic-built-from-matrices.md) explains how linear critics can be fitted from accumulated statistics. [Article 3](03-learning-compact-value-features.md) explains how a learned bottleneck can make rich hidden representations manageable. Together, they suggest separating expensive representation learning from repeated value fitting.
 
-## 1. A concrete task and a replaceable critic
+## 1. One answer, three different jobs
 
-We started with the base Qwen2.5-Math-1.5B model and mathematical question answering. Given a question, the actor generates an answer one token at a time. Math-Verify scores its final answer. Intermediate rewards are zero; the terminal reward is one for verified success and zero for an ordinary incorrect answer. Parser failures and verifier errors need an explicit handling policy and auditing; they are not interchangeable with demonstrated mathematical failure.
+Imagine an actor answering a question about sharing apples equally. The state \(s_t\) is the question and the answer prefix; action \(a_t\) is the next token. A completed answer receives an outcome reward. Earlier transitions may receive zero reward.
 
-Take the question “I have five avocados and buy four more; each serving needs three. How many servings?” At the prefix “There are nine avocados,” a critic estimates the actor's chance of eventually answering correctly. It does not grade that sentence in isolation.
+The actor asks, “Which token should I generate?” The critic asks, “How much reward should I expect if this policy continues?” The policy optimizer asks, “Was this sampled continuation better or worse than expected?”
 
-Our infrastructure separates the responsibilities:
+These jobs are related but distinct. A fluent next-token prediction need not imply a correct solution. A useful value estimate need not reproduce the actor's entire language-modeling computation. And a correct final answer does not tell us exactly which individual token deserves credit.
 
-| Component | Role in the experiment |
-|---|---|
-| Qwen actor | Generates answers and receives policy updates |
-| VERL, PyTorch and FSDP | Organize rollout and distributed training operations |
-| vLLM | Generates sampled answers efficiently |
-| Math-Verify | Checks extracted final answers against references |
-| Our code | Captures features, fits critics, constructs comparisons and audits results |
-| Slurm | Schedules cluster jobs |
+PPO uses estimated advantages to turn those trajectories into updates. Replacing the critic changes how we estimate those advantages, not the identity of the policy optimizer.
 
-Replacing the critic leaves the policy-learning problem intact. LSTD supplies values; GAE constructs advantages; PPO changes the actor. This is not LSPI, and it is not yet formal proof search.
+## 2. Build a stable description of each prefix
 
-## 2. First check whether small heads can predict outcomes
-
-We generated 80,000 GSM8K answers from a frozen actor and retained 77,351 with usable verifier labels. We saved representations of question-plus-answer prefixes and split by question, so prefixes of the same problem did not become independent train and test examples.
-
-The large version sampled prefix lengths randomly rather than using only a fixed grid. The retained data supplied 495,008 training prefixes, 61,888 validation prefixes and 61,912 test prefixes. A sampled prefix inherited its observed continuation's final outcome. That outcome is one sample of a return, not the prefix's exact success probability.
-
-| Predictor | Test Brier error ↓ | Correctness-prediction accuracy |
-|---|---:|---:|
-| Constant baseline | 0.23054 | — |
-| One-layer sigmoid probe | 0.19268 | 71.3% |
-| Two-layer MLP | 0.18888 | 71.8% |
-| Ten-layer residual network | 0.18977 | 71.6% |
-| Direct ridge value head | 0.19419 | 71.2% |
-
-The extra nonlinear capacity helped modestly; depth did not produce a large improvement. A simple head could extract useful predictive information from the frozen model. The sigmoid probe is linear in its **logit**; ridge produces a value directly. That distinction matters because our LSTD critic requires a value function linear in its fitted weights.
-
-These numbers concern **predicting whether an answer succeeds**, not how often the actor answers correctly. They motivated the next experiment without establishing that PPO would benefit.
-
-## 3. Why we tested LSTD and long traces
-
-Ridge fits each state's observed eventual return. LSTD fits consistency between neighboring state values and rewards. We therefore reconstructed consecutive token transitions, not transitions between arbitrarily spaced sampled prefixes.
-
-On frozen GSM8K data, LSTD(0) had Brier error 0.22889; LSTD(0.999) reached 0.19751, compared with matched ridge at 0.19845. Longer traces helped in this setting. In a later MATH-specific fit, LSTD(1) and ridge both reached 0.18566, consistent with their algebraic equivalence under our complete-episode, undiscounted setup.
-
-This did not show a universal advantage for TD fitting. Shorter traces sometimes performed substantially worse. Our eventual online configuration used LSTD(0.99); it needed its own policy-learning evaluation rather than inheriting a claim from an offline score.
-
-## 4. The accumulated critic we actually use
-
-The actor changes during PPO, but the selected feature encoder remains frozen. Our established single-layer feature map reads around two-thirds through that encoder: block 19 of 28, with 1,536 coordinates. Adding an intercept gives a 1,537-dimensional linear value head.
-
-The state is the prefix **before** the next token. The terminal feature is zero, including the intercept, because no future reward remains. Feature preprocessing stays fixed so that accumulated matrices use consistent coordinates.
-
-For each answer, reset the eligibility trace and process its transitions:
+Let a frozen encoder produce hidden representations \(h_{\ell}(s)\). A fixed feature map can read a single layer or combine several through a trained bottleneck:
 
 \[
-z_t=\gamma\lambda_{\mathrm{critic}}z_{t-1}+\phi_t,
+x(s)=[h_{\ell_1}(s);\ldots;h_{\ell_K}(s)],
+\qquad \phi(s)=[g_\psi(x(s));1].
+\]
+
+Here \(g_\psi\) may be a normalized projection followed by ReLU. It may also be the identity or a fixed linear compression. The important condition for accumulation is that the encoder, preprocessing and \(\psi\) remain fixed while their statistics are reused.
+
+The critic is
+
+\[
+\widehat V_w(s)=w^\top\phi(s).
+\]
+
+This is a small linear fit on top of a potentially powerful nonlinear description. Richness comes from the features; repeated value fitting changes only \(w\).
+
+If the actor is changing while the encoder stays frozen, those are different parameter sets. Frozen-encoder inference may require another forward pass. The representation is not automatically free merely because it originated in the actor's architecture.
+
+## 3. Turn fresh experience into a critic
+
+For each sampled answer, record transitions \((s_t,a_t,r_t,s_{t+1})\). Use a zero next-state feature at genuine termination. For an artificial length cutoff, decide explicitly whether the task ends there or whether bootstrapping is required; the two interpretations produce different targets.
+
+LSTD with eligibility traces accumulates
+
+\[
+e_t=\gamma\lambda_c e_{t-1}+\phi_t,
 \]
 \[
-A\mathrel{+}=z_t(\phi_t-\gamma\phi_{t+1})^\top,
-\qquad b\mathrel{+}=z_t r_t.
+A\leftarrow A+e_t(\phi_t-\gamma\phi_{t+1})^\top,
+\qquad b\leftarrow b+e_t r_t.
 \]
 
-We use \(\gamma=1\), \(\lambda_{\mathrm{critic}}=0.99\), raw sums, and solve
+Reset \(e_t\) between episodes. Then solve
 
 \[
-(A+0.01I)w=b.
+(A+\epsilon I)w=b.
 \]
 
-There is no division by the number of transitions. Relative to an average-form system, the regularizer therefore shrinks as data accumulate. The solve returns new weights; **we do not add old fitted weight vectors together**.
+For the apples example, a successful completion contributes its terminal reward to the right-hand side through the accumulated trace. Earlier transitions also enter the matrix describing how current and next-state features relate. The solve seeks values consistent with those relationships.
 
-There is one additional safeguard. Each question is permanently assigned to one of two folds. A head fitted from fold A values answers from fold B, and conversely. Otherwise, the very reward used to judge an answer could first enter the critic fitted to that same answer. Token-level values do not prevent that leakage: all those tokens share the eventual outcome.
+Ridge provides a useful alternative: accumulate \(\sum_t\phi_t\phi_t^\top\) and \(\sum_t\phi_t G_t\), where \(G_t\) is the observed return. Ridge fits outcomes directly; LSTD fits TD consistency. Neither should be assumed to produce better policy updates merely from its definition.
 
-Here is the training loop, including that distinction:
+## 4. Why keep matrices across updates?
+
+Each new batch can add to \(A\) and \(b\). For fixed features and targets defined by the same rules, these sums preserve the information needed for the corresponding least-squares system without storing every past feature vector.
+
+We accumulate statistics, not fitted weights. Adding two independently fitted weight vectors is not equivalent to fitting their combined data.
+
+With raw sums and fixed \(\epsilon\), regularization becomes weaker relative to the accumulated data. If \(n\) transitions have contributed, dividing the equation by \(n\) gives
+
+\[
+\left(\frac{A}{n}+\frac{\epsilon}{n}I\right)w=\frac{b}{n}.
+\]
+
+That can be useful, but it is a design choice, not a guarantee of stability. LSTD's matrix need not be symmetric or positive definite. Numerical residuals, conditioning and prediction behavior still need checking.
+
+There is also a statistical limitation: old trajectories came from old actor policies. Accumulation produces a mixture of historical-policy data. A frozen encoder fixes coordinates; it does not make old experience on-policy. An uncorrected cumulative critic is therefore an approximation to the current policy's value, not a guaranteed current-policy TD fixed point. Forgetting, resets or principled off-policy corrections are alternative designs with their own trade-offs.
+
+## 5. Keep the baseline from learning the answer it is judging
+
+Suppose the critic sees an answer's final reward, fits to that answer, and immediately supplies its advantages. It may partly memorize the outcome rather than provide an independent expectation. Token-level prediction does not remove this dependence: every prefix belongs to the same rewarded continuation.
+
+One safeguard is question-level cross-fitting. Assign each question permanently to a fold. Fit a critic on one fold and use it to value trajectories in the other. Persistent assignment matters when accumulating statistics across updates; moving a question between folds would reintroduce its historical rewards.
+
+For supervised feature learning, the same principle extends upstream. A bottleneck trained using a question's outcome can leak information even if the final linear head excludes that question. A separately trained, disjoint representation or fold-specific feature training can avoid this direct label reuse. Cross-fitting does not eliminate all dependence from a shared, evolving actor, but it addresses the direct reuse of a trajectory's reward to fit its baseline.
+
+## 6. Values become advantages; advantages change the actor
+
+After fitting the critic, compute values for the current batch and hold them fixed during the actor update. The TD residual is
+
+\[
+\delta_t=r_t+\gamma\widehat V(s_{t+1})-\widehat V(s_t).
+\]
+
+GAE combines those residuals:
+
+\[
+\widehat A_t=\sum_{j\ge0}(\gamma\lambda_a)^j\delta_{t+j}.
+\]
+
+The parameter \(\lambda_a\) controls the advantage estimate. It is separate from \(\lambda_c\), which controls the critic's LSTD traces. They need not be equal.
+
+For a toy final transition, suppose the predicted value is \(0.4\), success gives reward one, and the next state is terminal. Its residual is \(1-0.4=0.6\). Failure instead gives \(-0.4\). Earlier tokens receive information through the GAE recursion; this is statistical credit assignment, not proof that a particular token caused the outcome.
+
+PPO forms the probability ratio
+
+\[
+\rho_t(\theta)=\frac{\pi_\theta(a_t\mid s_t)}{\pi_{\mathrm{old}}(a_t\mid s_t)}
+\]
+
+and maximizes the clipped surrogate
+
+\[
+\mathbb E_t\left[
+\min\left(\rho_t\widehat A_t,
+\operatorname{clip}(\rho_t,1-\eta,1+\eta)\widehat A_t\right)
+\right].
+\]
+
+The actor still needs gradients. The savings we seek concern the critic's repeated optimization, not removal of policy learning. [GAE](https://arxiv.org/abs/1506.02438) and [PPO](https://arxiv.org/abs/1707.06347) describe these distinct parts of the update.
+
+## 7. The complete algorithm: learn the filter, accumulate the critic
+
+We can think of the bottleneck as a **learned noise filter**: it tries to preserve information useful for predicting success while compressing the rest. “Noise” here means variation that is unhelpful for this prediction task. The network is not given a list of irrelevant coordinates, and neither compression nor sparsity guarantees that only irrelevant information is removed.
+
+There are two training stages. First, learn the filter using a separate set of questions. Then freeze it and use its output as the critic's coordinates throughout PPO. The separate representation-training questions keep their outcome labels out of the questions used for the online cross-fitted critics.
+
+### Stage A: learn and freeze the noise filter
 
 ```text
-FREEZE the base encoder and feature preprocessing
-ASSIGN each training question permanently to fold 0 or fold 1
-INITIALIZE A[0], A[1], b[0], b[1] to zero
+GIVEN:
+    a frozen language-model encoder E
+    a chosen set of encoder layers L
+    representation-training questions, separate from PPO questions
+    compressed width m and sparsity strength beta
 
-FOR each PPO update:
-    D = fresh answers sampled from the current actor
+COLLECT answers from a fixed policy on representation-training questions
+LABEL each answer with its final success or failure
+SAMPLE causal prefixes: question + only the answer tokens already written
+SPLIT training and validation data by question
 
-    FOR each answer in D:
-        f = its question's fold
-        z = 0
-        FOR each token transition:
-            phi = frozen features of the current prefix, with intercept
-            next_phi = frozen features of the next prefix
-                       or zero at termination
-            r = final verifier reward only on the last transition
-            z = 0.99 * z + phi
-            A[f] += outer(z, phi - next_phi)
-            b[f] += z * r
+FOR each prefix s:
+    x(s) = CONCATENATE normalized hidden vectors from layers L of E(s)
+    y(s) = final outcome of that prefix's sampled continuation
 
-    FOR each fold f:
-        w[f] = solve(A[f] + 0.01 * I, b[f])
+FIT input centering and scale on training prefixes only
+INITIALIZE bottleneck parameters W, bias and temporary readout a, c
 
-    FOR each answer in D from fold f:
-        values = w[1-f] applied to its current-prefix features
-        advantages = GAE(rewards, values, gamma=1, lambda=0.95)
+REPEAT for the representation-training budget:
+    x, y = a minibatch of training prefixes and outcome labels
+    x = APPLY the fixed training centering and scale
+    W_unit = NORMALIZE each row of W to unit length
+    z = ReLU(W_unit @ x + bias)                # compressed features
+    p = sigmoid(a @ z + c)                    # temporary success predictor
+    loss = binary_cross_entropy(p, y) + beta * mean(z)
+    UPDATE W, bias, a, c by gradient descent
 
-    UPDATE the actor with PPO using D and those advantages
-    KEEP the encoder, A and b for the next update
+SELECT the filter using validation data, not test outcomes
+FREEZE E, the bottleneck and all preprocessing
+DISCARD the temporary readout a, c
+
+DEFINE FEATURES(s):
+    x = CONCATENATE normalized selected-layer vectors of E(s)
+    x = APPLY the frozen training centering and scale
+    z = ReLU(W_unit @ x + bias)
+    RETURN CONCATENATE(z, 1)                   # include a value intercept
 ```
 
-The GAE parameter and LSTD trace parameter serve different purposes. The former combines TD residuals into actor advantages; the latter determines how experience enters the critic's fit.
+The plain bottleneck sets `beta = 0`; the sparse version uses a positive penalty. Both compress to the same width. The penalty encourages economical activation, not sparse weights or orthogonal coordinates. The temporary sigmoid head teaches the filter what to preserve; it is **not** the final LSTD value head.
 
-This retains historical information without retaining a replay buffer of answers for fitting. Actor updates use fresh data only. Nevertheless, the critic's matrices contain experience from earlier actor policies. A frozen encoder fixes the coordinate system; it does **not** remove this off-policy mismatch. Our uncorrected accumulation is an empirical design, not a new guarantee of current-policy TD convergence.
+### Stage B: accumulate LSTD statistics and update the actor with PPO
 
-## 5. What the online comparisons showed
+Let `k = m + 1`, including the intercept. Each fold stores a `k × k` matrix and a length-`k` vector. To keep terminal handling unambiguous, the pseudocode below assumes complete episodes: a cutoff is included as terminal only if the task explicitly defines it that way.
 
-We first strengthened the conventional PPO baseline with validation-only selection among critic-fitting settings and numerical health checks. In a three-seed comparison with 60 updates of 64 answers per method and seed, the results were:
+```text
+GIVEN:
+    an actor policy pi, the frozen FEATURES function
+    discount gamma, critic trace lambda_c, GAE trace lambda_a
+    a small positive regularizer epsilon
 
-| Method | Mean final answer accuracy | Mean training GPU-hours |
-|---|---:|---:|
-| Conventional PPO | 48.11% | 6.707 |
-| PPO with ridge | 55.44% | 3.505 |
-| PPO with LSTD | 59.67% | 3.557 |
-| GRPO | 58.22% | 3.445 |
+ASSIGN each PPO question permanently to fold 0 or fold 1
+FOR f in {0, 1}:
+    A[f] = ZERO_MATRIX(k, k)
+    b[f] = ZERO_VECTOR(k)
 
-The base model scored 52.33%. Conventional PPO's critic passed training-target fitting checks, but its actor still deteriorated. These checks exclude some implementation failures; they do not prove that this was an optimal PPO configuration. LSTD's advantage over GRPO was inconclusive in that comparison.
+FOR each policy update i:
+    pi_old = SNAPSHOT of the current actor
+    D = SAMPLE fresh complete answers using pi_old
+    RECORD old action log-probabilities and final outcome rewards
+    SET intermediate rewards to zero for this terminal-reward task
 
-Subsequent studies compared frozen features, accumulation, encoder refresh and layer depth. Accumulation did not establish a win over fresh-batch fitting: its paired difference was −1.11 percentage points, with an interval spanning zero. Refreshing the encoder also failed to establish an improvement. We chose a frozen encoder and accumulation as a workable design, rather than declaring each component independently superior.
+    FOR f in {0, 1}:
+        A_update[f] = ZERO_MATRIX(k, k)
+        b_update[f] = ZERO_VECTOR(k)
 
-With that design locked, a five-seed comparison found 67.80% for two-thirds-layer LSTD(0.99), versus 59.60% for GRPO. Training cost was 3.605 versus 3.435 GPU-hours per run: about 5% more for LSTD.
+    FOR each answer in D:
+        f = the question's permanent fold
+        e = ZERO_VECTOR(k)                    # reset between answers
+        phi[t] = FEATURES(prefix before token t), for every action t
 
-A later conservative reference audit retained 291 of the 300 test questions:
+        FOR each consecutive token transition t:
+            next_phi = phi[t+1] if another action follows
+                       else ZERO_VECTOR(k)   # terminal intercept is zero too
+            e = gamma * lambda_c * e + phi[t]
+            A_update[f] += OUTER(e, phi[t] - gamma * next_phi)
+            b_update[f] += e * reward[t]
 
-| System | Mean answer accuracy after reference filtering |
-|---|---:|
-| Base model | 52.23% |
-| GRPO | 59.31% |
-| PPO with accumulated LSTD(0.99) | **67.49%** |
+    FOR f in {0, 1}:
+        A[f] += A_update[f]                   # keep historical raw sums
+        b[f] += b_update[f]                   # no division by data count
+        w[f] = SOLVE(A[f] + epsilon * IDENTITY(k), b[f])
 
-The filtered gap was **8.18 percentage points**, with a descriptive paired seed/question interval of **[3.85, 12.92]**. Every one of the five seed differences favored LSTD.
+    FOR each answer in D:
+        f = the question's fold
+        V[t] = DOT(w[1-f], phi[t])            # use the OTHER fold's critic
+        V[T] = 0                             # no value after termination
+        advantage[T] = 0
+        FOR t from T-1 down to 0:
+            delta = reward[t] + gamma * V[t+1] - V[t]
+            advantage[t] = delta + gamma * lambda_a * advantage[t+1]
 
-That is our strongest positive result. Its scope remains specific: inspected MATH questions, one small model, a particular training budget and verifier. Filtering was post hoc, retained existing verifier scores and did not repair historical training rewards. Fresh seeds are not fresh test questions. The result supports further investigation, not a universal ranking of RL algorithms.
+    DETACH advantages from all critic computations
+    UPDATE pi with PPO's clipped objective on D and old log-probabilities
+    KEEP A, b, the encoder and the filter for the next update
+```
 
-## 6. What J-lens changes about the experiment
+This formalizes the accumulation idea: **experience accumulates in `A` and `b`; weights are solved again from those accumulated statistics.** We do not add `w_new` to `w_old`, and we do not repeatedly add regularization to the stored matrix. The solve uses the same `epsilon * I` each time, so its strength relative to the growing raw sums decreases.
 
-So far, the successful critic reads ordinary hidden features. The next question is whether a more structured readout can improve that input.
+For the apples example, a trajectory from fold 0 contributes to `A[0]` and `b[0]`. Its own advantages use `w[1]`, which was fitted from fold 1. On a later update, another fold-0 answer adds new statistics to the same system. The encoder and filter retain their meaning throughout, even as the actor changes its answers.
 
-We use the official Jacobian-lens implementation to fit layer-specific transports. Our complete-readout construction retains RMS normalization and all pre-softmax vocabulary-score information in exact compact coordinates. It does not select a sparse list of words.
+The critic trace `lambda_c` determines how rewards and transitions enter the fit. The GAE trace `lambda_a` determines how the fitted values become actor advantages. Both can propagate information backward through an answer, but they act at different stages and are independently chosen.
 
-The proposed layer schedule measures distances 1, 2, 4, 8 and 16 from the end, giving blocks **28, 27, 25, 21 and 13**. Their compact readouts concatenate into 7,680 coordinates. This geometric schedule is our hypothesis, not a prescription from the paper.
+There is no replay of old actions in the PPO update. Historical information remains in the critic's matrices, including the historical-policy mismatch discussed above. Changing the nonlinear filter or encoder requires rebuilding or discarding those matrices. This algorithm describes how the pieces can be integrated; it does not establish that the learned filter improves PPO or that accumulating off-policy experience is always beneficial.
 
-An initial bounded study found:
+## 8. What would make PPO genuinely faster?
 
-| Representation, with ridge | Test Brier error ↓ | Correctness-prediction accuracy |
-|---|---:|---:|
-| Complete J-lens concatenation | 0.18800 | 72.1% |
-| Raw hidden concatenation | 0.19337 | 71.3% |
-| RMS-normalized hidden concatenation | 0.18908 | 72.4% |
-| Two-thirds hidden layer | **0.18406** | **73.2%** |
+A smaller linear system is only one part of the budget. For feature dimension \(m\), dense matrices require \(O(m^2)\) storage; accumulating outer products over \(T\) transitions takes roughly \(O(Tm^2)\) work, and a dense solve costs \(O(m^3)\). Feature extraction, communication and bottleneck inference add their own costs.
 
-The complete lens improved over raw concatenation. Its difference from normalization-matched concatenation was inconclusive, and the single two-thirds layer remained better. Earlier sparse reconstructions performed worse; removing that restriction was useful, but did not establish a superior critic.
+The relevant comparison includes rollout generation, encoder passes, critic fitting and actor updates. A method that fits values cheaply but produces poor advantages may need many more updates. A more expensive critic can still be preferable if it reaches a target quality sooner.
 
-## 7. The large comparison now underway
+The useful objective is therefore time or compute to reach a specified policy quality, together with stability across runs. Offline correctness prediction is an intermediate diagnostic. It cannot establish that replacing the critic improves the policy or lowers total training cost.
 
-The new study targets **104,000 main-study answers** from a filtered NuminaMath subset: 10,000 training, 1,000 validation and 2,000 test question families, with eight answers each. Known overlap with our earlier datasets is filtered, although pretraining overlap cannot be ruled out.
-
-The actor stays frozen. We store intermediate representations and compare five feature maps: complete J-lens concatenation, raw concatenation, normalized concatenation, the two-thirds layer and the final layer. The study fits one-layer sigmoid, two-layer MLP and ten-layer residual probes, plus ridge and LSTD(0.99).
-
-Neural probes use random prefixes; the matched ridge/LSTD comparison uses consecutive token transitions. Their training-state weighting consequently differs, even when evaluation prefixes match. Validation chooses settings, and question-separated test data measure generalization. Accuracy is accompanied by probability error and computational cost. The [study protocol](../large-jlens-study.md) records the details.
-
-This is a representation experiment before it is a new PPO experiment. Concatenation also expands the linear system: moving from 1,537 to 7,681 coordinates costs about 25 times the dense matrix storage and roughly 125 times the dense-solve work. We cannot call the replacement cheaper merely because its final head is linear.
-
-The immediate decision is whether a lens representation earns its additional cost. If it does, the next controlled online experiment keeps the successful accumulated LSTD/PPO machinery fixed and changes the critic's features. If it does not, the existing two-thirds-layer critic remains a strong practical baseline. Either outcome informs the longer-term idea of using an inexpensive value estimator to guide verified search, but formal proof search still needs its own data and tests.
-
-Our project has shown that a small fitted value head can support meaningful actor learning, and that its representation matters. Could a complete J-lens readout improve that accuracy–cost trade-off enough to become the next critic—or will ordinary intermediate features remain the more useful choice?
+The project's broader vision is to reuse a language model's representations, compress the information useful for value estimation, and update a small critic through accumulated experience. Could that separation make PPO substantially more economical while preserving the quality of the decisions it learns?

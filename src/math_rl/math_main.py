@@ -60,8 +60,19 @@ def validate(config):
         raise ValueError('Calibration must evaluate validation data only')
     mode = config.actor_rollout_ref.model.critic_feature_mode
     layer = config.actor_rollout_ref.model.get('critic_feature_layer', 'final')
-    if layer not in ('final', 'two_thirds') or (layer != 'final' and mode != 'frozen'):
+    if layer not in ('final', 'two_thirds', 'bottleneck') or (layer != 'final' and mode != 'frozen'):
         raise ValueError('Intermediate features require a frozen encoder')
+    precision = config.actor_rollout_ref.model.get('critic_encoder_precision', 'bf16')
+    if precision not in ('bf16', 'fp32'):
+        raise ValueError('Unknown frozen encoder precision')
+    if layer == 'bottleneck':
+        model = config.actor_rollout_ref.model
+        if (not cumulative or precision != 'fp32' or config.experiment.encoder_refresh_interval
+                or not model.critic_bottleneck_path or not model.critic_bottleneck_sha256
+                or not model.critic_bottleneck_layers):
+            raise ValueError('Bottleneck requires immutable FP32 cumulative features and a hashed checkpoint')
+        if sha256(model.critic_bottleneck_path) != model.critic_bottleneck_sha256:
+            raise ValueError('Bottleneck checkpoint changed')
     capacity = config.experiment.replay_capacity
     if mode not in ('actor', 'frozen') or capacity < 0:
         raise ValueError('Invalid critic feature/replay mode')

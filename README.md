@@ -944,3 +944,21 @@ hidden layers. It screens on saved validation prefixes before rebuilding all-tok
 Ridge/LSTD statistics, with PCA and full/single-layer controls. This is a
 supervised sparsity ablation, not a replication of the geometric RL paper's full
 rate-reduction architecture. No outcome or speedup is established yet.
+
+### Online Numina comparison (next experiment)
+
+The [nine-arm PPO study](docs/numina-online.md) compares conventional PPO with
+Ridge/LSTD(0.99) on plain-768, sparse-768, frozen two-thirds and final-layer features.
+It uses new question families outside the bottlenecks' training/selection data,
+validation-only PPO calibration, five actor seeds and matched rollout budgets.
+Linear critics accumulate raw cross-fitted statistics with a frozen encoder and
+no buffer. The learned filter stays fixed; online value heads start from zero.
+Offline supervised compression motivates this test but does not establish an
+online advantage. Results are pending; runtime and prior representation-learning
+cost must be considered alongside final policy accuracy.
+
+The online study also offers a larger preset: 3,000 training / 500 validation /
+2,000 test questions, 200 updates (12,800 answers per run), and the same five seeds.
+Use `--large` with a new output directory; matrix accumulation and all nine arms
+remain unchanged. This expands data and training horizon, with substantially higher
+compute cost; see the protocol for commands and limitations.
