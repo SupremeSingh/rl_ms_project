@@ -97,6 +97,12 @@ def test_filter_selection_uses_validation_only(tmp_path):
     (sparse/'screen.json').write_text(json.dumps(dict(selected=selected)))
     _,filters=study.lock_filters(source,sparse,out)
     assert all(v['selected'].endswith('43') for v in filters.values())
+    # A failed preparation can reuse identical copies, but never changed weights.
+    _,again=study.lock_filters(source,sparse,out)
+    assert again == filters
+    (out/'filters/plain.pt').write_bytes(b'changed')
+    with pytest.raises(ValueError,match='Existing filter differs'):
+        study.lock_filters(source,sparse,out)
     # No test artifacts exist: selection must not depend on them.
 
 
@@ -138,3 +144,22 @@ def test_large_budget_increases_questions_and_training_without_changing_arms():
     cmd=study.command(Path('/tmp/large'),m,'ppo',201,large['steps'])
     assert 'trainer.total_training_steps=200' in cmd
     with pytest.raises(ValueError): study.study_budget('invalid')
+
+
+def test_filter_cost_ignores_downstream_fit_files(tmp_path):
+    trials=[]
+    for kind in ('plain','sparse'):
+        for lr in (.001,.0001):
+            trials.append(dict(kind=kind,seed=42,lr=lr))
+            torch.save(dict(seconds=2.5),tmp_path/f'{kind}-42-{lr}.pt')
+        # These real downstream artifacts have weights/checks, not training time.
+        torch.save(dict(weights=torch.ones(2),checks={}),tmp_path/f'{kind}-42-ridge-fit.pt')
+        torch.save(dict(weights=torch.ones(2),checks={}),tmp_path/f'{kind}-42-lstd-fit.pt')
+    (tmp_path/'screen.json').write_text(json.dumps(dict(trials=trials)))
+    recorded=study.filter_training_trials(tmp_path)
+    assert len(recorded)==4
+    assert sum(t['seconds'] for t in recorded)==10
+    # Missing metadata in an actual training trial must still fail explicitly.
+    torch.save({},tmp_path/'plain-42-0.001.pt')
+    with pytest.raises(KeyError,match='seconds'):
+        study.filter_training_trials(tmp_path)

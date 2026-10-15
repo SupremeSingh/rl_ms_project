@@ -79,7 +79,7 @@ def lock_filters(source, sparse, out):
         raise ValueError('Source question snapshot changed')
     selected = read(sparse/'screen.json')['selected']
     result = {}
-    (out/'filters').mkdir()
+    (out/'filters').mkdir(exist_ok=True)
     for kind in ('plain','sparse'):
         candidates = [(v['validation']['brier'], k, v) for k,v in selected.items() if k.startswith(kind+'-')]
         _, key, item = min(candidates)
@@ -90,11 +90,30 @@ def lock_filters(source, sparse, out):
         if record['kind'] != kind or record['width'] != 768:
             raise ValueError('Wrong filter kind/width')
         dest = out/'filters'/f'{kind}.pt'
-        shutil.copyfile(path,dest)
+        if dest.exists():
+            if sha256(dest) != item['sha256']:
+                raise ValueError(f'Existing filter differs from selection: {dest}')
+        else:
+            shutil.copyfile(path,dest)
         result[kind] = dict(path=str(dest), sha256=sha256(dest), selected=key,
             validation_brier=item['validation']['brier'],
             training_seconds=record['seconds'])
     return m,result
+
+
+def filter_training_trials(sparse):
+    """Account for encoder training, not downstream Ridge/LSTD fit artifacts."""
+    trials = []
+    for trial in read(sparse/'screen.json')['trials']:
+        path = sparse/f"{trial['kind']}-{trial['seed']}-{trial['lr']}.pt"
+        record = torch.load(path, map_location='cpu', weights_only=True)
+        seconds = float(record['seconds'])
+        if not np.isfinite(seconds) or seconds < 0:
+            raise ValueError(f'Invalid filter training time: {path}')
+        trials.append(dict(path=path.name, seconds=seconds, sha256=sha256(path)))
+    if not trials:
+        raise ValueError('No filter training trials recorded in screen.json')
+    return trials
 
 
 def prepare(args):
@@ -109,11 +128,7 @@ def prepare(args):
     if out == source or source in out.parents or out == sparse or sparse in out.parents:
         raise ValueError('Output must be separate from both source studies')
     m,filters=lock_filters(source,sparse,out)
-    filter_trials=[]
-    for path in sorted(sparse.glob('*.pt')):
-        if path.name.startswith(('plain-','sparse-')):
-            r=torch.load(path,map_location='cpu',weights_only=True)
-            filter_trials.append(dict(path=path.name,seconds=float(r['seconds']),sha256=sha256(path)))
+    filter_trials=filter_training_trials(sparse)
     for name,checksum in m['model_hashes'].items():
         if sha256(ROOT/'models/qwen-math'/name) != checksum:
             raise ValueError('Base model/tokenizer differs from the offline study')
