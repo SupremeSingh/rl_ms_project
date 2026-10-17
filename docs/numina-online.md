@@ -199,3 +199,30 @@ bash scripts/submit_numina_online.sh \
 Six concurrent runs request twelve GPUs. There are 27 runs; queue availability
 and evaluation overhead determine completion time. A one-to-two-day finish is
 an estimate, not a guarantee. The report uses the actual number of seeds.
+
+
+### Focused five-method comparison
+
+For a smaller follow-up, add `--focused` to short preparation and use a new output:
+
+```bash
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/numina_online.py \
+  --stage short --focused --source outputs/numina-online-768-large-v1 \
+  --out outputs/numina-online-768-focused-v1
+bash scripts/submit_numina_online.sh \
+  outputs/jlens-large-numina-v2 outputs/numina-sparse-768-v1 \
+  --out outputs/numina-online-768-focused-v1 --full --concurrency 6
+```
+
+Stop any older online arrays and their report jobs before updating the shared
+checkout. Preserve their outputs. This runs 15 fresh experiments: PPO,
+LSTD(0.99) two-thirds, LSTD(0.99) plain 768, LSTD(0.99) sparse 768, and Ridge sparse
+768, each with three seeds and 60 updates. Prepared question splits, filters and
+validation-only PPO calibration are reused; online actor checkpoints are not.
+All linear methods retain frozen features, cumulative matrices and question
+cross-fitting. Four primary contrasts address the baseline, compression,
+sparsity, and LSTD versus Ridge respectively. There is no final-layer arm or
+complete representation-by-fitting-method factorial comparison in this subset.
+The scheduler derives 15 tasks from the manifest; six concurrent runs request
+12 GPUs. Allow queue time and evaluation overhead; completion within two days
+is not guaranteed. Reports require all 15 runs, not the original 45.

@@ -962,3 +962,12 @@ The online study also offers a larger preset: 3,000 training / 500 validation /
 Use `--large` with a new output directory; matrix accumulation and all nine arms
 remain unchanged. This expands data and training horizon, with substantially higher
 compute cost; see the protocol for commands and limitations.
+
+
+A [focused Numina follow-up](docs/numina-online.md#focused-five-method-comparison)
+reduces the online budget to five methods, three seeds and 60 updates (15 runs).
+It compares PPO with cumulative LSTD(0.99) using two-thirds-layer, plain 768 and
+sparse 768 features, plus Ridge on sparse 768 features. It reuses prepared data
+and validation calibration, with fresh actor runs and up to six concurrent jobs.
+This narrower study tests compression and sparsity without claiming a complete
+comparison across every layer and fitting method; results are pending.

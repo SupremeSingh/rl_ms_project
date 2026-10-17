@@ -106,10 +106,14 @@ def test_filter_selection_uses_validation_only(tmp_path):
     # No test artifacts exist: selection must not depend on them.
 
 
-def test_complete_report_has_paired_primary_comparisons_and_all_answers(tmp_path,monkeypatch):
+@pytest.mark.parametrize("focused", [False, True])
+def test_complete_report_has_paired_primary_comparisons_and_all_answers(tmp_path,monkeypatch,focused):
     m=dict(conditions=study.conditions(),seeds=[201,202,203,204,205],steps=1,scope='synthetic',
         primary_comparisons=['lstd-plain_minus_lstd-two_thirds','lstd-sparse_minus_lstd-two_thirds',
                              'ridge-plain_minus_ridge-two_thirds','ridge-sparse_minus_ridge-two_thirds'])
+    if focused:
+        m.update(conditions={k: study.conditions()[k] for k in study.FOCUSED_METHODS},
+                 seeds=[201,202,203], primary_comparisons=list(study.FOCUSED_COMPARISONS))
     (tmp_path/'data').mkdir()
     (tmp_path/'data/questions.json').write_text(json.dumps(dict(questions=[
         dict(id='a',ground_truth='1',split='test'),dict(id='b',ground_truth='2',split='test')])))
@@ -129,9 +133,9 @@ def test_complete_report_has_paired_primary_comparisons_and_all_answers(tmp_path
                 (case/'linear-critic/metrics.jsonl').write_text(json.dumps(dict(step=1,fit_seconds=1)))
     study.report(tmp_path,m)
     summary=json.loads((tmp_path/'summary.json').read_text())
-    assert len(summary['methods'])==9
+    assert len(summary['methods'])==len(m['conditions'])
     assert all(summary['paired'][key]['mean_pp']==0 for key in m['primary_comparisons'])
-    assert len((tmp_path/'audit.jsonl').read_text().splitlines())==90
+    assert len((tmp_path/'audit.jsonl').read_text().splitlines())==2*len(m['conditions'])*len(m['seeds'])
     assert 'PPO health passed for all seeds: True' in (tmp_path/'report.txt').read_text()
 
 
@@ -163,3 +167,33 @@ def test_filter_cost_ignores_downstream_fit_files(tmp_path):
     torch.save({},tmp_path/'plain-42-0.001.pt')
     with pytest.raises(KeyError,match='seconds'):
         study.filter_training_trials(tmp_path)
+
+
+@pytest.mark.parametrize('focused', [False, True])
+def test_short_preparation_and_task_schedule(tmp_path, monkeypatch, focused):
+    source=tmp_path/'source'; out=tmp_path/'short'
+    (source/'data').mkdir(parents=True); out.mkdir()
+    (source/'data/questions.json').write_text('{}')
+    checkpoint=source/'filter.pt'; checkpoint.write_bytes(b'filter')
+    m=dict(conditions=study.conditions(),answers_per_update=64,
+           data_hashes={'questions.json':study.sha256(source/'data/questions.json')},
+           filters={'plain':dict(path=str(checkpoint),sha256=study.sha256(checkpoint))},
+           model_hashes={},provenance={'files':{}},seeds=[201,202,203,204,205],scope='Original.')
+    (source/'manifest.json').write_text(json.dumps(m))
+    (source/'smoke.json').write_text(json.dumps(dict(passed=True,conditions=list(study.conditions()))))
+    (source/'selection.json').write_text(json.dumps({'profile':'more_fitting'}))
+    (source/'result.json').write_text('{}')
+    monkeypatch.setattr(study,'snapshot',lambda root:{'files':{'new':'hash'}})
+    study.prepare_short(source,out,focused)
+    saved=json.loads((out/'manifest.json').read_text())
+    assert saved['steps']==60 and saved['seeds']==[201,202,203]
+    assert saved['preset']=='short' and not (out/'result.json').exists()
+    assert len(saved['conditions'])==(5 if focused else 9)
+    if focused: assert saved['primary_comparisons']==list(study.FOCUSED_COMPARISONS)
+    calls=[]
+    monkeypatch.setattr(study,'launch',lambda *args: calls.append(args))
+    for task in range(3*len(saved['conditions'])): study.run_task(out,saved,task)
+    assert {(c[2],c[3]) for c in calls}=={(name,seed) for name in saved['conditions'] for seed in saved['seeds']}
+    assert all(c[4]==60 for c in calls)
+    with pytest.raises(ValueError,match='Invalid task'): study.run_task(out,saved,len(calls))
+    with pytest.raises(ValueError,match='empty'): study.prepare_short(source,out,focused)

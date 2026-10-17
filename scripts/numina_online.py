@@ -173,7 +173,16 @@ def prepare(args):
     print('Prepared fresh splits:',eligibility['counts'],flush=True)
 
 
-def prepare_short(source, out):
+FOCUSED_METHODS = ('ppo', 'lstd-two_thirds', 'lstd-plain', 'lstd-sparse', 'ridge-sparse')
+FOCUSED_COMPARISONS = (
+    'lstd-two_thirds_minus_ppo',
+    'lstd-plain_minus_lstd-two_thirds',
+    'lstd-sparse_minus_lstd-plain',
+    'lstd-sparse_minus_ridge-sparse',
+)
+
+
+def prepare_short(source, out, focused=False):
     """Fork data and validation decisions, never actor checkpoints or test results."""
     source, out = source.resolve(), out.resolve()
     if source == out or source in out.parents:
@@ -196,6 +205,11 @@ def prepare_short(source, out):
     for name, checksum in m['model_hashes'].items():
         if sha256(ROOT/'models/qwen-math'/name) != checksum:
             raise ValueError('Model changed')
+    names = list(FOCUSED_METHODS) if focused else list(m['conditions'])
+    if len(m['seeds']) < 3 or len(set(m['seeds'])) != len(m['seeds']):
+        raise ValueError('Require at least three distinct source seeds')
+    if not set(names).issubset(smoke.get('conditions', [])):
+        raise ValueError('Source smoke does not cover requested methods')
     shutil.copytree(source/'data', out/'data')
     (out/'filters').mkdir()
     for kind, f in m['filters'].items():
@@ -205,6 +219,10 @@ def prepare_short(source, out):
     m['parent_study'] = dict(path=str(source), manifest_sha256=sha256(source/'manifest.json'),
                              provenance=m['provenance'])
     m.update(preset='short', steps=60, seeds=m['seeds'][:3], provenance=snapshot(ROOT))
+    if focused:
+        m['conditions'] = {name: m['conditions'][name] for name in names}
+        m['primary_comparisons'] = list(FOCUSED_COMPARISONS)
+    m['method_subset'] = 'focused' if focused else 'all'
     m['scope'] += ' Short-budget follow-up; same questions and reused validation calibration, not an independent benchmark.'
     for name, record in [('smoke', smoke), ('selection', selection)]:
         record['reused_from'] = str(source)
@@ -373,11 +391,13 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out',type=Path,required=True);p.add_argument('--source',type=Path)
     p.add_argument('--sparse',type=Path);p.add_argument('--stage',choices=['prepare','short','smoke','calibrate','run','report'],required=True)
+    p.add_argument('--focused', action='store_true', help='Five-method subset; only with --stage short')
     p.add_argument('--preset',choices=['standard','large','short'],default='standard');p.add_argument('--task',type=int,default=0);args=p.parse_args();args.out=args.out.resolve()
+    if args.focused and args.stage != 'short': p.error('--focused requires --stage short')
     args.out.mkdir(parents=True,exist_ok=True)
     if args.stage == 'short':
         if not args.source: p.error('Short preparation requires --source')
-        prepare_short(args.source, args.out)
+        prepare_short(args.source, args.out, focused=args.focused)
         return
     torch.set_num_threads(8)
     status=args.out/f'{args.stage}-{args.task}-status.json';started=time.perf_counter()
