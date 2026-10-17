@@ -173,6 +173,45 @@ def prepare(args):
     print('Prepared fresh splits:',eligibility['counts'],flush=True)
 
 
+def prepare_short(source, out):
+    """Fork data and validation decisions, never actor checkpoints or test results."""
+    source, out = source.resolve(), out.resolve()
+    if source == out or source in out.parents:
+        raise ValueError('Short study needs a separate output directory')
+    if any(out.iterdir()):
+        raise ValueError('Short study output must be empty')
+    m = read(source/'manifest.json')
+    if m['conditions'] != conditions() or m['answers_per_update'] != 64:
+        raise ValueError('Incompatible source protocol')
+    smoke = read(source/'smoke.json')
+    selection = read(source/'selection.json')
+    if not smoke['passed'] or selection['profile'] not in PPO_PROFILES:
+        raise ValueError('Require passed smoke and completed PPO calibration')
+    for name, checksum in m['data_hashes'].items():
+        if sha256(source/'data'/name) != checksum:
+            raise ValueError('Source data changed')
+    for f in m['filters'].values():
+        if sha256(f['path']) != f['sha256']:
+            raise ValueError('Source filter changed')
+    for name, checksum in m['model_hashes'].items():
+        if sha256(ROOT/'models/qwen-math'/name) != checksum:
+            raise ValueError('Model changed')
+    shutil.copytree(source/'data', out/'data')
+    (out/'filters').mkdir()
+    for kind, f in m['filters'].items():
+        dest = out/'filters'/f'{kind}.pt'
+        shutil.copyfile(f['path'], dest)
+        f['path'] = str(dest)
+    m['parent_study'] = dict(path=str(source), manifest_sha256=sha256(source/'manifest.json'),
+                             provenance=m['provenance'])
+    m.update(preset='short', steps=60, seeds=m['seeds'][:3], provenance=snapshot(ROOT))
+    m['scope'] += ' Short-budget follow-up; same questions and reused validation calibration, not an independent benchmark.'
+    for name, record in [('smoke', smoke), ('selection', selection)]:
+        record['reused_from'] = str(source)
+        write_json(out/f'{name}.json', record)
+    write_json(out/'manifest.json', m)
+
+
 def validate(out):
     m=read(out/'manifest.json')
     if m['provenance']['files'] != snapshot(ROOT)['files']:
@@ -315,12 +354,12 @@ def report(out,m):
     summary=dict(methods=results,paired=paired,primary_comparisons=m['primary_comparisons'],
         base_accuracy=float(np.mean(base_ref)),ppo_health=health,selection=read(out/'selection.json'),
         filter_pretraining=m.get('filter_pretraining'),
-        scope=m['scope'],limitations='Five actor seeds, one selected filter per arm. Approximate seed/question bootstrap; '
+        scope=m['scope'],limitations=f'{len(m["seeds"])} actor seeds, one selected filter per arm. Approximate seed/question bootstrap; '
         'four primary intervals use Bonferroni nominal coverage; other comparisons exploratory. '
         'No automatic superiority claim. Audit verifier answers before claims. Offline filter learning cost is additional.')
     write_json(out/'summary.json',summary)
     lines=['Numina online: fixed 768 bottlenecks and frozen single-layer controls; no buffer.',
-        f'{m["steps"]} updates x 64 answers; five seeds; final greedy evaluation.',
+        f'{m["steps"]} updates x 64 answers; {len(m["seeds"])} seeds; final greedy evaluation.',
         'method                   accuracy    training GPUh   accounted GPUh']
     lines += [f'{name:25} {r["accuracy_mean"]:.4f}      {r["training_gpu_hours_mean"]:.3f}          {r["accounted_gpu_hours_mean"]:.3f}' for name,r in results.items()]
     lines += [f'{k}: {paired[k]}' for k in m['primary_comparisons']]
@@ -333,9 +372,13 @@ def report(out,m):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out',type=Path,required=True);p.add_argument('--source',type=Path)
-    p.add_argument('--sparse',type=Path);p.add_argument('--stage',choices=['prepare','smoke','calibrate','run','report'],required=True)
-    p.add_argument('--preset',choices=['standard','large'],default='standard');p.add_argument('--task',type=int,default=0);args=p.parse_args();args.out=args.out.resolve()
+    p.add_argument('--sparse',type=Path);p.add_argument('--stage',choices=['prepare','short','smoke','calibrate','run','report'],required=True)
+    p.add_argument('--preset',choices=['standard','large','short'],default='standard');p.add_argument('--task',type=int,default=0);args=p.parse_args();args.out=args.out.resolve()
     args.out.mkdir(parents=True,exist_ok=True)
+    if args.stage == 'short':
+        if not args.source: p.error('Short preparation requires --source')
+        prepare_short(args.source, args.out)
+        return
     torch.set_num_threads(8)
     status=args.out/f'{args.stage}-{args.task}-status.json';started=time.perf_counter()
     write_json(status,dict(state='running',stage=args.stage,task=args.task))

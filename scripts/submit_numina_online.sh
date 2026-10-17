@@ -4,16 +4,18 @@ set -euo pipefail
 source_study="${1:?Usage: bash scripts/submit_numina_online.sh SOURCE SPARSE --out DIR [--large] [--full]}"
 sparse="${2:?Supply the completed 768-dimensional sparse study}"
 shift 2
-out='' full=0 preset=''
+out='' full=0 preset='' concurrency=2
 while (($#)); do
   case "$1" in
     --out) out="${2:?}"; shift 2;;
     --full) full=1; shift;;
+    --concurrency) concurrency="${2:?}"; shift 2;;
     --large) preset=large; shift;;
     *) echo "Unknown option: $1" >&2; exit 2;;
   esac
 done
 [[ -n "$out" && -f scripts/numina_online.py ]] || { echo 'Run from repository root with --out.' >&2; exit 2; }
+[[ "$concurrency" =~ ^[1-9][0-9]*$ ]] || { echo "Concurrency must be positive" >&2; exit 2; }
 source_study="$(cd "$source_study" && pwd)"
 sparse="$(cd "$sparse" && pwd)"
 mkdir -p "$out"
@@ -52,7 +54,8 @@ else
   python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["passed"]' "$out/smoke.json"
   dep=''
   if [[ ! -f "$out/selection.json" ]]; then dep="$(submit calibrate '' '' 1 "$wall")"; fi
-  train="$(submit run "$dep" '0-44%2' 1 "$wall")"
+  last="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(len(m["seeds"])*len(m["conditions"])-1)' "$out/manifest.json")"
+  train="$(submit run "$dep" "0-$last%$concurrency" 1 "$wall")"
   job="$(submit report "$train" '' 0 03:00:00)"
   echo "Final report: $out/report.txt (job $job)"
 fi

@@ -178,3 +178,24 @@ budget. They are alternative allocations from the same eligible pool, not
 independent replications; their split boundaries can overlap. If standard test
 results have already been inspected, do not describe the large study as an
 untouched confirmation. Never alter files while existing jobs are running.
+
+### Shorter follow-up using completed preparation
+
+To reduce the budget without mixing training lengths, use a separate output with
+60 updates, the first three seeds, and all nine methods. Reuse the original data,
+validated filters, passed smoke test and validation-only PPO selection. No actor
+checkpoints or final test results are copied. This is not an independent benchmark.
+Stop the old array before syncing code: running jobs use the shared checkout.
+
+```bash
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/numina_online.py \
+  --stage short --source outputs/numina-online-768-large-v1 \
+  --out outputs/numina-online-768-short-v1
+bash scripts/submit_numina_online.sh \
+  outputs/jlens-large-numina-v2 outputs/numina-sparse-768-v1 \
+  --out outputs/numina-online-768-short-v1 --full --concurrency 6
+```
+
+Six concurrent runs request twelve GPUs. There are 27 runs; queue availability
+and evaluation overhead determine completion time. A one-to-two-day finish is
+an estimate, not a guarantee. The report uses the actual number of seeds.
