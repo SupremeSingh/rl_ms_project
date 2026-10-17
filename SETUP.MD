@@ -4,9 +4,11 @@ For the goal, results and interpretation, read [README.md](README.md).
 Run submissions from the repository on Duke's login node. Slurm runs the work on
 compute nodes; you may disconnect SSH after submission.
 
-**Current next step:** the [calibrated PPO comparison](#calibrated-ppo-comparison).
-The buffer and planning are paused. Use the original completed MATH fitting
-output as the source; no further offline generation is needed.
+**Current status:** the focused Numina comparison is complete; math experiments
+are paused. See [README.md](README.md) for the final design and results and
+[the focused protocol](docs/numina-online.md#focused-five-method-comparison)
+for reproduction. The phase-by-phase commands below are historical workflows,
+not instructions to rerun every experiment.
 
 Commands with `JOB_ID` or other uppercase placeholders require your returned job
 number. Input-path placeholders such as `CRITICS_JOB_ID` refer to the completed
