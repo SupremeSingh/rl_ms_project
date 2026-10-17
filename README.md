@@ -207,3 +207,9 @@ which branch receives effort.
 
 Our vision is to reuse rich LLM representations for inexpensive value learning.
 The next question is whether a small critic can buy more verified proofs per unit of compute.
+
+
+For a poster focused on correctness prediction rather than RL, the
+[offline evidence export](docs/probe-poster-evidence.md) collects saved probe
+metrics, split counts, prefix-position diagnostics and size/timing accounting.
+It requires no new generation or training.
