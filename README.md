@@ -1,4 +1,4 @@
-# A small critic, a better next step
+# Math RL: Can PPO Use a Cheaper Critic?
 
 **Can an LLM learn with PPO without training a second large transformer to judge its progress?**
 We fit a linear value function on compact features from a frozen LLM. Instead of
