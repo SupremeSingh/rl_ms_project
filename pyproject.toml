@@ -11,6 +11,7 @@ dependencies = ["datasets", "pyarrow", "huggingface-hub", "PyYAML"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+figures = ["matplotlib>=3.8,<4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
