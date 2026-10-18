@@ -14,18 +14,13 @@ from pathlib import Path
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FixedLocator, NullLocator, PercentFormatter
 
-NAVY = '#102E5C'
-BLUE = '#477DA4'
-TEAL = '#087F73'
-GRAY = '#707B85'
 ARMS = (
-    ('final/ridge', 'FINAL LAYER', 1536, NAVY),
-    ('two_thirds/ridge', 'TWO-THIRDS LAYER', 1536, BLUE),
-    ('normalized_concat/ridge', 'FIVE LAYERS', 7680, BLUE),
-    ('plain_768/ridge', 'PLAIN 768', 768, GRAY),
-    ('sparse_768/ridge', 'SLICE: SPARSE 768', 768, TEAL),
+    ('final/ridge', 'Final layer', 1536, '#4C72B0'),
+    ('two_thirds/ridge', 'Two-thirds layer', 1536, '#DD8452'),
+    ('normalized_concat/ridge', 'Five layers', 7680, '#55A868'),
+    ('plain_768/ridge', 'Plain', 768, '#8C8C8C'),
+    ('sparse_768/ridge', 'SLICE (sparse)', 768, '#C44E52'),
 )
 
 # Fixed poster subset; chosen for presentation, not selected by test score.
@@ -63,13 +58,15 @@ def load_evidence(path):
 
 
 def style():
+    """Ordinary Matplotlib styling, matching the supplied simple bar-chart examples."""
+    plt.rcdefaults()
     plt.rcParams.update({
         'font.family': 'DejaVu Sans', 'font.size': 11,
-        'text.color': NAVY, 'axes.labelcolor': NAVY,
-        'xtick.color': NAVY, 'ytick.color': NAVY,
-        'axes.edgecolor': '#BDC7D1', 'axes.spines.top': False,
-        'axes.spines.right': False, 'axes.titleweight': 'bold',
-        'axes.labelsize': 11, 'xtick.labelsize': 10, 'ytick.labelsize': 10,
+        'text.color': 'black', 'axes.labelcolor': 'black',
+        'xtick.color': 'black', 'ytick.color': 'black',
+        'axes.edgecolor': 'black', 'axes.titleweight': 'bold',
+        'axes.titlesize': 16, 'axes.labelsize': 14, 'axes.labelweight': 'bold',
+        'xtick.labelsize': 11, 'ytick.labelsize': 11,
         'pdf.fonttype': 42, 'ps.fonttype': 42, 'svg.fonttype': 'none',
         'savefig.facecolor': 'white', 'figure.facecolor': 'white',
     })
@@ -86,83 +83,44 @@ def save_figure(fig, directory, stem, dpi):
 
 
 def quality_vs_size(summary, directory, dpi):
-    """Minimal poster panel; method names and two axes carry the comparison."""
+    """Simple vertical bars; each category explicitly names its feature count."""
     results = summary['results']
-    fig, ax = plt.subplots(figsize=(7.4, 4.8))
-    fig.subplots_adjust(left=.13, right=.97, bottom=.17, top=.94)
-    # A linear feature-count axis avoids needing a log-scale explanation.
-    ax.set_xlim(0, 9000)
-    ax.set_ylim(65.5, 75)
-    ax.xaxis.set_major_locator(FixedLocator([768, 1536, 7680]))
-    ax.set_xticklabels(['768', '1,536', '7,680'])
-    ax.xaxis.set_minor_locator(NullLocator())
-    ax.set_yticks([66, 68, 70, 72, 74])
-    ax.yaxis.set_major_formatter(PercentFormatter(xmax=100, decimals=0))
-    ax.set_ylabel('Prediction accuracy', labelpad=10, fontsize=13)
-    ax.set_xlabel('Number of features', labelpad=12, fontsize=13)
-    ax.grid(axis='y', color='#E5EAF0', linewidth=.7)
-    ax.set_axisbelow(True)
-    for key, _, size, color in ARMS:
-        value = 100 * checked_metric(results[key], 'accuracy')
-        if key == 'plain_768/ridge':
-            ax.scatter(size, value, s=180, facecolors='none', edgecolors=color,
-                       linewidths=1.7, zorder=4)
-        elif key == 'sparse_768/ridge':
-            ax.scatter(size, value, s=65, marker='D', color=color, zorder=5)
-        else:
-            ax.scatter(size, value, s=75, color=color, zorder=4)
-    for key, label, _, color in ARMS[:2]:
-        value = 100 * checked_metric(results[key], 'accuracy')
-        ax.annotate(label.title(), (1536, value), xytext=(12, 0),
-                    textcoords='offset points', va='center', fontsize=11, color=color)
-    concat = 100 * checked_metric(results['normalized_concat/ridge'], 'accuracy')
-    ax.annotate('Five layers', (7680, concat), xytext=(6800, 73.25),
-                ha='center', va='center', fontsize=11, color=BLUE,
-                arrowprops=dict(arrowstyle='-', color=BLUE, linewidth=.9))
-    sparse = 100 * checked_metric(results['sparse_768/ridge'], 'accuracy')
-    # Both markers remain at their true values; no jitter or invented separation.
-    ax.annotate('SLICE / Plain', (768, sparse), xytext=(1850, 74),
-                ha='left', va='center', fontsize=12, color=TEAL, weight='bold',
-                arrowprops=dict(arrowstyle='-', color=TEAL, linewidth=.9))
+    values = [100 * checked_metric(results[key], 'accuracy') for key, *_ in ARMS]
+    labels = [f'{label}\n{size:,}' for _, label, size, _ in ARMS]
+    fig, ax = plt.subplots(figsize=(8, 4.8))
+    fig.subplots_adjust(left=.11, right=.98, bottom=.22, top=.86)
+    bars = ax.bar(range(len(ARMS)), values, width=.68,
+                  color=[arm[3] for arm in ARMS], edgecolor='black', linewidth=.8)
+    ax.set_xticks(range(len(ARMS)), labels=labels)
+    ax.set_ylim(0, 82)
+    ax.set_yticks([0, 20, 40, 60, 80])
+    ax.set_ylabel('Prediction accuracy (%)')
+    ax.set_xlabel('Representation (number of features)', labelpad=10)
+    ax.set_title('Prediction accuracy vs. representation size', pad=14)
+    ax.bar_label(bars, labels=[f'{v:.2f}%' for v in values], padding=5,
+                 fontsize=11, fontweight='bold')
+    ax.grid(False)
     return save_figure(fig, directory, 'prediction-quality-vs-size', dpi)
 
 
 def before_generation(summary, directory, dpi):
-    group = summary['by_prefix']['question_only']
-    results = group['results']
-    fig, ax = plt.subplots(figsize=(7.4, 5.8))
-    fig.subplots_adjust(left=.35, right=.83, bottom=.30, top=.78)
-    fig.text(.05, .95, 'PREDICTION BEFORE GENERATION', fontsize=15, weight='bold')
-    fig.text(.05, .895, 'Question only. No answer tokens. The language model stays frozen.', fontsize=10.5)
-    ax.set_xlim(0, 82)
-    ax.set_xticks([0, 20, 40, 60, 80])
-    ax.set_ylim(-.6, len(BEFORE_ARMS) - .4)
+    """Three plain horizontal bars; values printed at their ends, no side tables."""
+    results = summary['by_prefix']['question_only']['results']
+    values = [100 * checked_metric(results[key], 'accuracy') for key, *_ in BEFORE_ARMS]
+    labels = ['Final layer', 'Five layers', 'SLICE: Sparse 768']
+    fig, ax = plt.subplots(figsize=(8, 3.8))
+    fig.subplots_adjust(left=.27, right=.97, bottom=.22, top=.83)
+    bars = ax.barh(range(len(BEFORE_ARMS)), values, height=.65, color='#1f77b4')
+    ax.set_yticks(range(len(BEFORE_ARMS)), labels=labels)
     ax.invert_yaxis()
-    ax.set_yticks(range(len(BEFORE_ARMS)), labels=[arm[1] for arm in BEFORE_ARMS])
-    ax.tick_params(axis='y', length=0, pad=10)
-    ax.set_xlabel('PREDICTION ACCURACY (%)', labelpad=12)
-    ax.spines['left'].set_visible(False)
-    ax.grid(axis='x', color='#E5EAF0', linewidth=.7)
+    ax.set_xlim(0, 80)
+    ax.set_xticks(range(0, 81, 10))
+    ax.set_xlabel('Prediction accuracy (%)', labelpad=7)
+    ax.set_title('Prediction before generation', pad=12)
+    ax.bar_label(bars, labels=[f'{v:.2f}%' for v in values], padding=5, fontsize=11)
+    ax.spines[['top', 'right']].set_visible(False)
+    ax.grid(axis='x', color='#DDDDDD', linestyle='--', linewidth=.7)
     ax.set_axisbelow(True)
-    for i, (key, _, _, color) in enumerate(BEFORE_ARMS):
-        item = results[key]
-        value = 100 * checked_metric(item, 'accuracy')
-        ax.barh(i, value, height=.53, color=color, alpha=.95)
-        ax.text(value + 1.1, i, f'{value:.2f}%', va='center', fontsize=10, color=color)
-        ax.text(1.21, i, f'{checked_metric(item, "auroc"):.3f}',
-                transform=ax.get_yaxis_transform(), ha='center', va='center', fontsize=11)
-    ax.text(1.21, 1.06, 'AUROC', transform=ax.transAxes, ha='center',
-            fontsize=10, weight='bold')
-    baseline = 100 * checked_metric(results['constant_train_prior'], 'accuracy')
-    ax.axvline(baseline, linestyle=(0, (4, 3)), color=GRAY, linewidth=1.1)
-    fig.text(.05, .15, f'CONSTANT BASELINE: {baseline:.2f}% ACCURACY / 0.500 AUROC',
-             fontsize=10, color=GRAY)
-    fig.text(.05, .105, f'{group["questions"]:,} questions; '
-             f'{results["sparse_768/ridge"]["prefixes"]:,} sampled answer outcomes.', fontsize=9)
-    fig.text(.05, .065, 'Repeated question states, not independent questions; all readouts use Ridge.',
-             fontsize=9, color=GRAY)
-    fig.text(.05, .025, 'Inspected test questions; verifiable answers only. Descriptive scores.',
-             fontsize=9, color=GRAY)
     return save_figure(fig, directory, 'prediction-before-generation', dpi)
 
 

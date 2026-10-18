@@ -115,21 +115,21 @@ python scripts/plot_probe_poster.py \
 
 The output contains PNG (default 300 DPI), PDF, and editable SVG versions of:
 
-- `prediction-quality-vs-size`: sampled-prefix correctness-prediction accuracy
-  against the number of features passed to Ridge. Both axes are linear; the
-  panel uses only short method labels and the two axis labels.
-  Plain and sparse have the same width and almost identical accuracy, so their
-  markers overlap and share the label "SLICE / Plain". Exact scores remain in
-  `plotted-values.csv`. Interpretation and study limitations belong in the poster
-  caption rather than inside this minimal panel. No head family is
-  chosen using these test values. The feature-width comparison excludes the
-  compressor parameters and does not imply a runtime speedup.
-- `prediction-before-generation`: accuracy and AUROC using only the question,
-  before any answer tokens. Shows Final Layer, Five Layers and SLICE: Sparse 768
-  only, plus a constant training-prior reference. The size figure keeps all five
-  representations.
-  A question state is evaluated against multiple sampled answer outcomes;
-  15,740 rows do not mean 15,740 independent questions.
+- `prediction-quality-vs-size`: a plain vertical bar chart with five Ridge
+  representations, each labeled with its feature count. Percentages appear above
+  the bars. The accuracy axis starts at zero; feature counts are categorical
+  labels rather than a continuous numerical x axis.
+- `prediction-before-generation`: a plain blue horizontal bar chart with only
+  Final Layer, Five Layers and SLICE: Sparse 768. The input is the question alone,
+  before any answer tokens. Percentages appear at the ends of the bars.
+
+The style intentionally matches ordinary Matplotlib charts: black text, standard
+axes, minimal grid lines and no callouts, side tables or embedded footnotes.
+Study limitations belong in the poster caption. Exact AUROC values and the
+constant baseline remain in the exported CSV/evidence rather than on these plots.
+Feature count excludes compressor parameters and does not imply a runtime speedup.
+Question-only states repeat across sampled answer outcomes; 15,740 rows are not
+15,740 independent questions. Plain and sparse accuracies are nearly identical.
 
 Both figures compare only Ridge readouts, avoiding the changed fitting
 weights/budgets of the neural reference. Mean bottleneck metrics are across
