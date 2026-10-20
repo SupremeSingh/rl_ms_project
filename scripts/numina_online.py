@@ -182,7 +182,18 @@ FOCUSED_COMPARISONS = (
 )
 
 
-def prepare_short(source, out, focused=False):
+COMPARISON_METHODS = ('ppo', 'grpo', 'ridge-two_thirds', 'lstd-two_thirds', 'ridge-sparse', 'lstd-sparse')
+COMPARISON_PRIMARY = (
+    'ridge-sparse_minus_ridge-two_thirds',
+    'lstd-sparse_minus_lstd-two_thirds',
+    'lstd-sparse_minus_ridge-sparse',
+    'lstd-two_thirds_minus_ridge-two_thirds',
+    'ridge-sparse_minus_ppo', 'lstd-sparse_minus_ppo',
+    'ridge-sparse_minus_grpo', 'lstd-sparse_minus_grpo',
+)
+
+
+def prepare_short(source, out, focused=False, comparison=False):
     """Fork data and validation decisions, never actor checkpoints or test results."""
     source, out = source.resolve(), out.resolve()
     if source == out or source in out.parents:
@@ -223,8 +234,16 @@ def prepare_short(source, out, focused=False):
         m['conditions'] = {name: m['conditions'][name] for name in names}
         m['primary_comparisons'] = list(FOCUSED_COMPARISONS)
     m['method_subset'] = 'focused' if focused else 'all'
+    if comparison:
+        available = conditions()
+        available['grpo'] = dict(method='grpo', representation='none')
+        m.update(conditions={name: available[name] for name in COMPARISON_METHODS},
+                 seeds=[301,302,303,304,305], steps=120, critic_lambda=0.9,
+                 method_subset='six_method', primary_comparisons=list(COMPARISON_PRIMARY))
     m['scope'] += ' Short-budget follow-up; same questions and reused validation calibration, not an independent benchmark.'
     for name, record in [('smoke', smoke), ('selection', selection)]:
+        if comparison and name == 'smoke':
+            continue  # New GRPO/lambda settings require a fresh smoke run.
         record['reused_from'] = str(source)
         write_json(out/f'{name}.json', record)
     write_json(out/'manifest.json', m)
@@ -248,9 +267,9 @@ def command(out,m,name,seed,steps,profile='more_fitting',calibration=False,case=
     cmd=comparison.command(out,method,seed,steps,feature_mode='frozen',
         ppo_profile=profile if method=='ppo' else 'legacy',
         evaluation_split='val' if calibration else 'test',case_name=case or f'{name}-seed{seed}')
-    if method!='ppo':
+    if method in ('ridge','lstd'):
         cmd += ['experiment.critic_statistics=cumulative','experiment.cumulative_epsilon=0.01',
-                'experiment.critic_lambda=0.99','actor_rollout_ref.model.critic_encoder_precision=fp32',
+                f'experiment.critic_lambda={m.get("critic_lambda", .99)}','actor_rollout_ref.model.critic_encoder_precision=fp32',
                 f'actor_rollout_ref.model.critic_feature_layer={"bottleneck" if rep in ("plain","sparse") else rep}']
         if rep in ('plain','sparse'):
             f=m['filters'][rep]
@@ -337,7 +356,7 @@ def report(out,m):
                     audit.write(json.dumps(dict(row,method=name,seed=seed))+'\n')
                 if setting['method']=='ppo':
                     health[str(seed)]=audit_health(case/'ppo-critic-audit',m['steps'])
-                else:
+                elif setting['method'] in ('ridge','lstd'):
                     metrics=[json.loads(x) for x in (case/'linear-critic/metrics.jsonl').read_text().splitlines()]
                     if [v['step'] for v in metrics]!=list(range(1,m['steps']+1)): raise ValueError('Missing critic metrics')
                     r['critic_fit_seconds']=sum(v['fit_seconds'] for v in metrics)
@@ -355,6 +374,7 @@ def report(out,m):
                 accounted_gpu_hours_mean=float(np.mean([r['accounted_gpu_hours'] for r in runs])),runs=runs)
     finally: audit.close()
     paired={};names=list(scores)
+    tail = .05 / (2 * len(m['primary_comparisons']))
     for i,name in enumerate(names):
         for ref in names[:i]:
             d=scores[name]-scores[ref];rng=np.random.default_rng(813)
@@ -363,21 +383,22 @@ def report(out,m):
             # Symmetric output for predeclared primary directions as well.
             paired[key]=dict(mean_pp=float(d.mean()*100),seed_differences_pp=(d.mean(1)*100).tolist(),
                 descriptive_95_interval_pp=np.quantile(draws,[.025,.975]).tolist(),
-                bonferroni_four_primary_interval_pp=np.quantile(draws,[.00625,.99375]).tolist())
+                bonferroni_primary_interval_pp=np.quantile(draws,[tail,1-tail]).tolist())
             reverse=f'{ref}_minus_{name}'
             if reverse in m['primary_comparisons']:
                 paired[reverse]=dict(mean_pp=float(-d.mean()*100),seed_differences_pp=(-d.mean(1)*100).tolist(),
                     descriptive_95_interval_pp=np.quantile(-draws,[.025,.975]).tolist(),
-                    bonferroni_four_primary_interval_pp=np.quantile(-draws,[.00625,.99375]).tolist())
+                    bonferroni_primary_interval_pp=np.quantile(-draws,[tail,1-tail]).tolist())
     summary=dict(methods=results,paired=paired,primary_comparisons=m['primary_comparisons'],
         base_accuracy=float(np.mean(base_ref)),ppo_health=health,selection=read(out/'selection.json'),
         filter_pretraining=m.get('filter_pretraining'),
         scope=m['scope'],limitations=f'{len(m["seeds"])} actor seeds, one selected filter per arm. Approximate seed/question bootstrap; '
-        'four primary intervals use Bonferroni nominal coverage; other comparisons exploratory. '
+        f'{len(m["primary_comparisons"])} primary intervals use Bonferroni nominal coverage; other comparisons exploratory. '
         'No automatic superiority claim. Audit verifier answers before claims. Offline filter learning cost is additional.')
     write_json(out/'summary.json',summary)
     lines=['Numina online: fixed 768 bottlenecks and frozen single-layer controls; no buffer.',
         f'{m["steps"]} updates x 64 answers; {len(m["seeds"])} seeds; final greedy evaluation.',
+        f'LSTD critic lambda: {m.get("critic_lambda", .99)}; GAE lambda: 0.95; gamma: 1.',
         'method                   accuracy    training GPUh   accounted GPUh']
     lines += [f'{name:25} {r["accuracy_mean"]:.4f}      {r["training_gpu_hours_mean"]:.3f}          {r["accounted_gpu_hours_mean"]:.3f}' for name,r in results.items()]
     lines += [f'{k}: {paired[k]}' for k in m['primary_comparisons']]
@@ -391,13 +412,15 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--out',type=Path,required=True);p.add_argument('--source',type=Path)
     p.add_argument('--sparse',type=Path);p.add_argument('--stage',choices=['prepare','short','smoke','calibrate','run','report'],required=True)
+    p.add_argument('--comparison', action='store_true', help='Six methods, five fresh seeds, 120 updates, LSTD .9; stage short only')
     p.add_argument('--focused', action='store_true', help='Five-method subset; only with --stage short')
     p.add_argument('--preset',choices=['standard','large','short'],default='standard');p.add_argument('--task',type=int,default=0);args=p.parse_args();args.out=args.out.resolve()
+    if args.comparison and (args.stage != 'short' or args.focused): p.error('--comparison requires stage short without --focused')
     if args.focused and args.stage != 'short': p.error('--focused requires --stage short')
     args.out.mkdir(parents=True,exist_ok=True)
     if args.stage == 'short':
         if not args.source: p.error('Short preparation requires --source')
-        prepare_short(args.source, args.out, focused=args.focused)
+        prepare_short(args.source, args.out, focused=args.focused, comparison=args.comparison)
         return
     torch.set_num_threads(8)
     status=args.out/f'{args.stage}-{args.task}-status.json';started=time.perf_counter()

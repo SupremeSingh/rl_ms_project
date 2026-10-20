@@ -106,12 +106,16 @@ def test_filter_selection_uses_validation_only(tmp_path):
     # No test artifacts exist: selection must not depend on them.
 
 
-@pytest.mark.parametrize("focused", [False, True])
+@pytest.mark.parametrize("focused", [False, True, "comparison"])
 def test_complete_report_has_paired_primary_comparisons_and_all_answers(tmp_path,monkeypatch,focused):
     m=dict(conditions=study.conditions(),seeds=[201,202,203,204,205],steps=1,scope='synthetic',
         primary_comparisons=['lstd-plain_minus_lstd-two_thirds','lstd-sparse_minus_lstd-two_thirds',
                              'ridge-plain_minus_ridge-two_thirds','ridge-sparse_minus_ridge-two_thirds'])
-    if focused:
+    if focused == 'comparison':
+        available=study.conditions();available['grpo']=dict(method='grpo',representation='none')
+        m.update(conditions={k:available[k] for k in study.COMPARISON_METHODS},
+                 seeds=[301,302,303,304,305],primary_comparisons=list(study.COMPARISON_PRIMARY),critic_lambda=.9)
+    elif focused:
         m.update(conditions={k: study.conditions()[k] for k in study.FOCUSED_METHODS},
                  seeds=[201,202,203], primary_comparisons=list(study.FOCUSED_COMPARISONS))
     (tmp_path/'data').mkdir()
@@ -128,7 +132,7 @@ def test_complete_report_has_paired_primary_comparisons_and_all_answers(tmp_path
                 (case/f'{label}-test.jsonl').write_text('\n'.join(map(json.dumps,rows)))
             (case/'result.json').write_text(json.dumps(dict(updates=1,answers=64,initialization_seconds=1,
                 initial_test=dict(accuracy=.5,seconds=1),final_test=dict(accuracy=.5,seconds=1),training_gpu_hours=1)))
-            if setting['method']!='ppo':
+            if setting['method'] in ('ridge','lstd'):
                 (case/'linear-critic').mkdir()
                 (case/'linear-critic/metrics.jsonl').write_text(json.dumps(dict(step=1,fit_seconds=1)))
     study.report(tmp_path,m)
@@ -169,7 +173,7 @@ def test_filter_cost_ignores_downstream_fit_files(tmp_path):
         study.filter_training_trials(tmp_path)
 
 
-@pytest.mark.parametrize('focused', [False, True])
+@pytest.mark.parametrize('focused', [False, True, 'comparison'])
 def test_short_preparation_and_task_schedule(tmp_path, monkeypatch, focused):
     source=tmp_path/'source'; out=tmp_path/'short'
     (source/'data').mkdir(parents=True); out.mkdir()
@@ -184,16 +188,28 @@ def test_short_preparation_and_task_schedule(tmp_path, monkeypatch, focused):
     (source/'selection.json').write_text(json.dumps({'profile':'more_fitting'}))
     (source/'result.json').write_text('{}')
     monkeypatch.setattr(study,'snapshot',lambda root:{'files':{'new':'hash'}})
-    study.prepare_short(source,out,focused)
+    study.prepare_short(source,out,focused=focused is True,comparison=focused=='comparison')
     saved=json.loads((out/'manifest.json').read_text())
-    assert saved['steps']==60 and saved['seeds']==[201,202,203]
+    assert saved['steps']==(120 if focused=='comparison' else 60)
+    assert saved['seeds']==([301,302,303,304,305] if focused=='comparison' else [201,202,203])
     assert saved['preset']=='short' and not (out/'result.json').exists()
-    assert len(saved['conditions'])==(5 if focused else 9)
-    if focused: assert saved['primary_comparisons']==list(study.FOCUSED_COMPARISONS)
+    assert len(saved['conditions'])==(6 if focused=='comparison' else 5 if focused else 9)
+    if focused is True: assert saved['primary_comparisons']==list(study.FOCUSED_COMPARISONS)
+    if focused=='comparison':
+        assert not (out/'smoke.json').exists()
+        assert saved['critic_lambda']==.9
+        saved.update(layers=[27,26,24,20,12],rms_eps=1e-6)
+        saved['filters']['sparse']=saved['filters']['plain']
+        for name in saved['conditions']:
+            cmd=study.command(out,saved,name,301,120)
+            if name in ('ppo','grpo'):
+                assert 'experiment.critic_statistics=cumulative' not in cmd
+            else: assert 'experiment.critic_lambda=0.9' in cmd
+            if name=='grpo': assert 'algorithm.adv_estimator=grpo' in cmd
     calls=[]
     monkeypatch.setattr(study,'launch',lambda *args: calls.append(args))
-    for task in range(3*len(saved['conditions'])): study.run_task(out,saved,task)
+    for task in range(len(saved['seeds'])*len(saved['conditions'])): study.run_task(out,saved,task)
     assert {(c[2],c[3]) for c in calls}=={(name,seed) for name in saved['conditions'] for seed in saved['seeds']}
-    assert all(c[4]==60 for c in calls)
+    assert all(c[4]==saved['steps'] for c in calls)
     with pytest.raises(ValueError,match='Invalid task'): study.run_task(out,saved,len(calls))
     with pytest.raises(ValueError,match='empty'): study.prepare_short(source,out,focused)

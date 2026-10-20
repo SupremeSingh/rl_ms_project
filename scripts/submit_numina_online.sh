@@ -4,11 +4,12 @@ set -euo pipefail
 source_study="${1:?Usage: bash scripts/submit_numina_online.sh SOURCE SPARSE --out DIR [--large] [--full]}"
 sparse="${2:?Supply the completed 768-dimensional sparse study}"
 shift 2
-out='' full=0 preset='' concurrency=2
+out='' full=0 preset='' concurrency=2 smoke_first=0
 while (($#)); do
   case "$1" in
     --out) out="${2:?}"; shift 2;;
     --full) full=1; shift;;
+    --smoke-first) smoke_first=1; shift;;
     --concurrency) concurrency="${2:?}"; shift 2;;
     --large) preset=large; shift;;
     *) echo "Unknown option: $1" >&2; exit 2;;
@@ -51,9 +52,13 @@ if [[ "$full" == 0 ]]; then
   job="$(submit smoke "$dep" '' 1 12:00:00)"
   echo "Inspect $out/smoke.json after job $job completes."
 else
-  python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["passed"]' "$out/smoke.json"
   dep=''
-  if [[ ! -f "$out/selection.json" ]]; then dep="$(submit calibrate '' '' 1 "$wall")"; fi
+  if [[ "$smoke_first" == 1 ]]; then
+    dep="$(submit smoke '' '' 1 12:00:00)"
+  else
+    python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["passed"]' "$out/smoke.json"
+  fi
+  if [[ ! -f "$out/selection.json" ]]; then dep="$(submit calibrate "$dep" '' 1 "$wall")"; fi
   last="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(len(m["seeds"])*len(m["conditions"])-1)' "$out/manifest.json")"
   train="$(submit run "$dep" "0-$last%$concurrency" 1 "$wall")"
   job="$(submit report "$train" '' 0 03:00:00)"

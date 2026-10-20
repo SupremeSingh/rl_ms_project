@@ -226,3 +226,47 @@ complete representation-by-fitting-method factorial comparison in this subset.
 The scheduler derives 15 tasks from the manifest; six concurrent runs request
 12 GPUs. Allow queue time and evaluation overhead; completion within two days
 is not guaranteed. Reports require all 15 runs, not the original 45.
+
+
+### Six-method Numina follow-up: LSTD(0.9), Ridge, GRPO and PPO
+
+This extends the completed study to 120 updates, five fresh actor seeds
+301–305, and six conditions: sparse-768 Ridge/LSTD(0.9), two-thirds-layer
+Ridge/LSTD(0.9), GRPO and conventional PPO. There are 30 runs, each generating
+7,680 answers. Reuse the large study's 3,000/500/2,000 question splits, frozen
+filters and validation-selected PPO profile; no actor checkpoints are reused.
+The test questions have already been inspected: this is an exploratory extension,
+not an untouched confirmatory benchmark. PPO calibration was at 60 updates and
+is reused without retuning for the longer horizon. Filter variability is not
+measured by changing actor seeds.
+
+All four linear arms use raw cumulative matrices, epsilon .01, frozen features,
+persistent question folds and no buffer. Critic lambda .9 is intentional; it is
+not the previously favored .99. GAE lambda stays .95 and gamma stays 1. GRPO
+uses group-relative advantages and no critic. Four answers per prompt and 64
+answers per update apply to every method; realized token counts and compute
+can differ. Eight declared primary comparisons cover representation, fitting
+method, and the sparse critics versus PPO/GRPO; report Bonferroni intervals over
+all eight, with other comparisons descriptive.
+
+After syncing code (with no older jobs using this checkout):
+
+```bash
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" scripts/numina_online.py \
+  --stage short --comparison \
+  --source outputs/numina-online-768-large-v1 \
+  --out outputs/numina-online-six-lambda09-v1
+bash scripts/submit_numina_online.sh \
+  outputs/jlens-large-numina-v2 outputs/numina-sparse-768-v1 \
+  --out outputs/numina-online-six-lambda09-v1 \
+  --full --smoke-first --concurrency 6
+```
+
+The launcher submits a fresh six-arm two-update validation-only smoke test,
+then the 30-run array dependent on its success, then the report. No manual wait
+between submissions is needed. Each run requests two A5000 GPUs; six concurrent
+runs use twelve GPUs. Budget roughly 30–45 hours of comparison execution plus
+smoke, queues and reporting, based on the prior runs. This is an estimate, not
+a two-day deadline guarantee. Per-run walltime is 12 hours. Completion produces
+`report.txt`, `summary.json` and `audit.jsonl` in the new directory.

@@ -5,7 +5,7 @@ We fit a linear value function on compact features from a frozen LLM. Instead of
 backpropagating through a large critic, we accumulate matrices and solve for its
 weights. PPO still updates the actor normally.
 
-The math stage is complete for now. Our chosen representation is a **frozen,
+The main math stage is complete; one final comparison extension is prepared. Our chosen representation is a **frozen,
 sparsity-penalized 768-dimensional bottleneck** over several hidden layers. Ridge
 is our practical starting point for complete, terminal-reward trajectories;
 LSTD(0.99) remains the temporal-learning alternative. Next: cheap value-guided
@@ -193,7 +193,7 @@ training code while jobs are running.
 
 ## Next: spend search compute where it matters
 
-We are pausing math-dataset experiments and moving toward a small **Lean-based
+After the final comparison extension, we plan to pause math-dataset experiments and move toward a small **Lean-based
 proof-search system for software properties**. An LLM proposes tactics; Lean
 checks them; a cheap critic ranks the resulting proof states. The encoder,
 representation and reward targets must be fitted and evaluated for that domain—
@@ -213,3 +213,15 @@ For a poster focused on correctness prediction rather than RL, the
 [offline evidence export](docs/probe-poster-evidence.md) collects saved probe
 metrics, split counts, prefix-position diagnostics and size/timing accounting.
 It requires no new generation or training.
+
+
+### Final comparison extension (prepared; results pending)
+
+The [six-method follow-up](docs/numina-online.md#six-method-numina-follow-up-lstd09-ridge-grpo-and-ppo)
+compares sparse-768 and two-thirds-layer critics fitted with Ridge or LSTD(0.9),
+plus GRPO and conventional PPO: five fresh actor seeds, 120 updates each, matched
+answer budgets and six concurrent runs. The existing Numina splits and
+validation-selected PPO profile are reused. This intentionally tests lambda .9,
+not .99, and does not replace the completed results above. Eight primary
+comparisons are declared before running; the already-inspected test questions
+limit confirmatory claims.
