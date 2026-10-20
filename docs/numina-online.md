@@ -270,3 +270,38 @@ runs use twelve GPUs. Budget roughly 30–45 hours of comparison execution plus
 smoke, queues and reporting, based on the prior runs. This is an estimate, not
 a two-day deadline guarantee. Per-run walltime is 12 hours. Completion produces
 `report.txt`, `summary.json` and `audit.jsonl` in the new directory.
+
+
+### Clean restart after scheduler communication failures
+
+Cancel this study's existing `numina-online-smoke`, `numina-online-run`,
+`numina-online-retry` and `numina-online-report` jobs before syncing code. Confirm
+those names are no longer running; cancellation by name covers all your jobs
+with that name, including unknown IDs from timed-out submissions. Keep prior
+output directories for provenance.
+
+```bash
+for name in numina-online-smoke numina-online-run numina-online-retry numina-online-report; do
+  scancel --user="$USER" --name="$name"
+done
+squeue -u "$USER"
+```
+
+After updating the checkout, start fresh actor runs with one command:
+
+```bash
+bash scripts/restart_numina_comparison.sh \
+  outputs/numina-online-768-large-v1 \
+  --out outputs/numina-online-six-lambda09-v2
+```
+
+This prepares a new directory, reuses verified data/filters and validation PPO
+selection, and chains smoke, the 30-run array (six concurrent), and report.
+All stages exclude `compsci-cluster-fitz-15`, which showed repeated launch
+communication failures. No actor checkpoint is reused. There are no automatic
+submission retries: a timeout can still have created a job. Persistent submission
+markers stop repeated attempts from duplicating a chain. Check Slurm before any
+recovery; do not delete markers to bypass that check. Six-method training also
+requires a passed smoke file bound to the exact manifest, independently of Slurm
+dependencies. A healthy scheduler is still required; this does not repair cluster
+outages or guarantee the original turnaround estimate.

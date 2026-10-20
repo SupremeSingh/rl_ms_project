@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Submit preparation + smoke; --full submits calibration + 45 runs + report.
+# Submit preparation + smoke; --full submits the manifest-defined runs + report.
 set -euo pipefail
 source_study="${1:?Usage: bash scripts/submit_numina_online.sh SOURCE SPARSE --out DIR [--large] [--full]}"
 sparse="${2:?Supply the completed 768-dimensional sparse study}"
 shift 2
-out='' full=0 preset='' concurrency=2 smoke_first=0
+out='' full=0 preset='' concurrency=2 smoke_first=0 exclude_nodes=''
 while (($#)); do
   case "$1" in
     --out) out="${2:?}"; shift 2;;
@@ -12,6 +12,7 @@ while (($#)); do
     --smoke-first) smoke_first=1; shift;;
     --concurrency) concurrency="${2:?}"; shift 2;;
     --large) preset=large; shift;;
+    --exclude) exclude_nodes="${2:?}"; shift 2;;
     *) echo "Unknown option: $1" >&2; exit 2;;
   esac
 done
@@ -39,13 +40,30 @@ submit() {
   else opts+=(--partition=compsci); fi
   [[ -z "$dep" ]] || opts+=(--dependency="afterok:$dep" --kill-on-invalid-dep=yes)
   [[ -z "$array" ]] || opts+=(--array="$array")
+  [[ -z "$exclude_nodes" ]] || opts+=(--exclude="$exclude_nodes")
   local job
-  job="$(sbatch "${opts[@]}" scripts/run_numina_online.sh "$stage" "$out" "$source_study" "$sparse" "$gpu" "$preset")"
+  # Bash command substitutions may disable errexit inside this function.
+  # Explicitly propagate failure; never turn a missing ID into no dependency.
+  if ! job="$(sbatch "${opts[@]}" scripts/run_numina_online.sh "$stage" "$out" "$source_study" "$sparse" "$gpu" "$preset")"; then
+    echo "Submission failed for $stage; stopping the chain. Check squeue/sacct before retrying: a timeout may still have created a job." >&2
+    return 1
+  fi
+  if [[ ! "$job" =~ ^[0-9]+(\;[a-zA-Z0-9_.-]+)?$ ]]; then
+    echo "Invalid sbatch response for $stage: '$job'. Stopping; check Slurm before retrying." >&2
+    return 1
+  fi
   job="${job%%;*}"
-  printf '%s\t%s\n' "$stage" "$job" >> "$out/jobs.tsv"
+  printf '%s\t%s\n' "$stage" "$job" >> "$out/jobs.tsv" || return 1
   printf 'Submitted %s: %s\n' "$stage" "$job" >&2
   printf '%s' "$job"
 }
+# Persistent marker: an ambiguous timeout must never cause duplicate submissions.
+# Separate prepare/smoke and full chains each get their own marker.
+marker="$out/.submission-$full"
+if ! mkdir "$marker"; then
+  echo "This submission chain was already attempted. Check jobs.tsv and Slurm before recovery; do not blindly resubmit." >&2
+  exit 1
+fi
 if [[ "$full" == 0 ]]; then
   dep=''
   if [[ ! -f "$out/manifest.json" ]]; then dep="$(submit prepare '' '' 0 03:00:00)"; fi

@@ -306,6 +306,7 @@ def smoke(out,m):
     for name in m['conditions']:
         launch(out,m,name,19,2,calibration=True,case=f'smoke-{name}')
     write_json(out/'smoke.json',dict(passed=True,conditions=list(m['conditions']),steps=2,
+        manifest_sha256=sha256(out/'manifest.json'),
         scope='Integration check only; not a method ranking'))
 
 
@@ -325,6 +326,14 @@ def calibrate(out,m):
 
 
 def run_task(out,m,task):
+    if m.get('method_subset') == 'six_method':
+        gate = out/'smoke.json'
+        if not gate.exists():
+            raise ValueError('Smoke gate missing: refusing training')
+        record = read(gate)
+        if (not record.get('passed') or record.get('manifest_sha256') != sha256(out/'manifest.json')
+                or set(record.get('conditions', [])) != set(m['conditions'])):
+            raise ValueError('Smoke gate failed or belongs to another protocol')
     # Rotate arm order across seeds; array index does not change random seeds.
     jobs=[];names=list(m['conditions'])
     for i,seed in enumerate(m['seeds']):

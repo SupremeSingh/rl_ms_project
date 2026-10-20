@@ -206,6 +206,15 @@ def test_short_preparation_and_task_schedule(tmp_path, monkeypatch, focused):
                 assert 'experiment.critic_statistics=cumulative' not in cmd
             else: assert 'experiment.critic_lambda=0.9' in cmd
             if name=='grpo': assert 'algorithm.adv_estimator=grpo' in cmd
+    if focused=='comparison':
+        with pytest.raises(ValueError,match='Smoke gate missing'):
+            study.run_task(out,saved,0)
+        gate=dict(passed=True,conditions=list(saved['conditions']),manifest_sha256='wrong')
+        (out/'smoke.json').write_text(json.dumps(gate))
+        with pytest.raises(ValueError,match='Smoke gate failed'):
+            study.run_task(out,saved,0)
+        gate['manifest_sha256']=study.sha256(out/'manifest.json')
+        (out/'smoke.json').write_text(json.dumps(gate))
     calls=[]
     monkeypatch.setattr(study,'launch',lambda *args: calls.append(args))
     for task in range(len(saved['seeds'])*len(saved['conditions'])): study.run_task(out,saved,task)
