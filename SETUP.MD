@@ -1,4 +1,4 @@
-# CLEAR setup and experiment commands
+# SCALE setup and experiment commands
 
 For the goal, results and interpretation, read [README.md](README.md).
 Run submissions from the repository on Duke's login node. Slurm runs the work on

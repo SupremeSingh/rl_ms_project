@@ -1,7 +1,7 @@
-# CLEAR experiment history
+# SCALE experiment history
 
-Naming update (22 October 2026): **CLEAR — Compressed Linear Evaluation with
-Accumulated Regression** names the RL pipeline; **SLICE** names the critic
+Naming update (22 October 2026): **SCALE — Sparse Cumulative Architecture for Linear
+Evaluation** names the RL pipeline; **SLICE** names the critic
 system. Archived snapshots below preserve their original wording, including
 earlier uses of SLICE for the overall project.
 

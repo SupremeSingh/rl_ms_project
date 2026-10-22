@@ -1,22 +1,27 @@
-# CLEAR: Compressed Linear Evaluation with Accumulated Regression
+# SCALE: Sparse Cumulative Architecture for Linear Evaluation
 
-**Reuse the LLM’s representations. Fit a small value function. Let PPO do the learning.**
+**Can an LLM learn with a small critic instead of a second large transformer?**
 
-**CLEAR** is the overall reinforcement-learning pipeline. It uses the
-[**SLICE critic system**](https://github.com/SupremeSingh/SLICE), which compresses
-features from several frozen LLM layers into **768 learned coordinates**. A linear Ridge critic estimates the value of each answer prefix.
-We update that critic by accumulating matrices and solving a linear system,
-instead of training another large transformer with backpropagation.
+SCALE explores that idea. The LLM writes an answer; a small critic estimates
+whether its partial answer will eventually succeed; PPO uses that feedback to
+improve the LLM.
 
-**Naming:** SLICE supplies the critic representation and prediction system;
-CLEAR combines it with cumulative fitting, question cross-fitting, rollout
-generation, GAE and PPO actor updates. SLICE is not the name of the full RL pipeline.
+The names describe two different pieces:
 
-In our final Numina comparison, **PPO with sparse-768 Ridge reached 74.60% mean
-answer accuracy**, versus **73.52% for conventional PPO** and **72.75% for GRPO**.
-It used **17% less training GPU time than PPO**, but **10% more than GRPO**.
-The accuracy advantage over PPO remains uncertain; the paired interval over GRPO
-is positive, narrowly, after correcting for eight primary comparisons.
+- **SLICE is the critic system:** it compresses several frozen LLM layers into
+  **768 features** and predicts a value from them. See the
+  [SLICE project](https://github.com/SupremeSingh/SLICE).
+- **SCALE is the RL pipeline around it:** generate answers, accumulate evidence
+  for the critic, calculate advantages, and update the actor with PPO.
+
+Our selected configuration combines **SLICE’s sparse-768 representation with
+cumulative Ridge fitting**. Instead of repeatedly training a large critic, we
+update a matrix and a vector for each question fold, then solve for new weights.
+
+**Latest result:** 74.60% mean answer accuracy on our Numina comparison, versus
+73.52% for conventional PPO and 72.75% for GRPO. SCALE used **17% less training
+GPU time than PPO**, but **10% more than GRPO**. Its accuracy advantage over PPO
+is uncertain; the adjusted interval over GRPO is positive, narrowly.
 
 [Setup](SETUP.MD#initial-setup) · [Experiment protocol](docs/numina-online.md) ·
 [Project history](HISTORY.md) · [First-principles articles](docs/articles/README.md)
@@ -24,7 +29,7 @@ is positive, narrowly, after correcting for eight primary comparisons.
 Results updated **22 October 2026**. Math experiments are complete for now;
 Lean proof search is the next research direction.
 
-## From an answer prefix to a useful critic
+## How it works: learn from a partial answer
 
 Suppose the model is solving “9 avocados, 3 per serving: how many servings?”
 After writing “We divide 9 by 3…”, it must choose another token. The **actor**
@@ -33,8 +38,10 @@ continues from this prefix. The correct final answer earns 1 from Math-Verify;
 otherwise the outcome reward is 0. This is eventual-answer prediction, not proof
 that each reasoning step is valid.
 
-PPO uses those token-level values and rewards to calculate advantages with GAE,
-then updates the actor. Our change is how the values are learned:
+An **advantage** asks whether the outcome was better or worse than the critic
+expected. GAE combines reward and value estimates across tokens; PPO uses those
+advantages to adjust which tokens the actor prefers. SCALE changes how the
+critic learns its values:
 
 1. **Read frozen features.** A separate frozen Qwen2.5-Math-1.5B encoder processes
    causal prefixes. Read blocks **28, 27, 25, 21, 13** (one-based), RMS-normalize
@@ -52,18 +59,17 @@ means an activation penalty encourages zeros and small activations—not sparse
 projection weights, orthogonality, or a proven removal of semantic noise.
 Both encoding and compression still cost compute, included in the online timings.
 
-![CLEAR architecture using the SLICE critic: frozen compressed features, cross-fitted cumulative critics and fresh-data PPO updates](docs/figures/final-architecture.png)
+![SCALE architecture using the SLICE critic: frozen compressed features, cross-fitted cumulative critics and fresh-data PPO updates](docs/figures/final-architecture.png)
 
 [Vector version](docs/figures/final-architecture.svg). The figure includes the
 LSTD alternative at the final comparison’s **critic lambda 0.9**; earlier
 studies used 0.99. The selected final configuration is **Ridge**, which has no
 eligibility-trace lambda.
 
-## Matrix accumulation: used by both Ridge and LSTD
+## Remember the evidence, refit the weights
 
-**Accumulation is not exclusive to LSTD. Our selected sparse-768 Ridge critic
-also retains evidence across PPO updates.** Its 74.60% result used this cumulative
-fitting approach, not a fresh fit on only the latest batch.
+**Both Ridge and LSTD accumulate evidence across PPO updates.** The selected
+sparse-768 Ridge result of 74.60% uses this cumulative fitting approach.
 
 We accumulate the sufficient statistics **A and b**, not the weight vector **w**.
 After adding each new batch, we solve again for weights using all accumulated
@@ -78,7 +84,8 @@ the ledger persists, while the fitted weights are recomputed.
 Here `z_t = gamma * lambda * z_previous + x_t`, reset at the start of each
 answer. R is the answer's final binary reward; r_t is zero except at termination.
 **Both methods solve `(A + epsilon * I) w = b` after accumulating the new data.**
-This equivalence of the solve's form does not make their fitting objectives identical.
+Ridge learns directly from the final outcome; LSTD also uses the relationship
+between consecutive states. The same solve format does not mean the same target.
 
 Each question belongs permanently to one of two folds. Its rewards fit one head;
 its values are predicted by the head fitted on the **other** fold. The compressor
@@ -116,7 +123,7 @@ are zero. We compare it as a different fitting method, not an additional layer.
 The final comparison does not isolate the causal benefit of accumulation alone:
 all four linear-critic arms accumulate statistics.
 
-## The final comparison
+## What we found
 
 We used **3,000 training, 500 validation and 2,000 test questions** from the
 eligible numeric `cn_k12` subset of NuminaMath-1.5. Question-family filtering
@@ -132,7 +139,7 @@ calibration and reused. The learned compressor was also fixed across actor seeds
 
 | Method | Final answer accuracy | Training GPUh/run | Accounted GPUh/run |
 |---|---:|---:|---:|
-| **CLEAR: PPO + SLICE sparse-768 Ridge** | **74.60%** | **10.35** | **12.20** |
+| **SCALE: PPO + SLICE sparse-768 Ridge** | **74.60%** | **10.35** | **12.20** |
 | Conventional transformer-critic PPO | 73.52% | 12.51 | 14.32 |
 | GRPO (no learned critic) | 72.75% | **9.38** | **11.36** |
 | PPO + Ridge, two-thirds layer | 72.54% | 10.15 | 12.03 |
@@ -164,11 +171,11 @@ PPO. This comparison does not isolate the sparsity penalty from multi-layer
 compression, prove superiority over PPO, or establish a universal LSTD horizon
 rule. Plain-versus-sparse and earlier lambda studies are in [HISTORY.md](HISTORY.md).
 
-## Costs and checks that matter
+## What the results do—and do not—show
 
 - **Whole-pipeline costs:** training GPU-hours include feature extraction, fitting,
   validation and checkpoints. Accounted GPU-hours also include initialization and
-  initial/final test execution. Against PPO, CLEAR saves about **17% training**
+  initial/final test execution. Against PPO, SCALE saves about **17% training**
   or **15% accounted GPU time**. Against GRPO it costs about **10% training** or
   **7% accounted GPU time** more. These are allocated GPU times, not FLOP counts.
 - **Prior costs:** representation generation/training are additional. PPO
