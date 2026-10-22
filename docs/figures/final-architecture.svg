@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1330" viewBox="0 0 1600 1330"><title>Frozen sparse 768 critic with cumulative cross-fitted fitting and PPO</title><desc>Fresh actor trajectories supply causal prefixes and terminal rewards. Frozen encoder features are compressed to 768 dimensions. Two persistent question-fold systems accumulate Ridge or LSTD statistics and predict the opposite fold. GAE and PPO update only the actor.</desc><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#46566b"/></marker></defs><rect width="1600" height="1330" fill="#fff"/><style>text{font-family:Arial,Helvetica,sans-serif;fill:#172b40}.title{font-size:32px;font-weight:700}.head{font-size:22px;font-weight:700}.body{font-size:17px}.small{font-size:16px}.tag{font-size:17px;font-weight:700;letter-spacing:1px}.line{fill:none;stroke:#46566b;stroke-width:2.5;marker-end:url(#arrow)}</style>
 <text x="80" y="58" class="title">A SMALL CRITIC FOR PPO</text>
-<text x="80" y="92" class="tag">FINAL MATH-STAGE DESIGN  •  FROZEN SPARSE 768 FEATURES  •  RIDGE OR LSTD(0.99)</text>
+<text x="80" y="92" class="tag">FINAL MATH-STAGE DESIGN  •  FROZEN SPARSE 768 FEATURES  •  RIDGE OR LSTD(0.9)</text>
 <text x="80" y="142" class="tag">1  COLLECT FRESH EXPERIENCE</text>
 <rect x="80" y="165" width="420" height="140" rx="12" fill="#edf4fa" stroke="#b4c4d3"/>
 <text x="102" y="200" class="head">TRAINABLE ACTOR</text>
@@ -58,7 +58,7 @@
 <text x="837" y="823" class="body">PREDICT VALUES ONLY FOR FOLD 0 QUESTIONS</text>
 <text x="837" y="850" class="body">A: 769 × 769     b AND w: 769</text>
 <text x="105" y="900" class="body">RIDGE: REGRESS EVERY PREFIX ON ITS OBSERVED FINAL RETURN.</text>
-<text x="105" y="929" class="body">LSTD(0.99): ACCUMULATE TRACE-WEIGHTED TD EQUATIONS; RESET TRACES FOR EACH ANSWER.</text>
+<text x="105" y="929" class="body">LSTD(0.9): ACCUMULATE TRACE-WEIGHTED TD EQUATIONS; RESET TRACES FOR EACH ANSWER.</text>
 <text x="105" y="958" class="small">GAMMA = 1 • ZERO TERMINAL FEATURES • NO MATRIX RESET OR MEAN NORMALIZATION • NO REPLAY BUFFER</text>
 <path d="M800 1000 V1030 H60 V1120 H80" class="line"/>
 <text x="830" y="1027" class="small">OPPOSITE-FOLD VALUES: V = wᵀx</text>

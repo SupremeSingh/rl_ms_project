@@ -71,3 +71,6 @@ Read top to bottom: prefix, frozen transformer, combined selected states,
 compression, 768 features, linear Ridge readout, eventual-correctness score.
 Layer planes and vector cells are schematic. No illustrative numeric outcome
 or probability is shown. Use the vector source for print scaling.
+
+The final figure now labels LSTD(0.9), matching the completed six-method Numina
+comparison. Ridge remains the selected configuration and has no trace lambda.

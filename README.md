@@ -1,227 +1,222 @@
-# Math RL: Can PPO Use a Cheaper Critic?
+# SLICE: a small critic for an LLM’s next step
 
-**Can an LLM learn with PPO without training a second large transformer to judge its progress?**
-We fit a linear value function on compact features from a frozen LLM. Instead of
-backpropagating through a large critic, we accumulate matrices and solve for its
-weights. PPO still updates the actor normally.
+**Reuse the LLM’s representations. Fit a small value function. Let PPO do the learning.**
 
-The main math stage is complete; one final comparison extension is prepared. Our chosen representation is a **frozen,
-sparsity-penalized 768-dimensional bottleneck** over several hidden layers. Ridge
-is our practical starting point for complete, terminal-reward trajectories;
-LSTD(0.99) remains the temporal-learning alternative. Next: cheap value-guided
-search for Lean proofs of properties of small programs.
+SLICE compresses features from several frozen LLM layers into **768 learned
+coordinates**. A linear Ridge critic estimates the value of each answer prefix.
+We update that critic by accumulating matrices and solving a linear system,
+instead of training another large transformer with backpropagation.
 
-[Setup](SETUP.MD#initial-setup) · [Online protocol](docs/numina-online.md) ·
-[Experiment history](HISTORY.md) · [Educational articles](docs/articles/README.md)
+In our final Numina comparison, **PPO with sparse-768 Ridge reached 74.60% mean
+answer accuracy**, versus **73.52% for conventional PPO** and **72.75% for GRPO**.
+It used **17% less training GPU time than PPO**, but **10% more than GRPO**.
+The accuracy advantage over PPO remains uncertain; the paired interval over GRPO
+is positive, narrowly, after correcting for eight primary comparisons.
 
-Results updated **17 October 2026**. Design choices below are not universal superiority claims.
+[Setup](SETUP.MD#initial-setup) · [Experiment protocol](docs/numina-online.md) ·
+[Project history](HISTORY.md) · [First-principles articles](docs/articles/README.md)
 
-## Start with one answer
+Results updated **22 October 2026**. Math experiments are complete for now;
+Lean proof search is the next research direction.
 
-“How many servings can I make from 9 avocados if each serving needs 3?”
+## From an answer prefix to a useful critic
 
-The **actor** writes an answer token by token. Its state is the question and the
-answer prefix; its action is the next token. Once it finishes, **Math-Verify**
-checks the final answer: correct earns 1, otherwise 0. It does not certify each
-reasoning step.
+Suppose the model is solving “9 avocados, 3 per serving: how many servings?”
+After writing “We divide 9 by 3…”, it must choose another token. The **actor**
+chooses that token; the **critic** estimates the expected reward if the policy
+continues from this prefix. The correct final answer earns 1 from Math-Verify;
+otherwise the outcome reward is 0. This is eventual-answer prediction, not proof
+that each reasoning step is valid.
 
-After “Each serving needs 3, so we divide…”, the **critic** estimates the expected
-final reward under continuation of the policy. This is a prediction of eventual
-success, not a judgment that the current sentence is mathematically valid.
-**GAE** combines these values with rewards to estimate advantages; **PPO** uses
-those advantages to adjust the actor’s token probabilities.
+PPO uses those token-level values and rewards to calculate advantages with GAE,
+then updates the actor. Our change is how the values are learned:
 
-The expensive conventional option trains a transformer critic. Our alternative
-uses the LLM’s existing representations and fits a small linear head.
+1. **Read frozen features.** A separate frozen Qwen2.5-Math-1.5B encoder processes
+   causal prefixes. Read blocks **28, 27, 25, 21, 13** (one-based), RMS-normalize
+   each vector, concatenate, and apply training-only centering/scaling.
+2. **Compress 7,680 → 768.** A learned row-normalized projection plus ReLU forms
+   the bottleneck. Offline training uses correctness cross-entropy plus
+   `0.01 × mean(feature activations)`. Freeze this compressor and discard its
+   temporary prediction head before PPO begins.
+3. **Fit a linear value head.** Append an intercept to obtain 769 features.
+   Accumulate Ridge statistics from observed final rewards and solve for the
+   weights. The encoder and compressor remain fixed while the actor learns.
 
-## The final pieces
+The compressor is nonlinear; the value head is linear in its output. “Sparse”
+means an activation penalty encourages zeros and small activations—not sparse
+projection weights, orthogonality, or a proven removal of semantic noise.
+Both encoding and compression still cost compute, included in the online timings.
 
-![Final architecture: frozen sparse-768 features, cumulative cross-fitted Ridge or LSTD, and fresh-data PPO actor updates](docs/figures/final-architecture.png)
+![SLICE architecture: frozen compressed features, cross-fitted cumulative critics and fresh-data PPO updates](docs/figures/final-architecture.png)
 
-[Scalable vector diagram](docs/figures/final-architecture.svg). The two matrix
-systems are question folds, not separate Ridge and LSTD branches: choose one
-fitting method per run. The frozen encoder is an additional forward pass.
+[Vector version](docs/figures/final-architecture.svg). The figure includes the
+LSTD alternative at the final comparison’s **critic lambda 0.9**; earlier
+studies used 0.99. The selected final configuration is **Ridge**, which has no
+eligibility-trace lambda.
 
-- **Representation:** Qwen’s 1.5B math model has 28 blocks and 1,536-dimensional
-  hidden states. We concatenate blocks **28, 27, 25, 21, 13** (one-based),
-  RMS-normalize each, and use training-only centering/scaling: 7,680 inputs.
-- **Compression:** a learned row-normalized linear projection plus ReLU produces
-  **768 features**. A temporary correctness predictor trains it with binary
-  cross-entropy. The sparse version adds `0.01 × mean(feature activations)`;
-  the plain version omits this penalty. Both can produce zeros.
-- **Online fitting:** freeze the encoder and bottleneck, discard the temporary
-  predictor, and start fresh linear value heads. Features use only the prefix
-  before each action. The actor changes; the feature coordinates do not.
-- **Tools:** VERL runs distributed PPO training; vLLM generates rollouts;
-  Math-Verify scores final answers; our code supplies features, critic fitting,
-  cross-fitting, audits and comparisons. Slurm schedules cluster experiments.
+## Matrix accumulation: used by both Ridge and LSTD
 
-This is supervised nonlinear compression followed by a linear value function—not
-an orthogonal projection, a rate-reduction implementation, or a proven “noise
-filter”. Its useful information is learned from outcome labels.
+**Accumulation is not exclusive to LSTD. Our selected sparse-768 Ridge critic
+also retains evidence across PPO updates.** Its 74.60% result used this cumulative
+fitting approach, not a fresh fit on only the latest batch.
 
-## Accumulate evidence, not weights
+We accumulate the sufficient statistics **A and b**, not the weight vector **w**.
+After adding each new batch, we solve again for weights using all accumulated
+statistics. Think of A and b as a compact ledger of previous training examples:
+the ledger persists, while the fitted weights are recomputed.
 
-Let `x` be the 768 features plus an intercept, so the critic has **769 weights**.
-Each question permanently belongs to one of two folds. Its trajectories update
-one matrix system; its values come from the other. This prevents its own rewards
-from directly fitting the baseline used for its advantages.
+| Fitting method | Add to A for each transition/prefix | Add to b | What it learns from |
+|---|---|---|---|
+| Ridge | `outer(x_t, x_t)` | `x_t * R` | Each prefix paired with its observed final return R |
+| LSTD(lambda) | `outer(z_t, x_t - gamma * x_next)` | `z_t * r_t` | Consecutive states and immediate rewards, weighted by eligibility traces |
+
+Here `z_t = gamma * lambda * z_previous + x_t`, reset at the start of each
+answer. R is the answer's final binary reward; r_t is zero except at termination.
+**Both methods solve `(A + epsilon * I) w = b` after accumulating the new data.**
+This equivalence of the solve's form does not make their fitting objectives identical.
+
+Each question belongs permanently to one of two folds. Its rewards fit one head;
+its values are predicted by the head fitted on the **other** fold. The compressor
+was trained on separate question families. Together these choices limit
+own-question reward leakage into the actor’s baseline.
 
 ```text
-Freeze the base encoder and learned bottleneck.
-Initialize A and b to zero for each question fold.
+Freeze the encoder, preprocessing and sparse-768 compressor.
+Initialize two Ridge systems: A = 0, b = 0.
 
 For each PPO update:
-    Generate fresh answers with the current actor; score their outcomes.
-    Extract frozen features for every pre-action prefix.
+    Generate fresh answers and obtain terminal correctness rewards.
+    Encode each pre-action prefix as x = [768 features, 1].
 
-    For each answer, update its question fold's statistics:
-        Ridge: for each prefix x, add outer(x, x) to A and x * final_reward to b.
-        LSTD: reset eligibility trace z = 0 at the start of the answer.
-              For each transition (x, reward, x_next):
-                  z = gamma * critic_lambda * z + x
-                  A += outer(z, x - gamma * x_next)
-                  b += z * reward
-              Use zero x_next at termination, including its intercept.
+    For every answer with final reward R:
+        Select its permanent question-fold system.
+        For every prefix x:
+            A += outer(x, x)
+            b += x * R
 
-    Solve (A + epsilon * I) w = b separately for each fold.
-    Predict each question's values with the opposite fold's weights.
-    Compute GAE and update the actor with PPO on fresh answers only.
-    Keep A and b for the next update; keep the encoder and bottleneck frozen.
+    For each fold, solve (A + 0.01 I) w = b.
+    Predict each question's values using the opposite fold's weights.
+    Use fresh rewards and values in GAE; update the actor with PPO.
+    Retain A and b. Keep the encoder and compressor frozen.
 ```
 
-We use **gamma = 1**, **critic lambda = 0.99** for LSTD, **GAE lambda = 0.95**,
-and **epsilon = 0.01**. Statistics are raw sums, never divided by dataset size;
-the fixed regularizer therefore weakens relative to accumulating evidence.
-No answer buffer is retained for critic replay. Historical policy data remain
-in the matrices without off-policy correction: freezing features and cross-fitting
-do not make that mixture an exact evaluation of the latest policy.
+For both methods, **A is 769 × 769; b and w each have 769 entries**, per fold. There is no per-update averaging, encoder
+refresh or answer replay buffer. Old policies remain represented in the accumulated
+statistics without off-policy correction: this is not an exact evaluation of the
+latest policy. GAE uses **gamma = 1, lambda = 0.95**.
 
-## What the completed comparison says
+The LSTD alternative instead accumulates eligibility-trace-weighted TD equations
+between consecutive prefix states. Traces reset per answer; terminal features
+are zero. We compare it as a different fitting method, not an additional layer.
+The final comparison does not isolate the causal benefit of accumulation alone:
+all four linear-critic arms accumulate statistics.
 
-The focused online study used **3,000 training, 500 validation and 2,000 test
-questions** from eligible NuminaMath-1.5 `cn_k12` families. It excluded
-number-template overlaps with the earlier representation study, GSM8K and MATH.
-This is not semantic or pretraining decontamination.
+## The final comparison
 
-Five methods ran on **three actor seeds**, each for **60 updates × 64 answers =
-3,840 training answers**. The same test questions, verifier and 2,048-token answer
-cap were used throughout. PPO’s critic configuration was selected on validation;
-all learned filters were also selected without online test outcomes. The study
-matches answer counts, not generated tokens or compute.
+We used **3,000 training, 500 validation and 2,000 test questions** from the
+eligible numeric `cn_k12` subset of NuminaMath-1.5. Question-family filtering
+excluded overlaps with the earlier feature-learning study, GSM8K and MATH using
+normalized text and number templates. It does not establish semantic or
+pretraining decontamination.
 
-The base model scored **66.70%**. These are final **answer accuracies**, not critic
-classification scores; SD is across three training seeds.
+Each method ran **five fresh actor seeds × 120 updates**, with **64 generated
+answers per update**: 7,680 training answers per run. All used the same base
+actor, reward, prompts and 2,048-token answer cap. Evaluation was greedy.
+PPO’s critic configuration was selected on validation in the earlier 60-update
+calibration and reused. The learned compressor was also fixed across actor seeds.
 
-| Critic used with PPO | Accuracy ± seed SD | Gain over base | Training GPUh/run | Accounted GPUh/run |
-|---|---:|---:|---:|---:|
-| Ridge, sparse 768 | **70.95% ± 0.79 pp** | +4.25 pp | 5.18 | 6.99 |
-| LSTD(0.99), plain 768 | 70.67% ± 0.33 pp | +3.97 pp | 5.21 | 7.03 |
-| LSTD(0.99), two-thirds layer | 70.42% ± 0.45 pp | +3.72 pp | **4.89** | **6.72** |
-| LSTD(0.99), sparse 768 | 70.25% ± 0.13 pp | +3.55 pp | 5.32 | 7.16 |
-| Conventional transformer critic | 68.92% ± 1.74 pp | +2.22 pp | 6.02 | 7.80 |
+| Method | Final answer accuracy | Training GPUh/run | Accounted GPUh/run |
+|---|---:|---:|---:|
+| **PPO + Ridge, sparse 768 (SLICE)** | **74.60%** | **10.35** | **12.20** |
+| Conventional transformer-critic PPO | 73.52% | 12.51 | 14.32 |
+| GRPO (no learned critic) | 72.75% | **9.38** | **11.36** |
+| PPO + Ridge, two-thirds layer | 72.54% | 10.15 | 12.03 |
+| PPO + LSTD(0.9), two-thirds layer | 72.40% | 9.61 | 11.43 |
+| PPO + LSTD(0.9), sparse 768 | 70.86% | 10.33 | 12.17 |
 
-Training costs include validation, checkpointing and feature/critic work;
-accounted costs additionally include initialization and initial/final test
-execution. Prior representation learning is extra. PPO calibration cost another
-**19.59 GPUh**, reused by this follow-up. GPU-hours measure allocated GPU time,
-not hardware utilization or FLOPs.
+These are **actor answer accuracies after training**, not critic classification
+accuracies. GRPO is an alternative training algorithm, not a critic. All four
+linear-critic methods retain frozen features, cumulative statistics and question
+cross-fitting. Equal answer budgets do not imply equal generated tokens or FLOPs.
 
-**The top two mean accuracies used 768-dimensional features.** All methods improved
-on the base in every seed. Linear critics used **12–19% less measured training
-GPU time** than conventional PPO in this run. However, all four primary paired
-comparison intervals include zero, including after the four-comparison correction.
-Three seeds do not establish superiority, equivalence or long-run convergence.
+| Primary comparison | Mean difference | Adjusted paired interval (pp) |
+|---|---:|---:|
+| Sparse Ridge − two-thirds Ridge | **+2.06 pp** | **[+0.59, +3.53]** |
+| Sparse Ridge − GRPO | **+1.85 pp** | **[+0.08, +3.50]** |
+| Sparse Ridge − conventional PPO | +1.08 pp | [−1.22, +3.56] |
+| Sparse Ridge − sparse LSTD(0.9) | **+3.74 pp** | **[+1.73, +6.26]** |
 
-Checks confirmed frozen features, cumulative statistics, small linear-system
-residuals and passing PPO training-health tests. Parse failures were **0.3–0.6%**
-and truncation **2.2–3.4%**. Verifier errors can still remain. Linear-critic policies
-produced about **632–664 tokens** per test answer versus **452–515** for PPO;
-lower training cost does not establish cheaper inference.
+Intervals use a paired seed/question bootstrap and Bonferroni nominal coverage
+for eight primary comparisons. Sparse Ridge beat two-thirds Ridge, GRPO and
+sparse LSTD in **all five seeds**. Its PPO advantage was positive in four seeds,
+but the interval spans zero. The test split had already been inspected; these
+are exploratory results, not an untouched confirmatory benchmark.
 
-Earlier, a locked five-seed MATH comparison found cumulative two-thirds-layer
-LSTD at **67.49% versus GRPO’s 59.31%**, after a conservative reference audit
-retained 291 questions. Its paired difference was **+8.18 pp**, with a descriptive
-95% interval **[+3.85, +12.92]**. That used an inspected split and a different
-representation; it is evidence for the approach, not a sparse-768 result or a
-cross-dataset comparison. The full record is in [HISTORY.md](HISTORY.md).
+**What we conclude:** the learned sparse-768 representation improves Ridge over
+the single-layer Ridge control in this setting. Sparse Ridge is our chosen
+configuration: highest mean accuracy with lower measured cost than conventional
+PPO. This comparison does not isolate the sparsity penalty from multi-layer
+compression, prove superiority over PPO, or establish a universal LSTD horizon
+rule. Plain-versus-sparse and earlier lambda studies are in [HISTORY.md](HISTORY.md).
 
-## Decision: sparse 768, with two fitting options
+## Costs and checks that matter
 
-We choose **sparse 768 as the representation for the next phase**. It combines a
-compact head with competitive observed learning, and sparse Ridge had the highest
-mean score. Plain 768 remains a useful ablation: the study found no statistically
-resolved sparse-versus-plain advantage, which is not proof of equivalence.
+- **Whole-pipeline costs:** training GPU-hours include feature extraction, fitting,
+  validation and checkpoints. Accounted GPU-hours also include initialization and
+  initial/final test execution. Against PPO, SLICE saves about **17% training**
+  or **15% accounted GPU time**. Against GRPO it costs about **10% training** or
+  **7% accounted GPU time** more. These are allocated GPU times, not FLOP counts.
+- **Prior costs:** representation generation/training are additional. PPO
+  calibration consumed **19.59 GPUh**, reused here. Neither is included in the
+  per-run table; the table is not total development cost.
+- **PPO diagnostics:** all runs completed, remained finite and updated parameters.
+  Four of five seeds reduced average critic training-target MSE. Seed 302 went
+  from **0.004713 to 0.004867** (+3.3%) and failed that fitting check; it was also
+  the seed where PPO beat sparse Ridge by 1.40 pp. We retain it in all comparisons.
+  These checks do not measure held-out value accuracy.
+- **Scope:** one base model, one task subset, five actor seeds and one selected
+  compressor. Math-Verify labels need auditing; successful execution is not proof
+  of perfect scoring. Training-cost savings do not establish inference savings.
 
-The efficiency claim is about **compression**: compared with a 1,536-feature head,
-its matrix needs approximately **one-quarter the storage**. Sparse and plain 768
-have identical dimensions and use dense operations. Sparse LSTD actually took
-slightly more training time than plain LSTD here (**5.32 vs 5.21 GPUh**); we do
-**not** claim that sparsity itself has made the implementation faster.
+## Reproduce and inspect
 
-| Situation | Starting choice | Why / what to check |
-|---|---|---|
-| Complete, reasonably short trajectories with reliable final rewards | **Ridge** | Direct regression on observed returns; simple and our highest-scoring Numina candidate. |
-| Longer trajectories where temporal structure may help credit assignment | **LSTD(lambda)** | Uses adjacent states and traces; test against Ridge because bootstrapping can add error. |
-| Sparse terminal reward and complete long trajectories | **Compare both** | Long horizon alone does not make LSTD better; near-one lambda previously worked better than short traces. |
-| Incomplete search branches or a changed search policy | **Redesign targets and boundaries first** | An unfinished proof is not automatically a failure; historical statistics may estimate the wrong continuation policy. |
+**VERL** provides distributed PPO/GRPO training, **vLLM** generates answers,
+**Math-Verify** supplies outcome labels, and **Slurm** schedules jobs. This
+repository implements frozen feature extraction, compressor training, cumulative
+linear critics, cross-fitting and the evaluation/audit pipeline.
 
-“Ridge for short horizons, LSTD for long horizons” is our **working design
-heuristic**, not a result established by these experiments. For now, use Ridge
-as the practical reference and retain LSTD(0.99) as the temporal alternative.
-
-## Setup and reproduce
-
-This repository targets the existing Duke Slurm/container environment. Start with
-[installation and model preparation](SETUP.MD#initial-setup); the online protocol
-requires completed representation-study artifacts and its passed smoke test.
+Use [SETUP.MD](SETUP.MD#initial-setup) for the pinned cluster/container environment.
+The [six-method protocol](docs/numina-online.md#six-method-numina-follow-up-lstd09-ridge-grpo-and-ppo)
+records generation limits, data separation, submission and dependencies; the
+[bottleneck protocol](docs/sparse-critic-study.md) documents representation training.
+Saved models, datasets and upstream study artifacts are required separately.
 
 ```bash
 cd /usr/xtmp/ms785/rl_ms_project
 source scripts/cluster_env.sh
-# Read the completed focused comparison; no new GPU job is needed.
-cat outputs/numina-online-768-focused-v1/report.txt
-cat outputs/numina-online-768-focused-v1/summary.json
+cat outputs/numina-online-six-lambda09-v3/report.txt
+cat outputs/numina-online-six-lambda09-v3/summary.json
 ```
 
-See the [focused study commands](docs/numina-online.md#focused-five-method-comparison)
-for reproduction, [bottleneck protocol](docs/sparse-critic-study.md) for feature
-training, and [SETUP.MD](SETUP.MD) for full dependencies, audits and resumption.
-Reports, manifests and per-answer audits are saved under the study output directory;
-large model/data artifacts must be available separately. Do not modify shared
-training code while jobs are running.
+The output directory also contains the sealed manifest, per-run records and
+`audit.jsonl`. Do not change shared training code while jobs are running. Earlier
+experiments, discarded approaches and the previous Numina comparison are preserved
+in [HISTORY.md](HISTORY.md); they are not additional results from this final run.
 
-## Next: spend search compute where it matters
+## Next: AlphaProof-inspired search, at a manageable scale
 
-After the final comparison extension, we plan to pause math-dataset experiments and move toward a small **Lean-based
-proof-search system for software properties**. An LLM proposes tactics; Lean
-checks them; a cheap critic ranks the resulting proof states. The encoder,
-representation and reward targets must be fitted and evaluated for that domain—
-math-answer success does not automatically transfer to proof search.
+The next step is a small **Lean proof-search system for properties of small
+programs**. An LLM proposes tactics, Lean executes and checks them, and SLICE
+ranks resulting proof states to allocate the search budget. A score guides
+exploration; **Lean, not the critic, certifies a completed proof**.
 
-Begin with a fixed tactic-generation budget and compare policy-only search against
-Ridge- and LSTD-guided search. Measure verified proofs, latency, generated tokens
-and total compute. Learn from search outcomes before adding elaborate tree search
-or policy training. Lean remains the correctness authority; the critic only guides
-which branch receives effort.
+Start with policy-only search versus Ridge-guided search at matched total compute.
+Refit the compressor and value head on proof states and search outcomes rather
+than assuming math-answer features transfer. Define the target as success under
+a specified continuation/search budget; an unfinished branch is not automatically
+a failure. Measure verified proofs, latency, generated tokens and encoding cost.
+LSTD can then be tested on tactic-level transitions; neither lambda nor the
+benefit of accumulated historical statistics transfers automatically.
 
-Our vision is to reuse rich LLM representations for inexpensive value learning.
-The next question is whether a small critic can buy more verified proofs per unit of compute.
-
-
-For a poster focused on correctness prediction rather than RL, the
-[offline evidence export](docs/probe-poster-evidence.md) collects saved probe
-metrics, split counts, prefix-position diagnostics and size/timing accounting.
-It requires no new generation or training.
-
-
-### Final comparison extension (prepared; results pending)
-
-The [six-method follow-up](docs/numina-online.md#six-method-numina-follow-up-lstd09-ridge-grpo-and-ppo)
-compares sparse-768 and two-thirds-layer critics fitted with Ridge or LSTD(0.9),
-plus GRPO and conventional PPO: five fresh actor seeds, 120 updates each, matched
-answer budgets and six concurrent runs. The existing Numina splits and
-validation-selected PPO profile are reused. This intentionally tests lambda .9,
-not .99, and does not replace the completed results above. Eight primary
-comparisons are declared before running; the already-inspected test questions
-limit confirmatory claims.
+This is AlphaProof-inspired, not an AlphaProof reproduction. Our aim is narrower:
+**use a small learned critic to find more verified proofs for the same compute.**

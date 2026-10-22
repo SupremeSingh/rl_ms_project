@@ -4,7 +4,7 @@ For the goal, results and interpretation, read [README.md](README.md).
 Run submissions from the repository on Duke's login node. Slurm runs the work on
 compute nodes; you may disconnect SSH after submission.
 
-**Current status:** the focused Numina comparison is complete; math experiments
+**Current status:** the final six-method Numina comparison is complete; math experiments
 are paused. See [README.md](README.md) for the final design and results and
 [the focused protocol](docs/numina-online.md#focused-five-method-comparison)
 for reproduction. The phase-by-phase commands below are historical workflows,
