@@ -1,4 +1,9 @@
-# Experiment history
+# CLEAR experiment history
+
+Naming update (22 October 2026): **CLEAR — Compressed Linear Evaluation with
+Accumulated Regression** names the RL pipeline; **SLICE** names the critic
+system. Archived snapshots below preserve their original wording, including
+earlier uses of SLICE for the overall project.
 
 This archive preserves the README before the final math-stage synthesis on
 17 October 2026. Statements such as “current”, “next” and “pending” below describe

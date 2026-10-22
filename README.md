@@ -1,11 +1,16 @@
-# SLICE: a small critic for an LLM’s next step
+# CLEAR: Compressed Linear Evaluation with Accumulated Regression
 
 **Reuse the LLM’s representations. Fit a small value function. Let PPO do the learning.**
 
-SLICE compresses features from several frozen LLM layers into **768 learned
-coordinates**. A linear Ridge critic estimates the value of each answer prefix.
+**CLEAR** is the overall reinforcement-learning pipeline. It uses the
+[**SLICE critic system**](https://github.com/SupremeSingh/SLICE), which compresses
+features from several frozen LLM layers into **768 learned coordinates**. A linear Ridge critic estimates the value of each answer prefix.
 We update that critic by accumulating matrices and solving a linear system,
 instead of training another large transformer with backpropagation.
+
+**Naming:** SLICE supplies the critic representation and prediction system;
+CLEAR combines it with cumulative fitting, question cross-fitting, rollout
+generation, GAE and PPO actor updates. SLICE is not the name of the full RL pipeline.
 
 In our final Numina comparison, **PPO with sparse-768 Ridge reached 74.60% mean
 answer accuracy**, versus **73.52% for conventional PPO** and **72.75% for GRPO**.
@@ -47,7 +52,7 @@ means an activation penalty encourages zeros and small activations—not sparse
 projection weights, orthogonality, or a proven removal of semantic noise.
 Both encoding and compression still cost compute, included in the online timings.
 
-![SLICE architecture: frozen compressed features, cross-fitted cumulative critics and fresh-data PPO updates](docs/figures/final-architecture.png)
+![CLEAR architecture using the SLICE critic: frozen compressed features, cross-fitted cumulative critics and fresh-data PPO updates](docs/figures/final-architecture.png)
 
 [Vector version](docs/figures/final-architecture.svg). The figure includes the
 LSTD alternative at the final comparison’s **critic lambda 0.9**; earlier
@@ -127,7 +132,7 @@ calibration and reused. The learned compressor was also fixed across actor seeds
 
 | Method | Final answer accuracy | Training GPUh/run | Accounted GPUh/run |
 |---|---:|---:|---:|
-| **PPO + Ridge, sparse 768 (SLICE)** | **74.60%** | **10.35** | **12.20** |
+| **CLEAR: PPO + SLICE sparse-768 Ridge** | **74.60%** | **10.35** | **12.20** |
 | Conventional transformer-critic PPO | 73.52% | 12.51 | 14.32 |
 | GRPO (no learned critic) | 72.75% | **9.38** | **11.36** |
 | PPO + Ridge, two-thirds layer | 72.54% | 10.15 | 12.03 |
@@ -163,7 +168,7 @@ rule. Plain-versus-sparse and earlier lambda studies are in [HISTORY.md](HISTORY
 
 - **Whole-pipeline costs:** training GPU-hours include feature extraction, fitting,
   validation and checkpoints. Accounted GPU-hours also include initialization and
-  initial/final test execution. Against PPO, SLICE saves about **17% training**
+  initial/final test execution. Against PPO, CLEAR saves about **17% training**
   or **15% accounted GPU time**. Against GRPO it costs about **10% training** or
   **7% accounted GPU time** more. These are allocated GPU times, not FLOP counts.
 - **Prior costs:** representation generation/training are additional. PPO
@@ -206,7 +211,7 @@ in [HISTORY.md](HISTORY.md); they are not additional results from this final run
 ## Next: AlphaProof-inspired search, at a manageable scale
 
 The next step is a small **Lean proof-search system for properties of small
-programs**. An LLM proposes tactics, Lean executes and checks them, and SLICE
+programs**. An LLM proposes tactics, Lean executes and checks them, and a SLICE-based critic
 ranks resulting proof states to allocate the search budget. A score guides
 exploration; **Lean, not the critic, certifies a completed proof**.
 

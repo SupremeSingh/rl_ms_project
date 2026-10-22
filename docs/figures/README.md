@@ -1,4 +1,4 @@
-# Architecture figures
+# CLEAR architecture and SLICE critic figures
 
 `final-architecture.svg` is the editable vector source for the current math-stage
 architecture; `final-architecture.png` is its README rendering. Labels and routing
@@ -74,3 +74,6 @@ or probability is shown. Use the vector source for print scaling.
 
 The final figure now labels LSTD(0.9), matching the completed six-method Numina
 comparison. Ridge remains the selected configuration and has no trace lambda.
+
+Naming: the final architecture depicts CLEAR, the complete RL pipeline. The
+SLICE poster figures depict only the critic system and retain the SLICE name.

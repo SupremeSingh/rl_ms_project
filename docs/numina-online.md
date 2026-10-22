@@ -1,4 +1,6 @@
-# Numina PPO comparison: frozen learned and single-layer critics
+# CLEAR Numina comparison: frozen learned and single-layer critics
+
+CLEAR names the RL pipeline; SLICE names its compressed critic system.
 
 This study tests whether the offline learned bottleneck helps **actor learning**.
 It is a new online comparison, not a claim that the offline predictor is already
