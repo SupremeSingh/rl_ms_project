@@ -230,6 +230,15 @@ is not guaranteed. Reports require all 15 runs, not the original 45.
 
 ### Six-method Numina follow-up: LSTD(0.9), Ridge, GRPO and PPO
 
+**Completed:** all 30 runs and reporting succeeded. Sparse-768 Ridge averaged
+74.60%, conventional PPO 73.52%, GRPO 72.75%, two-thirds Ridge 72.54%,
+two-thirds LSTD(0.9) 72.40%, and sparse LSTD(0.9) 70.86%. See the
+[latest README analysis](../README.md#latest-result-six-methods-five-seeds) and
+[saved aggregate results](results/numina-six-method.json), including the PPO
+seed-302 target-fit warning, cost accounting and adjusted comparison intervals.
+The commands below reproduce the protocol; no rerun is needed to read results.
+
+
 This extends the completed study to 120 updates, five fresh actor seeds
 301–305, and six conditions: sparse-768 Ridge/LSTD(0.9), two-thirds-layer
 Ridge/LSTD(0.9), GRPO and conventional PPO. There are 30 runs, each generating

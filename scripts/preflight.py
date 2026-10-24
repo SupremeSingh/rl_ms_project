@@ -18,6 +18,10 @@ def main():
     import torch
     from datasets import Dataset
     from transformers import AutoTokenizer
+    try:
+        from torchdata.stateful_dataloader import StatefulDataLoader
+    except ImportError as exc:
+        raise RuntimeError('Missing torchdata StatefulDataLoader; restore the pinned training environment') from exc
     root = Path(__file__).resolve().parents[1]
     for name in ("configs/environment.txt", "configs/container.sha256"):
         if not (root / name).is_file():

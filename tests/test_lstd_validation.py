@@ -164,7 +164,7 @@ def test_math_selection_is_label_based_numeric_and_no_gold_in_prompt():
     tokenizer = SimpleNamespace(encode=lambda text, **kw: list(range(len(text.split()))))
     def row(i, **kw):
         return dict(unique_id=str(i), problem='Compute the requested quantity.',
-                    answer='123456', solution='SECRET reference reasoning', subject='Algebra', level=4) | kw
+                    answer='123456', solution=r'SECRET reference reasoning \boxed{123456}', subject='Algebra', level=4) | kw
     questions, info = math_hard.select([row(0), row(1, level=5), row(2, level=3),
         row(3, answer=r"\frac{1}{2}"), row(4, problem='See [asy] image'),
         row(5, problem='word ' * 600)], tokenizer)
@@ -172,6 +172,12 @@ def test_math_selection_is_label_based_numeric_and_no_gold_in_prompt():
     assert len(info['excluded']) == 4
     assert all('123456' not in q['prompt'] and 'SECRET' not in q['prompt'] for q in questions)
     assert [q['source_index'] for q in questions] == [0, 1]
+    rejected, audit = math_hard.select([
+        row(6), row(7, solution='Unboxed reference 123456'),
+        row(8, solution=r'Both \boxed{123456} and \boxed{123456}'),
+    ], tokenizer)
+    assert len(rejected) == 1
+    assert all(q['reason'] == 'ambiguous_or_non_numeric_reference' for q in audit['excluded'])
     with pytest.raises(ValueError, match='Duplicate'):
         math_hard.select([row(0), row(0)], tokenizer)
 

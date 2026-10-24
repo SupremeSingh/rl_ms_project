@@ -53,7 +53,13 @@ def test_completion_dataset_uses_exact_tokens_and_can_resume(tmp_path):
     from math_rl.completion_dataset import CompletionDataset
     from math_rl.data import make_row
     from math_rl.prompts import encode_completion
-    from torchdata.stateful_dataloader import StatefulDataLoader
+    # CPU-only development installs need not include the pinned training stack.
+    # When VERL is installed, a missing training dependency must remain a failure.
+    import importlib.util
+    if importlib.util.find_spec('verl') is None:
+        StatefulDataLoader = pytest.importorskip('torchdata.stateful_dataloader').StatefulDataLoader
+    else:
+        from torchdata.stateful_dataloader import StatefulDataLoader
 
     class Tokenizer:
         pad_token_id = 0

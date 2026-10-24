@@ -981,3 +981,57 @@ sparse 768 features, plus Ridge on sparse 768 features. It reuses prepared data
 and validation calibration, with fresh actor runs and up to six concurrent jobs.
 This narrower study tests compression and sparsity without claiming a complete
 comparison across every layer and fitting method; results are pending.
+
+
+## Earlier focused Numina result (60 updates, three seeds)
+
+Archived when the completed six-method, five-seed result was added on 24 October 2026.
+
+## What the completed comparison says
+
+The focused online study used **3,000 training, 500 validation and 2,000 test
+questions** from eligible NuminaMath-1.5 `cn_k12` families. It excluded
+number-template overlaps with the earlier representation study, GSM8K and MATH.
+This is not semantic or pretraining decontamination.
+
+Five methods ran on **three actor seeds**, each for **60 updates × 64 answers =
+3,840 training answers**. The same test questions, verifier and 2,048-token answer
+cap were used throughout. PPO’s critic configuration was selected on validation;
+all learned filters were also selected without online test outcomes. The study
+matches answer counts, not generated tokens or compute.
+
+The base model scored **66.70%**. These are final **answer accuracies**, not critic
+classification scores; SD is across three training seeds.
+
+| Critic used with PPO | Accuracy ± seed SD | Gain over base | Training GPUh/run | Accounted GPUh/run |
+|---|---:|---:|---:|---:|
+| Ridge, sparse 768 | **70.95% ± 0.79 pp** | +4.25 pp | 5.18 | 6.99 |
+| LSTD(0.99), plain 768 | 70.67% ± 0.33 pp | +3.97 pp | 5.21 | 7.03 |
+| LSTD(0.99), two-thirds layer | 70.42% ± 0.45 pp | +3.72 pp | **4.89** | **6.72** |
+| LSTD(0.99), sparse 768 | 70.25% ± 0.13 pp | +3.55 pp | 5.32 | 7.16 |
+| Conventional transformer critic | 68.92% ± 1.74 pp | +2.22 pp | 6.02 | 7.80 |
+
+Training costs include validation, checkpointing and feature/critic work;
+accounted costs additionally include initialization and initial/final test
+execution. Prior representation learning is extra. PPO calibration cost another
+**19.59 GPUh**, reused by this follow-up. GPU-hours measure allocated GPU time,
+not hardware utilization or FLOPs.
+
+**The top two mean accuracies used 768-dimensional features.** All methods improved
+on the base in every seed. Linear critics used **12–19% less measured training
+GPU time** than conventional PPO in this run. However, all four primary paired
+comparison intervals include zero, including after the four-comparison correction.
+Three seeds do not establish superiority, equivalence or long-run convergence.
+
+Checks confirmed frozen features, cumulative statistics, small linear-system
+residuals and passing PPO training-health tests. Parse failures were **0.3–0.6%**
+and truncation **2.2–3.4%**. Verifier errors can still remain. Linear-critic policies
+produced about **632–664 tokens** per test answer versus **452–515** for PPO;
+lower training cost does not establish cheaper inference.
+
+Earlier, a locked five-seed MATH comparison found cumulative two-thirds-layer
+LSTD at **67.49% versus GRPO’s 59.31%**, after a conservative reference audit
+retained 291 questions. Its paired difference was **+8.18 pp**, with a descriptive
+95% interval **[+3.85, +12.92]**. That used an inspected split and a different
+representation; it is evidence for the approach, not a sparse-768 result or a
+cross-dataset comparison. The full record is in [HISTORY.md](HISTORY.md).

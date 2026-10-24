@@ -4,9 +4,9 @@ For the goal, results and interpretation, read [README.md](README.md).
 Run submissions from the repository on Duke's login node. Slurm runs the work on
 compute nodes; you may disconnect SSH after submission.
 
-**Current status:** the focused Numina comparison is complete; math experiments
+**Current status:** the six-method, five-seed Numina comparison is complete; math experiments
 are paused. See [README.md](README.md) for the final design and results and
-[the focused protocol](docs/numina-online.md#focused-five-method-comparison)
+[the six-method protocol](docs/numina-online.md#six-method-numina-follow-up-lstd09-ridge-grpo-and-ppo)
 for reproduction. The phase-by-phase commands below are historical workflows,
 not instructions to rerun every experiment.
 
@@ -63,6 +63,9 @@ exit
 Expect passing tests and resolved training configurations. Inherited dependency
 conflicts are recorded in `configs/pip-check.txt`; they are not a substitute for
 runtime checks. Training and symbolic verification have separate environments.
+The training runtime must provide `torchdata.stateful_dataloader`; preflight
+fails explicitly if it is missing. CPU-only development runs may skip this
+optional integration test, alongside tests requiring VERL or GPUs.
 Model/data downloads and first-time MATH selection require network access.
 
 Back on the login node, start each session with:

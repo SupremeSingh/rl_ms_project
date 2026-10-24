@@ -1,0 +1,552 @@
+{
+  "base_accuracy": 0.667,
+  "paired": {
+    "lstd-sparse_minus_grpo": {
+      "bonferroni_primary_interval_pp": [
+        -4.36515625,
+        0.6300624999999945
+      ],
+      "descriptive_95_interval_pp": [
+        -3.6900000000000004,
+        -0.1
+      ],
+      "mean_pp": -1.8900000000000001,
+      "seed_differences_pp": [
+        -3.85,
+        -2.55,
+        -3.05,
+        0.4,
+        -0.4
+      ]
+    },
+    "lstd-sparse_minus_lstd-two_thirds": {
+      "bonferroni_primary_interval_pp": [
+        -4.28521875,
+        0.7000000000000001
+      ],
+      "descriptive_95_interval_pp": [
+        -3.32,
+        0.02
+      ],
+      "mean_pp": -1.54,
+      "seed_differences_pp": [
+        -4.2,
+        -1.4000000000000001,
+        -1.95,
+        0.15,
+        -0.3
+      ]
+    },
+    "lstd-sparse_minus_ppo": {
+      "bonferroni_primary_interval_pp": [
+        -5.61509375,
+        0.5250312499999973
+      ],
+      "descriptive_95_interval_pp": [
+        -4.72025,
+        -0.54
+      ],
+      "mean_pp": -2.6599999999999997,
+      "seed_differences_pp": [
+        -3.0,
+        -5.75,
+        -2.75,
+        0.44999999999999996,
+        -2.25
+      ]
+    },
+    "lstd-sparse_minus_ridge-sparse": {
+      "bonferroni_primary_interval_pp": [
+        -6.2600625,
+        -1.73
+      ],
+      "descriptive_95_interval_pp": [
+        -5.35025,
+        -2.31
+      ],
+      "mean_pp": -3.74,
+      "seed_differences_pp": [
+        -5.45,
+        -4.35,
+        -3.8,
+        -2.35,
+        -2.75
+      ]
+    },
+    "lstd-two_thirds_minus_grpo": {
+      "bonferroni_primary_interval_pp": [
+        -2.07503125,
+        1.3200624999999946
+      ],
+      "descriptive_95_interval_pp": [
+        -1.55,
+        0.8500000000000001
+      ],
+      "mean_pp": -0.35000000000000003,
+      "seed_differences_pp": [
+        0.35000000000000003,
+        -1.15,
+        -1.0999999999999999,
+        0.25,
+        -0.1
+      ]
+    },
+    "lstd-two_thirds_minus_lstd-sparse": {
+      "bonferroni_primary_interval_pp": [
+        -0.7000000000000001,
+        4.285218749999981
+      ],
+      "descriptive_95_interval_pp": [
+        -0.02,
+        3.32
+      ],
+      "mean_pp": 1.54,
+      "seed_differences_pp": [
+        4.2,
+        1.4000000000000001,
+        1.95,
+        -0.15,
+        0.3
+      ]
+    },
+    "lstd-two_thirds_minus_ridge-two_thirds": {
+      "bonferroni_primary_interval_pp": [
+        -2.04,
+        1.7752187499999807
+      ],
+      "descriptive_95_interval_pp": [
+        -1.4404999999999997,
+        1.170250000000001
+      ],
+      "mean_pp": -0.13999999999999999,
+      "seed_differences_pp": [
+        0.8500000000000001,
+        -0.8500000000000001,
+        0.4,
+        -1.4000000000000001,
+        0.3
+      ]
+    },
+    "ppo_minus_grpo": {
+      "bonferroni_primary_interval_pp": [
+        -1.53503125,
+        3.1850312499999975
+      ],
+      "descriptive_95_interval_pp": [
+        -0.9202499999999998,
+        2.48
+      ],
+      "mean_pp": 0.77,
+      "seed_differences_pp": [
+        -0.8500000000000001,
+        3.2,
+        -0.3,
+        -0.05,
+        1.8499999999999999
+      ]
+    },
+    "ppo_minus_lstd-sparse": {
+      "bonferroni_primary_interval_pp": [
+        -0.5250312500000001,
+        5.615093749999992
+      ],
+      "descriptive_95_interval_pp": [
+        0.54,
+        4.720250000000001
+      ],
+      "mean_pp": 2.6599999999999997,
+      "seed_differences_pp": [
+        3.0,
+        5.75,
+        2.75,
+        -0.44999999999999996,
+        2.25
+      ]
+    },
+    "ppo_minus_lstd-two_thirds": {
+      "bonferroni_primary_interval_pp": [
+        -1.54503125,
+        4.1000000000000005
+      ],
+      "descriptive_95_interval_pp": [
+        -0.8500000000000001,
+        3.180250000000001
+      ],
+      "mean_pp": 1.1199999999999999,
+      "seed_differences_pp": [
+        -1.2,
+        4.35,
+        0.8,
+        -0.3,
+        1.95
+      ]
+    },
+    "ridge-sparse_minus_grpo": {
+      "bonferroni_primary_interval_pp": [
+        0.08496875000000001,
+        3.5000000000000004
+      ],
+      "descriptive_95_interval_pp": [
+        0.65,
+        3.0700000000000003
+      ],
+      "mean_pp": 1.8499999999999999,
+      "seed_differences_pp": [
+        1.6,
+        1.7999999999999998,
+        0.75,
+        2.75,
+        2.35
+      ]
+    },
+    "ridge-sparse_minus_lstd-sparse": {
+      "bonferroni_primary_interval_pp": [
+        1.73,
+        6.260062499999995
+      ],
+      "descriptive_95_interval_pp": [
+        2.31,
+        5.350250000000001
+      ],
+      "mean_pp": 3.74,
+      "seed_differences_pp": [
+        5.45,
+        4.35,
+        3.8,
+        2.35,
+        2.75
+      ]
+    },
+    "ridge-sparse_minus_lstd-two_thirds": {
+      "bonferroni_primary_interval_pp": [
+        0.41484375,
+        3.7950312499999974
+      ],
+      "descriptive_95_interval_pp": [
+        0.9900000000000001,
+        3.42
+      ],
+      "mean_pp": 2.1999999999999997,
+      "seed_differences_pp": [
+        1.25,
+        2.9499999999999997,
+        1.8499999999999999,
+        2.5,
+        2.45
+      ]
+    },
+    "ridge-sparse_minus_ppo": {
+      "bonferroni_primary_interval_pp": [
+        -1.21503125,
+        3.5600624999999946
+      ],
+      "descriptive_95_interval_pp": [
+        -0.58,
+        2.78
+      ],
+      "mean_pp": 1.08,
+      "seed_differences_pp": [
+        2.45,
+        -1.4000000000000001,
+        1.05,
+        2.8000000000000003,
+        0.5
+      ]
+    },
+    "ridge-sparse_minus_ridge-two_thirds": {
+      "bonferroni_primary_interval_pp": [
+        0.5899375,
+        3.53
+      ],
+      "descriptive_95_interval_pp": [
+        0.9900000000000001,
+        3.1
+      ],
+      "mean_pp": 2.06,
+      "seed_differences_pp": [
+        2.1,
+        2.1,
+        2.25,
+        1.0999999999999999,
+        2.75
+      ]
+    },
+    "ridge-two_thirds_minus_grpo": {
+      "bonferroni_primary_interval_pp": [
+        -2.07503125,
+        1.8400624999999946
+      ],
+      "descriptive_95_interval_pp": [
+        -1.53,
+        1.17
+      ],
+      "mean_pp": -0.21,
+      "seed_differences_pp": [
+        -0.5,
+        -0.3,
+        -1.5,
+        1.6500000000000001,
+        -0.4
+      ]
+    },
+    "ridge-two_thirds_minus_lstd-sparse": {
+      "bonferroni_primary_interval_pp": [
+        -0.32503125,
+        4.0201249999999895
+      ],
+      "descriptive_95_interval_pp": [
+        0.27,
+        3.230250000000001
+      ],
+      "mean_pp": 1.68,
+      "seed_differences_pp": [
+        3.35,
+        2.25,
+        1.55,
+        1.25,
+        0.0
+      ]
+    },
+    "ridge-two_thirds_minus_lstd-two_thirds": {
+      "bonferroni_primary_interval_pp": [
+        -1.7752187499999998,
+        2.04
+      ],
+      "descriptive_95_interval_pp": [
+        -1.1702499999999998,
+        1.4405000000000017
+      ],
+      "mean_pp": 0.13999999999999999,
+      "seed_differences_pp": [
+        -0.8500000000000001,
+        0.8500000000000001,
+        -0.4,
+        1.4000000000000001,
+        -0.3
+      ]
+    },
+    "ridge-two_thirds_minus_ppo": {
+      "bonferroni_primary_interval_pp": [
+        -3.56,
+        1.7500000000000002
+      ],
+      "descriptive_95_interval_pp": [
+        -2.91025,
+        1.020250000000001
+      ],
+      "mean_pp": -0.98,
+      "seed_differences_pp": [
+        0.35000000000000003,
+        -3.5000000000000004,
+        -1.2,
+        1.7000000000000002,
+        -2.25
+      ]
+    },
+    "ridge-two_thirds_minus_ridge-sparse": {
+      "bonferroni_primary_interval_pp": [
+        -3.53,
+        -0.5899375000000054
+      ],
+      "descriptive_95_interval_pp": [
+        -3.1,
+        -0.9900000000000001
+      ],
+      "mean_pp": -2.06,
+      "seed_differences_pp": [
+        -2.1,
+        -2.1,
+        -2.25,
+        -1.0999999999999999,
+        -2.75
+      ]
+    }
+  },
+  "primary_comparisons": [
+    "ridge-sparse_minus_ridge-two_thirds",
+    "lstd-sparse_minus_lstd-two_thirds",
+    "lstd-sparse_minus_ridge-sparse",
+    "lstd-two_thirds_minus_ridge-two_thirds",
+    "ridge-sparse_minus_ppo",
+    "lstd-sparse_minus_ppo",
+    "ridge-sparse_minus_grpo",
+    "lstd-sparse_minus_grpo"
+  ],
+  "ppo_health": {
+    "301": {
+      "extra_forward_wall_seconds_estimate": 767.8029545163736,
+      "gates": {
+        "complete": true,
+        "finite": true,
+        "nonzero_updates": true,
+        "targets_fit_better": true,
+        "zero_initial_values": true
+      },
+      "mean_mse_after": 0.005138320712527881,
+      "mean_mse_before": 0.006447095483114632,
+      "pass_checks": true,
+      "scope": "Training-target fit check, not held-out critic accuracy"
+    },
+    "302": {
+      "extra_forward_wall_seconds_estimate": 681.8269883943722,
+      "gates": {
+        "complete": true,
+        "finite": true,
+        "nonzero_updates": true,
+        "targets_fit_better": false,
+        "zero_initial_values": true
+      },
+      "mean_mse_after": 0.004867021114720652,
+      "mean_mse_before": 0.004713355705219632,
+      "pass_checks": false,
+      "scope": "Training-target fit check, not held-out critic accuracy"
+    },
+    "303": {
+      "extra_forward_wall_seconds_estimate": 683.0576880046283,
+      "gates": {
+        "complete": true,
+        "finite": true,
+        "nonzero_updates": true,
+        "targets_fit_better": true,
+        "zero_initial_values": true
+      },
+      "mean_mse_after": 0.0048049608133927295,
+      "mean_mse_before": 0.005986630897677969,
+      "pass_checks": true,
+      "scope": "Training-target fit check, not held-out critic accuracy"
+    },
+    "304": {
+      "extra_forward_wall_seconds_estimate": 670.2523738667369,
+      "gates": {
+        "complete": true,
+        "finite": true,
+        "nonzero_updates": true,
+        "targets_fit_better": true,
+        "zero_initial_values": true
+      },
+      "mean_mse_after": 0.004886590119470687,
+      "mean_mse_before": 0.005406417915946804,
+      "pass_checks": true,
+      "scope": "Training-target fit check, not held-out critic accuracy"
+    },
+    "305": {
+      "extra_forward_wall_seconds_estimate": 672.1735458811745,
+      "gates": {
+        "complete": true,
+        "finite": true,
+        "nonzero_updates": true,
+        "targets_fit_better": true,
+        "zero_initial_values": true
+      },
+      "mean_mse_after": 0.004756486846114664,
+      "mean_mse_before": 0.005743852204371554,
+      "pass_checks": true,
+      "scope": "Training-target fit check, not held-out critic accuracy"
+    }
+  },
+  "limitations": "5 actor seeds, one selected filter per arm. Approximate seed/question bootstrap; 8 primary intervals use Bonferroni nominal coverage; other comparisons exploratory. No automatic superiority claim. Audit verifier answers before claims. Offline filter learning cost is additional.",
+  "scope": "Fresh number-template-disjoint Numina questions relative to the source study, GSM8K and MATH. Not semantic/pretraining deduplication. Frozen validation-selected filters; zero online heads; historical-policy statistics uncorrected; fresh actor data only. Fixed 2048-token capped task. Short-budget follow-up; same questions and reused validation calibration, not an independent benchmark.",
+  "methods": {
+    "grpo": {
+      "accounted_gpu_hours_mean": 11.363858769464404,
+      "accuracy_by_seed": {
+        "301": 0.723,
+        "302": 0.7355,
+        "303": 0.7365,
+        "304": 0.723,
+        "305": 0.7195
+      },
+      "accuracy_mean": 0.7275,
+      "accuracy_seed_sd": 0.00789778449946568,
+      "gain_pp": 6.05,
+      "training_gpu_hours_mean": 9.37487359219649
+    },
+    "lstd-sparse": {
+      "accounted_gpu_hours_mean": 12.173349797951316,
+      "accuracy_by_seed": {
+        "301": 0.6845,
+        "302": 0.71,
+        "303": 0.706,
+        "304": 0.727,
+        "305": 0.7155
+      },
+      "accuracy_mean": 0.7086,
+      "accuracy_seed_sd": 0.01561809847580684,
+      "gain_pp": 4.159999999999997,
+      "training_gpu_hours_mean": 10.328552056419044
+    },
+    "lstd-two_thirds": {
+      "accounted_gpu_hours_mean": 11.426834114930664,
+      "accuracy_by_seed": {
+        "301": 0.7265,
+        "302": 0.724,
+        "303": 0.7255,
+        "304": 0.7255,
+        "305": 0.7185
+      },
+      "accuracy_mean": 0.724,
+      "accuracy_seed_sd": 0.003201562118716427,
+      "gain_pp": 5.699999999999994,
+      "training_gpu_hours_mean": 9.612987379188402
+    },
+    "ppo": {
+      "accounted_gpu_hours_mean": 14.319639568395285,
+      "accuracy_by_seed": {
+        "301": 0.7145,
+        "302": 0.7675,
+        "303": 0.7335,
+        "304": 0.7225,
+        "305": 0.738
+      },
+      "accuracy_mean": 0.7352,
+      "accuracy_seed_sd": 0.02027190173614698,
+      "gain_pp": 6.819999999999993,
+      "training_gpu_hours_mean": 12.513026454842642
+    },
+    "ridge-sparse": {
+      "accounted_gpu_hours_mean": 12.194556845658072,
+      "accuracy_by_seed": {
+        "301": 0.739,
+        "302": 0.7535,
+        "303": 0.744,
+        "304": 0.7505,
+        "305": 0.743
+      },
+      "accuracy_mean": 0.746,
+      "accuracy_seed_sd": 0.005884301147969887,
+      "gain_pp": 7.899999999999996,
+      "training_gpu_hours_mean": 10.346237406532172
+    },
+    "ridge-two_thirds": {
+      "accounted_gpu_hours_mean": 12.025941011389406,
+      "accuracy_by_seed": {
+        "301": 0.718,
+        "302": 0.7325,
+        "303": 0.7215,
+        "304": 0.7395,
+        "305": 0.7155
+      },
+      "accuracy_mean": 0.7254,
+      "accuracy_seed_sd": 0.010212737145349447,
+      "gain_pp": 5.840000000000001,
+      "training_gpu_hours_mean": 10.15428836141757
+    }
+  },
+  "selection": {
+    "profile": "higher_lr",
+    "reused_from": "/usr/xtmp/ms785/rl_ms_project/outputs/numina-online-768-large-v1",
+    "scope": "Validation-only profile selection; no test access",
+    "tuning_training_gpu_hours": 19.58806938167713
+  },
+  "source_note": "Transcribed from the user-supplied cluster summary; raw per-answer artifacts remain on the cluster. No new scoring or training.",
+  "verification_ranges": {
+    "parse_failure_rate": [
+      0.001,
+      0.0085
+    ],
+    "truncation_rate": [
+      0.014,
+      0.0375
+    ]
+  }
+}
