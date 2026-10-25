@@ -70,7 +70,10 @@ class FeatureActorWorker(ActorRolloutRefWorker):
                     from math_rl.bottleneck_features import load_filter, bottleneck_prefixes
                     if not hasattr(self, '_critic_filter'):
                         self._critic_filter = load_filter(self.config.model.critic_bottleneck_path,
-                            self.config.model.critic_bottleneck_sha256)
+                            self.config.model.critic_bottleneck_sha256,
+                            layers=list(self.config.model.critic_bottleneck_layers),
+                            eps=self.config.model.critic_bottleneck_rms_eps,
+                            model_path=self.config.model.path)
                     features = bottleneck_prefixes(self._critic_encoder, ids, masks, width,
                         self._critic_filter, list(self.config.model.critic_bottleneck_layers),
                         self.config.model.critic_bottleneck_rms_eps)

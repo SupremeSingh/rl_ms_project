@@ -15,6 +15,7 @@ export PIP_EXTRA_INDEX_URL=''
 # Record the actual inherited module, not a downloadable CUDA wheel constraint.
 python3 -c 'import json, torch; from pathlib import Path; print(json.dumps(dict(version=torch.__version__, path=str(Path(torch.__file__).resolve()))))' > .venv-critic/container-torch.json
 "${critic_pip[@]}" install -r requirements-critic.txt
+"${critic_pip[@]}" install --no-deps -e ./packages/slice-critic
 "${critic_pip[@]}" install --no-deps -e .
 .venv-critic/bin/python - <<'PY_CHECK'
 import json

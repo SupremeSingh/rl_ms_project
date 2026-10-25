@@ -238,6 +238,41 @@ heuristic**, not a result established by these experiments. For now, use Ridge
 as the practical default. Retain LSTD as an experimental alternative; the latest
 lambda-0.9 results do not establish a long-horizon advantage.
 
+## Reuse the critic in another project
+
+The critic is now a standalone [Python package](packages/slice-critic/README.md),
+`slice-critic` (import `slice_critic`). It supports training from explicit Hugging
+Face dataset columns or local numeric-reference JSONL, geometric layer selection,
+sparse/plain compression, Ridge/LSTD fitting, and versioned artifacts. Version 1
+uses the frozen Qwen2.5-Math-1.5B encoder. It has no VERL or J-lens dependency.
+
+```python
+from slice_critic import TrainingConfig, train_critic, Critic, State
+
+config = TrainingConfig(
+    dataset="organization/numeric-math", question_column="problem",
+    reference_column="answer", layer_base=2, num_slices=5,
+    compression_width=768, method="ridge",
+    verifier_python="/path/to/isolated-verifier/bin/python",
+)
+print(config.preview())
+# Explicit GPU work; replace the dataset ID and verifier path before running.
+artifact = train_critic(config, output_dir="critics/math-v001")
+critic = Critic.load(artifact)
+values = critic.score_batch([State(question="What is 9 divided by 3?")])
+```
+
+`encode_batch` exposes the frozen features independently of the static value head.
+This project's old imports now adapt to the shared package implementations;
+VERL, PPO/GAE, rollouts and scheduling remain here. Online heads still start fresh
+and use cumulative question cross-fitting. Exclude the compressor's recorded
+training and selection families from subsequent RL data. Packaging does not make
+a fixed-policy offline predictor automatically valid for a changed policy or Lean.
+
+See [installation, CLI and cluster smoke commands](docs/critic-package.md).
+The new package training path needs its real-model cluster smoke before a large
+new dataset run; the previous completed studies and their results are preserved.
+
 ## Setup and reproduce
 
 This repository targets the existing Duke Slurm/container environment. Start with

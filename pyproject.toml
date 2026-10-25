@@ -7,7 +7,7 @@ name = "math-rl"
 version = "0.1.0"
 description = "Small math RL experiments"
 requires-python = ">=3.10"
-dependencies = ["datasets", "pyarrow", "huggingface-hub", "PyYAML"]
+dependencies = ["slice-critic==0.1.0", "datasets", "pyarrow", "huggingface-hub", "PyYAML"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
@@ -17,4 +17,5 @@ figures = ["matplotlib>=3.8,<4"]
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/slice-critic/tests"]
+pythonpath = ["src", "packages/slice-critic/src"]

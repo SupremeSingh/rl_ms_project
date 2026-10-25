@@ -30,7 +30,7 @@ def test_neutral_features_preserve_historical_coordinates():
 
 
 def test_runtime_check_ignores_historical_lens_package(monkeypatch):
-    import math_rl.critic_features as features
+    import slice_critic.features as features
     monkeypatch.setattr(features,'version',lambda name:'fixed')
     expected={name:'fixed' for name in FEATURE_PACKAGES}
     expected['jlens']='irrelevant historical package'

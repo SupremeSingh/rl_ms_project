@@ -17,6 +17,7 @@ python3 -c 'import json, torch; from pathlib import Path; print(json.dumps(dict(
 # All non-torch dependencies are installed above. Never ask pip to resolve the
 # container-specific torch build through jlens' unversioned dependency on torch.
 "${lens_pip[@]}" install --no-deps -r requirements-jlens-library.txt
+"${lens_pip[@]}" install --no-deps -e ./packages/slice-critic
 "${lens_pip[@]}" install --no-deps -e .
 .venv-jlens/bin/python - <<'PY_CHECK'
 import json

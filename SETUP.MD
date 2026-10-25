@@ -15,6 +15,17 @@ number. Input-path placeholders such as `CRITICS_JOB_ID` refer to the completed
 upstream phase. Keep those artifacts; do not rerun completed generation just to
 reproduce a report.
 
+## Shared critic package
+
+The reusable implementation is now `slice-critic` in `packages/slice-critic`.
+For an existing working cluster install, follow
+[the package upgrade instructions](docs/critic-package.md#install-on-the-existing-duke-environments)
+before importing the updated adapters. Do this in a CPU allocation, with no jobs
+using the environments. New setup scripts install the package automatically.
+Build/test the standalone package without VERL via the package README.
+The training-data and artifact schemas of historical runs are preserved; do not
+rewrite their provenance to bypass source changes.
+
 ## Current environment names
 
 | Environment | Active purpose |

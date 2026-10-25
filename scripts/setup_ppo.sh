@@ -5,6 +5,7 @@ set -euo pipefail
 python3 -m venv --without-pip .venv-ppo-verifier
 PIP_EXTRA_INDEX_URL='' .venv/bin/python -m pip --python .venv-ppo-verifier/bin/python \
   install --index-url https://pypi.org/simple -r requirements-verifier.txt
+.venv/bin/python -m pip --python .venv-ppo-verifier/bin/python install --no-deps -e ./packages/slice-critic
 PYTHONPATH=src .venv-ppo-verifier/bin/python -c \
   'from math_rl.math_verify_reward import provenance; print(provenance())'
 .venv/bin/python -m pip --python .venv-ppo-verifier/bin/python freeze > configs/ppo-verifier-environment.txt

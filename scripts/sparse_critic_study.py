@@ -67,7 +67,8 @@ def setup(args):
         packed={arm: sha256(source/'packed'/arm/'complete.json') for arm in (ARM,'hidden_two_thirds','final')},
         code={p.name:sha256(p) for p in (Path(__file__), ROOT/'src/math_rl/sparse_bottleneck.py',
                                         ROOT/'src/math_rl/large_linear.py', ROOT/'src/math_rl/critic_features.py',
-                                        ROOT/'src/math_rl/critic_layers.py', ROOT/'scripts/critic_study_io.py')})
+                                        ROOT/'src/math_rl/critic_layers.py', ROOT/'scripts/critic_study_io.py',
+                                        *sorted((ROOT/'packages/slice-critic/src/slice_critic').glob('*.py')))})
     out.mkdir(parents=True, exist_ok=True)
     if (out/'protocol.json').exists() and read(out/'protocol.json') != cfg:
         raise ValueError('Changed protocol: use a new output directory')
