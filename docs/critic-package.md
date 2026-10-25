@@ -120,7 +120,53 @@ Existing six-method smoke tests cover the project PPO adapter, while local tests
 check that the adapters use the package's unchanged fitting implementations.
 The new real-model package smoke still needs to be run on the cluster.
 
-## Scope of the refactor
+## Package-to-PPO integration
+
+After the standalone package smoke passes, use its published artifact in a fresh
+two-GPU job. This runs two actual actor updates each for Ridge and LSTD(0.99):
+
+```bash
+source scripts/cluster_env.sh
+mkdir -p logs
+sbatch scripts/submit_slice_ppo_smoke.sh \
+  outputs/slice-package-smoke-v2/training/artifact \
+  outputs/slice-ppo-smoke-v1
+```
+
+Check `outputs/slice-ppo-smoke-v1/status.json` while it runs and
+`outputs/slice-ppo-smoke-v1/verification.json` when complete. Method logs are
+`ridge.log` and `lstd.log` inside that output directory. Allow up to the requested
+four hours; actual time depends on the allocation and generation lengths.
+
+The bridge checks the artifact and encoder identities and exports only the
+compressor, normalization and layer metadata. It excludes representation-training
+and selection question families, takes 64 online training and 16 validation
+questions from the saved Numina split, and does not read final test scores. Each
+method starts with empty statistics, then accumulates two fresh 64-answer batches
+in two persistent question folds, with epsilon 0.01, gamma 1 and no buffer.
+GAE uses lambda 0.95; LSTD uses lambda 0.99. The encoder and compressor stay frozen.
+The offline value head and probability calibration are not used by PPO.
+
+Verification checks real actor completion, finite cross-fitted heads and matrices,
+769-dimensional systems including the intercept, and retention of both updates.
+This checks integration, not scientific accuracy or convergence. Larger studies
+should use a properly trained artifact rather than the 40-question smoke artifact.
+
+## Distribution and ownership
+
+This is currently an **internal, source-controlled package** in this repository,
+installed in editable mode into the cluster environments. It is not published to
+PyPI, hosted as a service, or automatically shared with other users. Another
+project can install a built wheel and load a compatible artifact locally; give it
+access to the matching model and pinned verifier environment as needed.
+
+Code distribution and trained artifacts are separate. Artifacts are local,
+checksummed directories with model/layer/configuration provenance. They have no
+remote registry or access-control service. A future registry or public package
+release is a separate deployment decision. The package owns frozen features and
+linear fitting; this repository owns rollouts, GAE, PPO, VERL and Slurm jobs.
+
+## Remaining scope
 
 This extraction does not implement the proposed approval API, shared registry
 server or remote scoring. Training directories and immutable artifacts are the

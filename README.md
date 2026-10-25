@@ -17,6 +17,12 @@ search for Lean proofs of properties of small programs.
 
 Results updated **24 October 2026**. Design choices below are not universal superiority claims.
 
+The critic is now an internal reusable Python package, `slice-critic`. Its
+standalone cluster smoke passed generation, verification, training, artifact
+loading, scoring and feature export. The next check connects that artifact to
+real Ridge/LSTD PPO updates; see [package-to-PPO instructions](docs/critic-package.md#package-to-ppo-integration).
+The package has not been published to PyPI or deployed as an API.
+
 ## Start with one answer
 
 “How many servings can I make from 9 avocados if each serving needs 3?”
