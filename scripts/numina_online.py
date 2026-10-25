@@ -303,10 +303,14 @@ def launch(out,m,name,seed,steps,profile='more_fitting',calibration=False,case=N
 
 def smoke(out,m):
     # Only validation questions, never final test scores, are read by smoke/calibration.
+    selection = out/'selection.json'
+    profile = read(selection)['profile'] if selection.exists() else 'more_fitting'
+    if profile not in PPO_PROFILES:
+        raise ValueError('Unknown smoke PPO profile')
     for name in m['conditions']:
-        launch(out,m,name,19,2,calibration=True,case=f'smoke-{name}')
+        launch(out,m,name,19,2,profile=profile,calibration=True,case=f'smoke-{name}')
     write_json(out/'smoke.json',dict(passed=True,conditions=list(m['conditions']),steps=2,
-        manifest_sha256=sha256(out/'manifest.json'),
+        manifest_sha256=sha256(out/'manifest.json'),ppo_profile=profile,
         scope='Integration check only; not a method ranking'))
 
 

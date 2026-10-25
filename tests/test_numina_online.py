@@ -222,3 +222,18 @@ def test_short_preparation_and_task_schedule(tmp_path, monkeypatch, focused):
     assert all(c[4]==saved['steps'] for c in calls)
     with pytest.raises(ValueError,match='Invalid task'): study.run_task(out,saved,len(calls))
     with pytest.raises(ValueError,match='empty'): study.prepare_short(source,out,focused)
+
+
+def test_smoke_uses_selected_ppo_profile_and_validation_only(tmp_path, monkeypatch):
+    available=study.conditions();available['grpo']=dict(method='grpo',representation='none')
+    m=dict(conditions={name:available[name] for name in study.COMPARISON_METHODS})
+    (tmp_path/'manifest.json').write_text(json.dumps(m))
+    (tmp_path/'selection.json').write_text(json.dumps(dict(profile='higher_lr')))
+    calls=[]
+    monkeypatch.setattr(study,'launch',lambda *args,**kw: calls.append((args,kw)))
+    study.smoke(tmp_path,m)
+    assert len(calls)==6
+    assert all(a[3:5]==(19,2) and kw['calibration'] and kw['profile']=='higher_lr' for a,kw in calls)
+    gate=json.loads((tmp_path/'smoke.json').read_text())
+    assert gate['passed'] and gate['ppo_profile']=='higher_lr'
+    assert gate['manifest_sha256']==study.sha256(tmp_path/'manifest.json')
