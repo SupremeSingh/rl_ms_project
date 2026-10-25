@@ -46,6 +46,11 @@ This installs the same source package into `.venv`, `.venv-critic` and the isola
 setup scripts also install the package. The verifier only uses the package's lazy,
 Torch-free grading entry point.
 
+Keep the verifier executable at `.venv-ppo-verifier/bin/python`: resolving its
+symlink to system Python bypasses the virtual environment. Training now checks
+the verifier imports and pinned versions before loading the model, and reports
+child-process stderr if verification fails.
+
 ## Preview and train a new dataset
 
 Create a JSON config using the fields in `TrainingConfig`. No model or dataset is

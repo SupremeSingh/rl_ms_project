@@ -28,7 +28,7 @@ def main():
     data.write_text('\n'.join(json.dumps(dict(problem=q['question'], answer=q['ground_truth']))
                               for q in questions)+'\n')
     config = TrainingConfig(dataset=str(data), model_path=str(args.model.resolve()),
-        verifier_python=str(args.verifier_python.resolve()), max_questions=40,
+        verifier_python=str(args.verifier_python.absolute()), max_questions=40,
         responses_per_question=2, max_new_tokens=512, epochs=2, compression_width=768)
     write_json(out/'config.json', asdict(config))
     artifact = train_critic(config, out/'training')

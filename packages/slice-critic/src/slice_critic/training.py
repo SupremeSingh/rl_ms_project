@@ -21,13 +21,26 @@ from .evaluation import calibrate, metrics
 
 
 class VerificationClient:
-    def __init__(self, python=None): self.python=python or sys.executable
+    def __init__(self, python=None):
+        # Virtualenv executables are often symlinks to system Python. Realpath /
+        # Path.resolve() discards the virtualenv identity and its installed packages.
+        self.python=os.path.abspath(os.path.expanduser(os.fspath(python or sys.executable)))
+
+    def check(self):
+        """Validate interpreter, package imports and pinned versions before GPU work."""
+        self([], '0')
 
     def __call__(self, responses, reference):
         from .grading import PINS
         rows=[dict(response=r,reference=reference) for r in responses]
-        result=subprocess.run([self.python,'-m','slice_critic.verifier'],input=json.dumps(rows),
-            text=True,capture_output=True,check=True,timeout=15+8*len(rows))
+        try:
+            result=subprocess.run([self.python,'-m','slice_critic.verifier'],input=json.dumps(rows),
+                text=True,capture_output=True,check=True,timeout=15+8*len(rows))
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(f'Verifier failed using {self.python} (exit {exc.returncode}):\n'
+                               f'{(exc.stderr or "No stderr returned")[-6000:]}') from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f'Verifier timed out after {exc.timeout}s using {self.python}') from exc
         record=json.loads(result.stdout)
         if record['provenance']['packages']!=PINS or len(record['results'])!=len(rows):
             raise ValueError('Verifier identity or batch count mismatch')
@@ -56,6 +69,8 @@ def _generate(config, out, questions, backend, grader):
                 raise ValueError('Incompatible saved generation')
             continue
         seed=int(hashlib.sha256(f'{config.seed}:{q["id"]}'.encode()).hexdigest()[:8],16)
+        print(f'Generating {q["split"]} question {q["id"][:12]}: '
+              f'{config.responses_per_question} answers, up to {config.max_new_tokens} tokens each', flush=True)
         generated=backend.generate(q['prompt_token_ids'],config.responses_per_question,config.max_new_tokens,seed)
         if len(generated)!=config.responses_per_question: raise ValueError('Incomplete generated batch')
         grades=grader([r['response'] for r in generated],q['reference'])
@@ -183,6 +198,9 @@ def _run(config, out, device, backend, grader):
     if previous and previous['config']!=asdict(config): raise ValueError('Configuration changed; use a new output directory')
     if previous and previous.get('implementation')!=implementation_identity():
         raise ValueError('Package code changed; use a new training output directory')
+    if grader is None:
+        grader=VerificationClient(config.verifier_python)
+        grader.check()
     if backend is None:
         model_config=replace(config,model_revision=previous['model']['revision']) if previous else config
         if previous and Path(previous['model']['local_path']).is_dir():
@@ -208,7 +226,6 @@ def _run(config, out, device, backend, grader):
         write_json(identity_path,identity)
     if (out/'artifact').exists():
         read_artifact(out/'artifact');return out/'artifact'
-    grader=grader or VerificationClient(config.verifier_python)
     _generate(config,out,questions,backend,grader)
     train=_sampled(out,questions,config,backend,layers,'train')
     val=_sampled(out,questions,config,backend,layers,'val')
