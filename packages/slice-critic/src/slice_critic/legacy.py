@@ -1,10 +1,11 @@
 """Export a feature-only checkpoint for the existing PPO configuration contract."""
 from pathlib import Path
 from .storage import read_artifact, save_tensor, sha256
+from .artifacts import load_validated_artifact
 
 
 def export_filter(artifact, output):
-    manifest, checkpoint, _ = read_artifact(artifact)
+    manifest, checkpoint, _ = load_validated_artifact(artifact)
     features = manifest['features']
     if features['width'] != 768:
         raise ValueError('The existing PPO adapter requires width 768')

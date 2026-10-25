@@ -18,6 +18,7 @@ from .features import isotropic_normalization
 from .cumulative import trajectory_statistics, raw_design
 from .linear import fit_system
 from .evaluation import calibrate, metrics
+from . import __version__
 
 
 class VerificationClient:
@@ -249,7 +250,7 @@ def _run(config, out, device, backend, grader):
                     test_questions=len(set(test['question'])),status_counts=dict(statuses),
                     generated_answers=answers,truncation_rate=capped/answers,head_fit=head,
                     limitation='Metrics condition on correct/incorrect retained answers; sampled prefixes are correlated within questions')
-    manifest=dict(version=out.name,package_version='0.1.0',model=model,prompt_instruction=INSTRUCTION,
+    manifest=dict(version=out.name,package_version=__version__,model=model,prompt_instruction=INSTRUCTION,
                   generation=dict(engine='transformers',temperature=1.,top_p=1.,top_k=0,do_sample=True,
                                   terminal='EOS or configured response cap'),
                   prefix_sampling='Uniform without replacement from 0,...,T-1; at most configured prefixes_per_answer',

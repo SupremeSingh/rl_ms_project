@@ -44,10 +44,10 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
         original_log_prob = None
         if getattr(self.config.experiment, 'critic_statistics', 'batch') == 'cumulative':
             from datasets import Dataset
-            from math_rl.cumulative_lstd import CumulativeLSTD
+            from slice_critic import CumulativeCritic
             rows = Dataset.from_parquet(str(self.config.data.train_files))
             questions = [str(row['extra_info']['prompt_id']) for row in rows]
-            cumulative = CumulativeLSTD(questions, self.config.data.seed,
+            cumulative = CumulativeCritic(questions, self.config.data.seed,
                 self.config.experiment.cumulative_epsilon, self.config.experiment.critic_lambda,
                 self.config.experiment.statistics_reset_interval, method=self.config.experiment.method)
             original_log_prob = self.actor_rollout_wg.compute_log_prob

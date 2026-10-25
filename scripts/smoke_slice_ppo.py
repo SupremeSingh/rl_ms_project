@@ -11,8 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from math_rl.provenance import sha256, snapshot, write_json
 from slice_critic.data import family_key
-from slice_critic.legacy import export_filter
-from slice_critic.inference import load_filter
+from slice_critic import export_ppo_features as export_filter, load_ppo_features as load_filter
 from slice_critic.storage import read_artifact
 import math_comparison
 

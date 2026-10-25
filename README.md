@@ -19,8 +19,9 @@ Results updated **24 October 2026**. Design choices below are not universal supe
 
 The critic is now an internal reusable Python package, `slice-critic`. Its
 standalone cluster smoke passed generation, verification, training, artifact
-loading, scoring and feature export. The next check connects that artifact to
-real Ridge/LSTD PPO updates; see [package-to-PPO instructions](docs/critic-package.md#package-to-ppo-integration).
+loading, scoring and feature export. The package-to-PPO smoke also passed two real
+Ridge/LSTD updates per method. Internal version 0.1.1 adds installed-wheel CPU
+acceptance, CI and stricter artifact validation; see the [release checklist](docs/critic-package.md#internal-release-acceptance).
 The package has not been published to PyPI or deployed as an API.
 
 ## Start with one answer
@@ -276,8 +277,8 @@ training and selection families from subsequent RL data. Packaging does not make
 a fixed-policy offline predictor automatically valid for a changed policy or Lean.
 
 See [installation, CLI and cluster smoke commands](docs/critic-package.md).
-The new package training path needs its real-model cluster smoke before a large
-new dataset run; the previous completed studies and their results are preserved.
+The initial package and PPO cluster checks passed. Repeat the internal release
+acceptance after package changes; completed studies and results are preserved.
 
 ## Setup and reproduce
 

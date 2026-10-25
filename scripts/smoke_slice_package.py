@@ -6,8 +6,7 @@ from pathlib import Path
 import torch
 
 from slice_critic import Critic, State, TrainingConfig, train_critic
-from slice_critic.legacy import export_filter
-from slice_critic.inference import load_filter
+from slice_critic import export_ppo_features as export_filter, load_ppo_features as load_filter
 from slice_critic.storage import write_json, read_artifact
 
 

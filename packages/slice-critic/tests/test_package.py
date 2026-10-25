@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from slice_critic import Critic, State, TrainingConfig, train_critic, CumulativeCritic
-from slice_critic.config import select_layers
+from slice_critic.config import select_layers, INSTRUCTION
 from slice_critic.storage import model_identity, read_artifact, read_json, sha256
 from slice_critic.legacy import export_filter
 from slice_critic.inference import load_filter
@@ -111,6 +111,9 @@ def test_training_loading_scoring_export_and_resume(tmp_path, monkeypatch, metho
     assert torch.equal(critic.encode_batch([State('Compute ab quantity.',prefix_token_ids=[5])]), features[1:])
     with pytest.raises(ValueError,match='OR exact'):
         critic.score_batch([State('Question',prefix='good',prefix_token_ids=[5])])
+    for tokens in ([True], [-1], [1.5], 'tokens'):
+        with pytest.raises(ValueError, match='nonnegative integers'):
+            critic.encode_batch([State('Question', prefix_token_ids=tokens)])
     before = sha256(out/'head-statistics.pt')
     assert train_critic(config,out,device='cpu',backend=backend,grader=grader) == artifact
     assert backend.generated == 40 and sha256(out/'head-statistics.pt') == before
@@ -154,6 +157,7 @@ def test_exported_768_basis_matches_existing_ppo_loader(tmp_path):
     backend = ToyBackend(tmp_path/'model')
     model = Bottleneck(12,768).eval()
     manifest = dict(version='toy',model=dict(id='toy',files=backend.model_files),
+                    prompt_instruction=INSTRUCTION,
                     features=dict(width=768,compression='sparse',layers_zero_based=[27,26,24],rms_eps=1e-6),
                     representation_training_families=['train'],selection_families=['val'])
     artifact = publish(tmp_path/'artifact',manifest,

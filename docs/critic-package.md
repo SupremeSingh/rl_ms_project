@@ -2,7 +2,7 @@
 
 The standalone package lives at [`packages/slice-critic`](../packages/slice-critic).
 Its import name is `slice_critic`, distribution/CLI name is `slice-critic`, and
-version is 0.1.0. It is not yet published to PyPI. The package can be copied to
+version is 0.1.1 (internal candidate). It is not published to PyPI. The package can be copied to
 another repository or installed from a built wheel. It never imports `math_rl`,
 VERL, J-lens or cluster job-management code.
 
@@ -118,7 +118,45 @@ as a data limitation rather than silently weakening the checks. This tiny run is
 an integration check, not a scientific accuracy result. It does not update an actor.
 Existing six-method smoke tests cover the project PPO adapter, while local tests
 check that the adapters use the package's unchanged fitting implementations.
-The new real-model package smoke still needs to be run on the cluster.
+The initial real-model package smoke and package-to-PPO smoke both passed on the
+cluster. Repeat the acceptance steps below after changing code or environments.
+
+## Internal release acceptance
+
+See the [public API contract](../packages/slice-critic/API.md) for ownership,
+tensor shapes, assumptions and recovery limits, and the [changelog](../packages/slice-critic/CHANGELOG.md)
+for patch changes. Historical studies stay in place for reproducibility.
+
+After syncing this code, enter a CPU allocation and refresh package/project
+metadata without replacing pinned runtime dependencies:
+
+```bash
+srun -p compsci --cpus-per-task=4 --mem=32G --time=00:45:00 --pty bash -i
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh bash scripts/install_critic_package.sh
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" \
+  scripts/check_slice_release.py --out outputs/slice-release-check-v1
+cat outputs/slice-release-check-v1/verification.json
+exit
+```
+
+Require `passed: true`. This tests an installed wheel outside the repository with
+research imports blocked: toy training, Ridge/LSTD, recovery, save/load/scoring,
+and CLI preview. It uses existing dependencies; CI separately supplies fresh CPU
+environments when pushed. GPU integration is a separate check.
+
+Inspect the existing artifact on CPU:
+
+```bash
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" -m slice_critic \
+  inspect outputs/slice-package-smoke-v2/training/artifact
+```
+
+Then submit the package-to-PPO command below with a **new** output directory,
+such as `outputs/slice-ppo-smoke-v2`. Do not retrain the small compressor just to
+validate the patch: its completed artifact remains compatible. Once CI and the
+cluster check pass, give consuming projects the checked wheel rather than copying
+implementation files. Keep its verification report alongside it.
 
 ## Package-to-PPO integration
 

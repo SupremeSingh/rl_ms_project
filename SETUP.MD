@@ -23,6 +23,8 @@ For an existing working cluster install, follow
 before importing the updated adapters. Do this in a CPU allocation, with no jobs
 using the environments. New setup scripts install the package automatically.
 Build/test the standalone package without VERL via the package README.
+For the current internal version, follow the [release acceptance checklist](docs/critic-package.md#internal-release-acceptance)
+before starting new experiments or distributing a wheel to another project.
 The training-data and artifact schemas of historical runs are preserved; do not
 rewrite their provenance to bypass source changes.
 

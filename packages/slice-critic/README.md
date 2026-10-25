@@ -4,6 +4,10 @@ A standalone Python package for frozen multi-layer LLM features, learned compact
 bottlenecks and linear correctness predictors. It has no dependency on VERL,
 this research repository, a scheduler or J-lens.
 
+**Internal version 0.1.1.** See the [public API contract](API.md) and
+[changelog](CHANGELOG.md). Completed v1 artifacts from 0.1.0 remain supported.
+The package is not a hosted service or a public PyPI release.
+
 Version 1 supports the frozen `Qwen/Qwen2.5-Math-1.5B` encoder and text questions
 with single decimal/integer reference answers. Compatible Hugging Face datasets
 and local JSONL files can be used; arbitrary task types are not supported.
@@ -172,3 +176,24 @@ through supervised feature training. The package records these families for the
 consumer to enforce. The original Numina comparison launcher still requires its
 original offline study protocol; exporting a new filter does not make an arbitrary
 dataset artifact interchangeable with that locked experiment.
+
+## CPU acceptance and distribution
+
+From the research checkout, with training/dev dependencies and setuptools/wheel installed:
+
+```bash
+python scripts/check_slice_release.py --out outputs/slice-release-check-v1
+```
+
+This builds and installs a wheel outside the checkout and runs the package tests
+with research-project imports blocked. It uses existing dependencies; it never
+downloads a model or publishes anything. The output retains the wheel, SHA256,
+runtime versions, `checks.log` and `verification.json`. Use a new directory for
+each check. GitHub Actions runs the same check in fresh CPU environments on
+Python 3.10/3.12. GPU integration remains a separate cluster check.
+
+Another project can install the checked wheel with
+`python -m pip install /path/to/slice_critic-0.1.1-py3-none-any.whl` into its prepared
+environment. Install the `train` extra for generation/scoring dependencies.
+Supply the trained artifact and matching model separately. No registry, upload,
+or PyPI publication is performed.

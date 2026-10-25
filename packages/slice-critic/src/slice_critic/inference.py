@@ -5,6 +5,7 @@ import torch
 from .bottleneck import Bottleneck
 from .config import INSTRUCTION
 from .storage import read_artifact, model_identity, sha256
+from .artifacts import load_validated_artifact, validate_payload
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,7 @@ class State:
 
 class Critic:
     def __init__(self, manifest, checkpoint, calibration, backend):
+        validate_payload(manifest, checkpoint, calibration)
         if manifest.get('prompt_instruction') != INSTRUCTION:
             raise ValueError('Artifact prompt differs from the supported completion contract')
         self.manifest=manifest; self.calibration=calibration; self.backend=backend
@@ -38,7 +40,7 @@ class Critic:
 
     @classmethod
     def load(cls, path, device='cuda', *, model_path=None):
-        manifest,checkpoint,calibration=read_artifact(path)
+        manifest,checkpoint,calibration=load_validated_artifact(path)
         saved=manifest['model']
         resolved=Path(model_path or saved['local_path'])
         if not resolved.is_dir():
@@ -62,10 +64,17 @@ class Critic:
             if state.prefix_token_ids is not None and state.prefix:
                 raise ValueError('Supply prefix text OR exact token IDs, not both')
             if not isinstance(state.prefix,str): raise ValueError('prefix must be text')
+            if state.prefix_token_ids is not None and (not isinstance(state.prefix_token_ids, list)
+                    or any(type(t) is not int or t < 0 for t in state.prefix_token_ids)):
+                raise ValueError('prefix_token_ids must be a list of nonnegative integers')
             prefix=state.prefix_token_ids if state.prefix_token_ids is not None else self.backend.prefix_ids(state.prefix)
             ids=self.backend.prompt_ids(state.question)+prefix
             x=self.backend.state_features(ids,self.layers).float().cpu()
-            features.append(self.compressor.features((x-self.mean)/self.scale))
+            if x.shape != (1, self.mean.numel()) or not torch.isfinite(x).all():
+                raise ValueError('Encoder returned invalid state features')
+            z=self.compressor.features((x-self.mean)/self.scale)
+            if not torch.isfinite(z).all(): raise ValueError('Nonfinite compressed features')
+            features.append(z)
         return torch.cat(features) if features else torch.empty((0,len(self.weights)-1))
 
     @torch.inference_mode()

@@ -34,13 +34,11 @@ def main(argv=None):
             from .training import train_critic
             result = dict(artifact=str(train_critic(config, args.out, device=args.device)))
     elif args.command == 'inspect':
-        from .storage import read_artifact, read_json
-        manifest, _, calibration = read_artifact(args.artifact)
-        result = dict(manifest=manifest, calibration=calibration,
-                      evaluation=read_json(args.artifact/'evaluation.json'))
+        from . import inspect_artifact
+        result = inspect_artifact(args.artifact)
     elif args.command == 'export-filter':
-        from .legacy import export_filter
-        result = export_filter(args.artifact, args.out)
+        from . import export_ppo_features
+        result = export_ppo_features(args.artifact, args.out)
     else:
         if args.batch_size < 1:
             parser.error('--batch-size must be positive')
