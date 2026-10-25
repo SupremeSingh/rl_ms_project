@@ -1,5 +1,12 @@
 # Learned sparse bottleneck for a fixed linear critic
 
+**Active pipeline:** frozen hidden states → sparse/plain bottleneck → Ridge/LSTD.
+Offline workers use `.venv-critic` (`scripts/setup_critic.sh`); PPO uses `.venv`.
+The saved source directory `outputs/jlens-large-numina-v2` has a historical name:
+we reuse its hidden-state arrays and trajectories, not its lens readouts. Keep
+existing artifact paths unchanged for checksums and reproducibility.
+
+
 This is a task-trained sparsity ablation inspired by the geometric RL paper. It
 is **not** a replication of CRATE, a rate-reduction objective, an orthogonal
 projection, or a guarantee of discovering a tactic manifold.

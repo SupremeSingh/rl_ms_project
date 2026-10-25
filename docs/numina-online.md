@@ -1,5 +1,12 @@
 # Numina PPO comparison: frozen learned and single-layer critics
 
+**Active pipeline:** frozen hidden states → sparse/plain bottleneck → Ridge/LSTD.
+Offline workers use `.venv-critic` (`scripts/setup_critic.sh`); PPO uses `.venv`.
+The saved source directory `outputs/jlens-large-numina-v2` has a historical name:
+we reuse its hidden-state arrays and trajectories, not its lens readouts. Keep
+existing artifact paths unchanged for checksums and reproducibility.
+
+
 This study tests whether the offline learned bottleneck helps **actor learning**.
 It is a new online comparison, not a claim that the offline predictor is already
 an improved PPO critic.

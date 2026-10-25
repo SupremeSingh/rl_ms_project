@@ -15,6 +15,32 @@ number. Input-path placeholders such as `CRITICS_JOB_ID` refer to the completed
 upstream phase. Keep those artifacts; do not rerun completed generation just to
 reproduce a report.
 
+## Current environment names
+
+| Environment | Active purpose |
+|---|---|
+| `.venv` | Pinned VERL PPO/GRPO runtime and online linear critics |
+| `.venv-critic` | Offline frozen-feature extraction, sparse/plain bottleneck fitting and reports |
+| `.venv-ppo-verifier` | Isolated Math-Verify interpreter used by training |
+| `.venv-verifier` | Standalone review/verifier utilities |
+
+Create the offline critic environment inside the pinned container, in a compute
+allocation, after the main environment is installed:
+
+```bash
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh bash scripts/setup_critic.sh
+```
+
+The active critic uses ordinary hidden states and requires no J-lens package.
+`.venv-jlens` and `setup_jlens.sh` belong only to archived lens experiments;
+do not rename or delete an existing virtual environment to migrate it. Create
+`.venv-critic` with the neutral setup above. Existing source artifacts such as
+`outputs/jlens-large-numina-v2` and `lens-metadata.json` retain historical names;
+these are compatibility paths, not active algorithm choices. Feature-producing
+library versions remain checked, while the archived lens package is not required.
+The active entry points are `sparse_critic_study.py` and `numina_online.py`.
+
 ## Initial setup
 
 You need cluster access, repository access, and Singularity or Apptainer (load the
@@ -809,7 +835,10 @@ affected; evaluation correction cannot undo that. Do not claim retraining was
 performed. New dataset creation uses the same stricter policy; existing source
 snapshots are never silently rewritten. Keep both original and corrected reports.
 
-## J-space supervised probes on saved MATH answers
+## Archived: J-space supervised probes on saved MATH answers
+
+The remainder of this setup document reproduces historical lens experiments.
+It is not required for the current sparse-768 critic or PPO pipeline.
 
 This adds a separate offline study; no PPO parameters, old feature caches or saved
 answers are changed. Read the [protocol](docs/jspace-probes.md), particularly the

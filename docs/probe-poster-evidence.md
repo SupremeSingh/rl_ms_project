@@ -1,5 +1,12 @@
 # Offline probe poster evidence
 
+**Active pipeline:** frozen hidden states → sparse/plain bottleneck → Ridge/LSTD.
+Offline workers use `.venv-critic` (`scripts/setup_critic.sh`); PPO uses `.venv`.
+The saved source directory `outputs/jlens-large-numina-v2` has a historical name:
+we reuse its hidden-state arrays and trajectories, not its lens readouts. Keep
+existing artifact paths unchanged for checksums and reproducibility.
+
+
 This export supports the poster about eventual-answer-correctness prediction from
 frozen internal states. It does not use online PPO results, generate new answers,
 fit heads, change thresholds, or select representations from test performance.
@@ -91,9 +98,9 @@ On the configured cluster container:
 
 ```bash
 source scripts/cluster_env.sh
-bash scripts/container_exec.sh "$PWD/.venv-jlens/bin/python" \
+bash scripts/container_exec.sh "$PWD/.venv-critic/bin/python" \
   -m pip install 'matplotlib>=3.8,<4'
-bash scripts/container_exec.sh "$PWD/.venv-jlens/bin/python" \
+bash scripts/container_exec.sh "$PWD/.venv-critic/bin/python" \
   scripts/plot_probe_poster.py \
   --source outputs/jlens-large-numina-v2 \
   --bottlenecks outputs/numina-sparse-768-v1 \

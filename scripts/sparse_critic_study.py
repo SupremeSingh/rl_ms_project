@@ -19,7 +19,8 @@ from math_rl.large_probe import streaming_normalization, paired_errors
 from math_rl.critic_probe import metrics
 from math_rl.provenance import sha256
 from math_rl.lstd import design
-from large_jlens_study import read, write, dataset, trajectory, linear_features
+from critic_study_io import read, write, dataset, trajectory, merge, source_feature_environment
+from math_rl.critic_features import hidden_features, load_frozen_causal_model, validate_feature_runtime
 import frozen_critics as frozen
 
 ARM = 'rms_hidden_concat'
@@ -65,7 +66,8 @@ def setup(args):
         source_manifest=sha256(source/'manifest.json'),
         packed={arm: sha256(source/'packed'/arm/'complete.json') for arm in (ARM,'hidden_two_thirds','final')},
         code={p.name:sha256(p) for p in (Path(__file__), ROOT/'src/math_rl/sparse_bottleneck.py',
-                                        ROOT/'src/math_rl/large_linear.py')})
+                                        ROOT/'src/math_rl/large_linear.py', ROOT/'src/math_rl/critic_features.py',
+                                        ROOT/'src/math_rl/critic_layers.py', ROOT/'scripts/critic_study_io.py')})
     out.mkdir(parents=True, exist_ok=True)
     if (out/'protocol.json').exists() and read(out/'protocol.json') != cfg:
         raise ValueError('Changed protocol: use a new output directory')
@@ -142,12 +144,10 @@ def screen(source,out,m,cfg,device):
 
 def stats(source,out,m,cfg,device,shard):
     from math_rl.critic_layers import sampled_block_states
-    import compare_jspace_probes as original
     screening=read(out/'screen.json')
     if not screening['recommended_full']:
         raise ValueError('Validation screen did not pass; inspect screen-report.txt before further work')
-    if original.installed_lens()!=read(source/'lens-metadata.json')['environment']:
-        raise ValueError('Use the source feature extraction environment')
+    validate_feature_runtime(source_feature_environment(source))
     paths={k:out/v['path'] for k,v in screening['selected'].items()}
     records={k:load(p) for k,p in paths.items()}
     if sha256(source/'questions.json') != m['questions_sha256']:
@@ -166,7 +166,7 @@ def stats(source,out,m,cfg,device,shard):
     totals=old['stats'] if old else {k:statistics(cfg['width']) for k in records}
     totals={k:{n:v.to(device) if torch.is_tensor(v) else v for n,v in s.items()} for k,s in totals.items()}
     processed=old['processed'] if old else {};del old
-    hf,_=original.load_model()
+    hf,_=load_frozen_causal_model(ROOT/'models/qwen-math')
     questions=read(source/'questions.json')
     questions=[q for q in questions if q['split']=='train' and q['index']%m['config']['shards']==shard]
     source_record=load_source_shard(source,shard)
@@ -188,7 +188,7 @@ def stats(source,out,m,cfg,device,shard):
             t=len(row['token_ids']);n=len(q['prompt_token_ids'])
             ids=torch.tensor([q['prompt_token_ids']+row['token_ids']],device=device)
             blocks=sampled_block_states(hf.model,ids,n,t,list(range(t)),m['layers'])
-            x=linear_features(ARM,blocks,m,None,None,None)
+            x=hidden_features(ARM,blocks,m)
             for k,model in models.items():
                 r=records[k];z=encode(model,x,r['mean'],r['scale'],device)
                 accumulate(totals[k],z,float(row['score']),zero,one,trace_lambda=.99)
@@ -245,7 +245,6 @@ def report(source,out,m,cfg,device):
             r=torch.load(path,weights_only=True);p=predict_original(r['weights'],control,r['mean'],r['scale'])
             predictions[f'{arm}/{head}']=p;results[f'{arm}/{head}']=metrics(y,p)
     # Matched PCA from all-token training covariance, same width and epsilon.
-    from compress_jlens_critics import merge
     from math_rl.critic_compression import pca_from_statistics,affine_projection,project_statistics
     s,(mean,scale)=merge(source,ARM,m['config']['shards'])
     center,eigenvalues,vectors=pca_from_statistics(s)

@@ -4,7 +4,7 @@ import torch
 from math_rl.provenance import sha256
 from math_rl.sparse_bottleneck import Bottleneck
 from math_rl.critic_layers import sampled_block_states
-from math_rl.direct_jlens import rms_coordinates
+from math_rl.critic_features import rms_coordinates
 
 
 def load_filter(path, checksum):

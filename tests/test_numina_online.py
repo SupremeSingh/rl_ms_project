@@ -11,7 +11,7 @@ import numina_online as study
 from math_rl.bottleneck_features import bottleneck_prefixes, load_filter
 from math_rl.sparse_bottleneck import Bottleneck, encode
 from math_rl.critic_layers import sampled_block_states
-from math_rl.direct_jlens import rms_coordinates
+from math_rl.critic_features import rms_coordinates
 from math_rl.large_probe import family_key
 from math_rl.provenance import sha256
 

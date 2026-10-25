@@ -1,0 +1,6 @@
+# Offline critic feature extraction and bottleneck fitting; inherit container PyTorch.
+transformers==5.9.0
+huggingface-hub==1.16.1
+tokenizers==0.22.2
+numpy<3
+pytest

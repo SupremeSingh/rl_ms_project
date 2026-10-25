@@ -6,6 +6,8 @@ sparse pursuit, truncated SVD, or variance threshold is used. This equivalence
 does NOT apply to fitting a linear head on softmax probabilities.
 """
 import torch
+# Compatibility exports for historical experiments; active critics import critic_features.
+from math_rl.critic_features import rms_coordinates, isotropic_normalization
 
 
 @torch.no_grad()
@@ -30,16 +32,5 @@ def readout_factor(unembedding, gain, chunk_size=4096):
                 vocabulary_size=len(unembedding), dimension=dimension, truncation='none')
 
 
-def rms_coordinates(transported, eps):
-    return transported * torch.rsqrt(transported.square().mean(-1, keepdim=True)+eps)
-
-
 def compact_readout(transported, factor, eps):
     return rms_coordinates(transported, eps) @ factor.to(transported)
-
-
-def isotropic_normalization(x):
-    """One training-only scale, preserving the full-readout Euclidean metric."""
-    mean = x.mean(0)
-    scale = ((x-mean).double().square().mean().sqrt().clamp_min(1e-8)).float()
-    return mean, scale.expand_as(mean).clone()

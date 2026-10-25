@@ -55,6 +55,10 @@ uses lambda 0.9.
 - **Online fitting:** freeze the encoder and bottleneck, discard the temporary
   predictor, and start fresh linear value heads. Features use only the prefix
   before each action. The actor changes; the feature coordinates do not.
+- **Naming:** active feature utilities live in `critic_features.py`; offline training
+  uses `.venv-critic`, while PPO uses `.venv`. J-lens is historical research only.
+  Existing source folders with `jlens` in their names are retained artifact paths,
+  not a dependency of the selected critic.
 - **Tools:** VERL runs distributed PPO training; vLLM generates rollouts;
   Math-Verify scores final answers; our code supplies features, critic fitting,
   cross-fitting, audits and comparisons. Slurm schedules cluster experiments.
