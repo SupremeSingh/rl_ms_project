@@ -1,4 +1,4 @@
-# Shared completion/Math-Verify pilot settings.
+# Shared completion/Math-Verify settings for the final online protocol.
 defaults:
   - ppo_trainer
   - _self_
@@ -10,8 +10,8 @@ algorithm:
   use_kl_in_reward: false
 
 data:
-  train_files: data/gsm8k/train.parquet
-  val_files: data/gsm8k/val.parquet
+  train_files: null
+  val_files: null
   custom_cls:
     path: src/math_rl/ppo_runtime.py
     name: CompletionDataset

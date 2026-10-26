@@ -5,7 +5,6 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-EXCLUSION_POLICY = 'Only correct/incorrect verifier statuses with nonempty tokens enter critic fitting; all others excluded, not zero-labelled'
 
 
 def verifier_command():

@@ -17,4 +17,4 @@ export MATH_RL_GPU=1 OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 PYTHONUNBUFFERED=1
 out="${1:?Usage: sbatch scripts/submit_slice_smoke.sh NEW_OUTPUT_DIRECTORY}"
 srun bash scripts/container_exec.sh env -u TORCH_ALLOW_TF32_CUBLAS_OVERRIDE \
   "$PWD/.venv-critic/bin/python" scripts/smoke_slice_package.py \
-  --source outputs/numina-online-768-large-v1/data/questions.json --out "$out"
+  --source "${2:-data/numina/online/questions.json}" --out "$out"

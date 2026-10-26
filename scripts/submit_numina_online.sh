@@ -1,37 +1,23 @@
 #!/usr/bin/env bash
-# Submit preparation + smoke; --full submits the manifest-defined runs + report.
+# Submit the prepared final study: smoke, or --full comparison and report.
 set -euo pipefail
-source_study="${1:?Usage: bash scripts/submit_numina_online.sh SOURCE SPARSE --out DIR [--large] [--full]}"
-sparse="${2:?Supply the completed 768-dimensional sparse study}"
-shift 2
-out='' full=0 preset='' concurrency=2 smoke_first=0 exclude_nodes=''
+out='' full=0 concurrency=6 smoke_first=0 exclude_nodes='compsci-cluster-fitz-15'
 while (($#)); do
   case "$1" in
     --out) out="${2:?}"; shift 2;;
     --full) full=1; shift;;
     --smoke-first) smoke_first=1; shift;;
     --concurrency) concurrency="${2:?}"; shift 2;;
-    --large) preset=large; shift;;
     --exclude) exclude_nodes="${2:?}"; shift 2;;
     *) echo "Unknown option: $1" >&2; exit 2;;
   esac
 done
 [[ -n "$out" && -f scripts/numina_online.py ]] || { echo 'Run from repository root with --out.' >&2; exit 2; }
 [[ "$concurrency" =~ ^[1-9][0-9]*$ ]] || { echo "Concurrency must be positive" >&2; exit 2; }
-source_study="$(cd "$source_study" && pwd)"
-sparse="$(cd "$sparse" && pwd)"
-mkdir -p "$out"
-out="$(cd "$out" && pwd)"
-[[ "$out" != "$source_study" && "$out" != "$source_study/"* && "$out" != "$sparse" && "$out" != "$sparse/"* ]] || { echo 'Separate output required.' >&2; exit 2; }
 mkdir -p "$out/logs"
-if [[ -f "$out/manifest.json" ]]; then
-  saved_preset="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("preset","standard"))' "$out/manifest.json")"
-  [[ -z "$preset" || "$preset" == "$saved_preset" ]] || { echo 'Budget changed: use a new output directory.' >&2; exit 2; }
-  preset="$saved_preset"
-fi
-preset="${preset:-standard}"
+out="$(cd "$out" && pwd)"
+[[ -f "$out/manifest.json" ]] || { echo 'Prepare or import a study first.' >&2; exit 2; }
 wall=12:00:00
-[[ "$preset" != large ]] || wall=1-00:00:00
 submit() {
   local stage="$1" dep="$2" array="$3" gpu="$4" wall="$5"
   local opts=(--parsable --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=128G
@@ -44,7 +30,7 @@ submit() {
   local job
   # Bash command substitutions may disable errexit inside this function.
   # Explicitly propagate failure; never turn a missing ID into no dependency.
-  if ! job="$(sbatch "${opts[@]}" scripts/run_numina_online.sh "$stage" "$out" "$source_study" "$sparse" "$gpu" "$preset")"; then
+  if ! job="$(sbatch "${opts[@]}" scripts/run_numina_online.sh "$stage" "$out" "$gpu")"; then
     echo "Submission failed for $stage; stopping the chain. Check squeue/sacct before retrying: a timeout may still have created a job." >&2
     return 1
   fi
@@ -65,9 +51,7 @@ if ! mkdir "$marker"; then
   exit 1
 fi
 if [[ "$full" == 0 ]]; then
-  dep=''
-  if [[ ! -f "$out/manifest.json" ]]; then dep="$(submit prepare '' '' 0 03:00:00)"; fi
-  job="$(submit smoke "$dep" '' 1 12:00:00)"
+  job="$(submit smoke '' '' 1 12:00:00)"
   echo "Inspect $out/smoke.json after job $job completes."
 else
   dep=''
@@ -79,6 +63,6 @@ else
   if [[ ! -f "$out/selection.json" ]]; then dep="$(submit calibrate "$dep" '' 1 "$wall")"; fi
   last="$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); print(len(m["seeds"])*len(m["conditions"])-1)' "$out/manifest.json")"
   train="$(submit run "$dep" "0-$last%$concurrency" 1 "$wall")"
-  job="$(submit report "$train" '' 0 03:00:00)"
+  job="$(submit report "$train" '' 0 01:00:00)"
   echo "Final report: $out/report.txt (job $job)"
 fi

@@ -7,7 +7,7 @@ build/
 dist/
 
 # Local Python environment
-.venv/
+.venv*/
 
 # Downloaded data and model weights
 data/
@@ -29,13 +29,17 @@ ray_results/
 .vscode/
 .idea/
 .DS_Store
-.venv-verifier/
-.venv-ppo-verifier/
 
 configs/pip-check.txt
 .codex/
 .codex-build/
 
-.venv-jlens/
 
-.venv-critic/
+
+# Machine-local provenance and generated artifacts
+configs/assets.json
+configs/*environment.txt
+configs/container.sha256
+output/
+tmp/
+artifacts/

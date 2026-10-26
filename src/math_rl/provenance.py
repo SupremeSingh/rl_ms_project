@@ -1,17 +1,11 @@
 """Small, CPU-only provenance records; no credentials or full environment dump."""
-import hashlib
-import json
 import os
 from pathlib import Path
 import subprocess
+from functools import partial
+from slice_critic.storage import sha256, write_json as _write_json
 
-
-def sha256(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+write_json = partial(_write_json, sort_keys=True)
 
 
 def snapshot(root):
@@ -21,7 +15,7 @@ def snapshot(root):
         for path in sorted(root.glob(pattern)):
             files[str(path.relative_to(root))] = sha256(path)
     for name in ("configs/assets.json", "configs/environment.txt", "configs/container.sha256",
-                 "configs/ppo-verifier-environment.txt", "data/gsm8k/train.parquet", "data/gsm8k/val.parquet"):
+                 "configs/ppo-verifier-environment.txt"):
         path = root / name
         if path.exists():
             files[name] = sha256(path)
@@ -32,7 +26,3 @@ def snapshot(root):
     return {"git_commit": commit, "files": files,
             "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
             "container_path": os.environ.get("MATH_RL_IMAGE")}
-
-
-def write_json(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")

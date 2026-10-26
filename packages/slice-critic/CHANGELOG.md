@@ -1,19 +1,17 @@
-# Internal changelog
+# Internal release notes
 
-## 0.1.1 — internal candidate, 25 October 2026
+## 0.2.0 — final workflow cleanup, 25 October 2026
 
-- Public artifact inspection and PPO feature export/loading/readout interfaces.
-- PPO uses public interfaces; previous compatibility imports remain supported.
-- Validate artifact metadata, tensor dimensions, calibration and prefix inputs before inference.
-- Installed-wheel CPU acceptance outside the checkout, with research imports blocked.
-- CI on Python 3.10 and 3.12; explicit public API and release procedure.
-- Completed v1 artifacts remain supported. No Ridge/LSTD/PPO equations changed.
+- One authoritative implementation for feature transforms, grading, numeric
+  references, question families, folds and linear fitting.
+- Public frozen raw-layer readout for matched controls; cumulative class named
+  `CumulativeCritic` for both Ridge and LSTD.
+- Removed unused research helpers and consuming-project compatibility wrappers.
+- Completed v1 artifacts remain readable; unfinished stage recovery still rejects
+  changed source/configuration. Ridge/LSTD equations are unchanged.
+- The research consumer now has one six-method protocol and a portable final-input
+  capture command, plus a separate from-scratch preparation route.
 
-This is not a PyPI publication. Check CI and cluster integration for the revision
-being consumed before distributing its wheel internally.
-
-## 0.1.0 — initial internal extraction
-
-- Frozen multi-layer features, sparse/plain compressors, Ridge/LSTD and local scoring.
-- Checksummed artifacts, stage recovery and isolated Math-Verify interpreter.
-- Real-model standalone smoke and two-update Ridge/LSTD PPO smoke passed on Duke.
+Internal only. The refactored consumer requires a fresh cluster smoke before a
+new full experiment. Earlier standalone and PPO integration checks passed before
+this structural cleanup; they do not certify the changed revision automatically.

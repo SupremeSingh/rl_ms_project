@@ -1,5 +1,5 @@
 """Reusable frozen features and linear value prediction, independent of VERL."""
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 
 def __getattr__(name):
@@ -14,13 +14,16 @@ def __getattr__(name):
         from .training import train_critic
         return train_critic
     if name == 'CumulativeCritic':
-        from .cumulative import CumulativeLSTD
-        return CumulativeLSTD
+        from .cumulative import CumulativeCritic
+        return CumulativeCritic
+    if name == 'encode_hidden_rollout_features':
+        from .online import frozen_prefixes
+        return frozen_prefixes
     if name == 'inspect_artifact':
         from .artifacts import inspect_artifact
         return inspect_artifact
     if name == 'export_ppo_features':
-        from .legacy import export_filter
+        from .bridge import export_filter
         return export_filter
     if name in ('load_ppo_features', 'encode_rollout_features'):
         from .online import load_filter, bottleneck_prefixes
@@ -29,4 +32,4 @@ def __getattr__(name):
 
 
 __all__ = ['Critic', 'State', 'TrainingConfig', 'train_critic', 'CumulativeCritic',
-           'inspect_artifact', 'export_ppo_features', 'load_ppo_features', 'encode_rollout_features']
+           'encode_hidden_rollout_features', 'inspect_artifact', 'export_ppo_features', 'load_ppo_features', 'encode_rollout_features']
