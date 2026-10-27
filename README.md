@@ -1,39 +1,106 @@
 # SLICE: a compact critic for PPO
 
-**Can an LLM learn with PPO without training a second transformer as its critic?**
-This project demonstrates that approach on numeric math completion. The math
-experiment is complete; this branch contains the reusable SLICE package and the
-final six-method Numina pipeline.
+**A language model writes an answer. A small critic estimates whether it will
+finish correctly. PPO uses that estimate to help the model learn.**
 
-## Start with one answer
+Usually, PPO trains a separate neural value network as its critic. Here, we keep
+a copy of the base language model frozen, compress a few of its internal
+representations, and fit a linear value head by solving a small matrix system.
+SLICE is the reusable package; this repository also contains the PPO/GRPO
+comparison pipeline for numeric math questions.
+
+[Setup](SETUP.MD) · [Package API](packages/slice-critic/API.md) ·
+[Reproduce the study](docs/REPRODUCING.md)
+
+## From a partial answer to a value
 
 A model answering “9 avocados, 3 per serving” chooses one token at a time. At
-“Divide 9 by…”, the critic estimates the chance that continuing will earn a correct
-final answer. Math-Verify supplies a terminal reward of 1 or 0. GAE combines
-rewards and token-level values; PPO adjusts the actor's token probabilities.
+“Divide 9 by…”, the critic estimates the eventual reward from continuing that
+partial answer. Math-Verify gives the completed answer a reward of 1 or 0.
+Generalized advantage estimation (GAE) combines these rewards with the critic's
+values; PPO uses the resulting advantages to adjust the model's token choices.
 
-SLICE supplies those values cheaply:
+![SLICE: combine selected frozen transformer layers, compress to 768 features and predict the final outcome.](docs/figures/overview.png)
 
-**Question + partial answer → frozen Qwen → selected hidden layers → sparse 768 features → linear critic.**
+SLICE reads the last available token's hidden vector at blocks **28, 27, 25, 21,
+13** of Qwen2.5-Math-1.5B. It normalizes and combines five 1,536-dimensional
+vectors, then compresses **7,680 coordinates to 768 features** with a learned
+ReLU layer. The compressor is trained offline using correctness labels and an
+activation penalty. “Sparse” describes that penalty and the resulting zero
+activations; the implementation still uses dense operations.
 
-We read blocks **28, 27, 25, 21, 13** from Qwen2.5-Math-1.5B, normalize and
-concatenate their 1,536-dimensional vectors, and train a fixed ReLU compressor
-from 7,680 to 768 dimensions. Sparse means an activation penalty during training;
-the implementation still uses dense operations.
+The diagram's correctness score is an outcome estimate, not a proof of the
+reasoning. Online Ridge/LSTD values are unbounded linear predictions; standalone
+package scoring also provides a separately calibrated probability.
 
-During PPO, the encoder and compressor stay frozen. Two persistent question-fold
-systems accumulate Ridge or LSTD statistics. Each question receives values from
-the opposite fold, keeping its own rewards out of its head fit. We solve for
-linear weights, compute advantages and update only the actor. There is no buffer,
-encoder refresh or critic-transformer backpropagation in the SLICE arms.
+## The final learning algorithm
 
-[System architecture](docs/figures/final-architecture.svg) ·
-[Package API](packages/slice-critic/API.md) · [Setup](SETUP.MD) ·
-[Reproduction](docs/REPRODUCING.md)
+During PPO, **only the actor is updated by gradients** in the SLICE arms. Its
+critic uses the frozen base encoder and frozen compressor, with fresh linear
+weights fitted from accumulated statistics. Ridge fits each prefix to its
+observed final reward. LSTD fits trace-weighted temporal-difference equations.
 
-## Final experiment
+Every training question belongs permanently to one of two groups, or *folds*.
+Each fold's rewards fit one head, which predicts values for the opposite fold.
+This keeps a question's own current and historical rewards out of the head used
+to calculate its advantages.
 
-Five actor seeds, six methods, **120 updates × 64 answers**, 2,000 test questions,
+Here, `x = [768 compressed features; 1]` includes an intercept, so each `A` is
+**769 × 769** and each `b` and `w` has 769 entries. The final Numina settings are
+`gamma = 1`, `critic_lambda = 0.9`, `GAE_lambda = 0.95` and `epsilon = 0.01`.
+Critic lambda and GAE lambda control different calculations.
+
+```text
+Freeze the base encoder, learned bottleneck and feature normalization.
+Assign each training question to a fixed fold: 0 or 1.
+Initialize A[fold] = 0 and b[fold] = 0 for both folds.
+
+For each PPO update:
+    Generate fresh answers with the current actor; score their final outcomes.
+    Extract frozen features for every pre-action prefix; append intercept 1.
+
+    For each answer:
+        f = its question's fixed fold
+
+        If using Ridge:
+            For each prefix x:
+                A[f] += outer(x, x)
+                b[f] += x * final_reward
+
+        If using LSTD:
+            Reset eligibility trace z = 0 at the start of this answer.
+            For each transition (x, reward, x_next):
+                # reward is zero except at the last action.
+                # At termination, x_next is all zero, including its intercept.
+                z = gamma * critic_lambda * z + x
+                A[f] += outer(z, x - gamma * x_next)
+                b[f] += z * reward
+
+    For each fold f:
+        w[f] = solve(A[f] + epsilon * I, b[f])
+
+    Predict each question's token values with the opposite fold's weights:
+        value(x) = dot(w[1 - f], x)
+    Compute GAE using these values, fresh rewards and terminal value zero.
+    Update the actor with PPO on fresh answers only.
+
+    Keep A and b for the next update; do not divide them by the sample count.
+    Keep the encoder, bottleneck and normalization frozen.
+```
+
+The small matrix statistics persist; generated answers are not kept in a buffer.
+Regularization is added when solving, including on the intercept. Past policies
+remain represented in `A` and `b` without off-policy correction: question
+cross-fitting limits reward leakage, but does not make old experience on-policy.
+
+![PPO system architecture: fresh answers, frozen SLICE features, cumulative opposite-fold linear critics, GAE and actor updates.](docs/figures/final-architecture.png)
+
+[Open the scalable architecture diagram](docs/figures/final-architecture.svg).
+
+## Recorded Numina results
+
+The completed comparison used five actor seeds, six methods,
+**120 updates × 64 answers per run**, 2,000 test questions,
 fixed greedy evaluation and a 2,048-token response cap. Gamma is 1; GAE lambda is
 0.95; online LSTD lambda is 0.9; cumulative regularization is 0.01. Each run uses
 two A5000 GPUs. Offline feature learning and PPO validation calibration are
@@ -78,9 +145,11 @@ alternative, not an established winner for long horizons.
 
 The package remains **internal**, installed from source or a checked wheel; there
 is no hosted API, registry or PyPI publication. Completed v1 artifacts remain
-supported. Both standalone training/scoring and real PPO integration passed on
-Duke before this cleanup. The refactored branch requires its own cluster smoke;
-a branch named `prod` is not a promise of fault-free behavior.
+supported. The cleaned-up version passed installed-wheel CPU acceptance on Duke
+and two real PPO updates each with Ridge and LSTD(0.9), including accumulated
+statistics and opposite-fold predictions. A full six-method replay is underway
+to check accuracy reproducibility; the table above records the earlier completed
+study, not results from that replay.
 
 ## Reproduce or start fresh
 
