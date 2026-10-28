@@ -1,4 +1,4 @@
-# SLICE public contract (0.1.x)
+# SLICE public contract (0.2.x)
 
 This is an internal alpha package. Import the symbols below from `slice_critic`;
 implementation helpers may change. Version 1 supports the frozen
@@ -15,6 +15,7 @@ Qwen2.5-Math-1.5B and numeric final-answer tasks, not arbitrary architectures.
 | `critic.score_batch(states)` | Ordered dictionaries with raw `value`, calibrated `probability`, `critic_version`, and `model_id`. Raw values remain unclipped. |
 | `export_ppo_features(artifact, output)` | Checksummed feature-only checkpoint for the 768-wide PPO adapter. Rejects overwriting; excludes the offline value head. |
 | `load_ppo_features(path, checksum, layers=..., eps=..., model_path=...)` | Checks checkpoint and supplied identities; returns frozen compressor, CPU mean and scale. Pass all compatibility arguments. |
+| `encode_hidden_rollout_features(encoder, ids, masks, response_width, layer)` | Frozen raw-layer control readout; same causal alignment, no compressor. |
 | `encode_rollout_features(encoder, ids, masks, response_width, fitted, layers, eps)` | Per-answer detached arrays for every pre-action response state. Consumer supplies the matching encoder, tokenizer and completion prompt. |
 | `CumulativeCritic(question_ids, seed=..., epsilon=.01, trace_lambda=.99, method=...)` | Persistent question-fold matrix fitting. Explicitly specify `method` and `trace_lambda`; the compatibility constructor's trace default is zero. |
 
@@ -56,7 +57,7 @@ or compressor requires resetting/rebuilding matrices; do not mix feature bases.
 
 ## Compatibility and limits
 
-Completed `slice-critic-v1` artifacts remain readable across this patch release,
+Completed `slice-critic-v1` artifacts remain readable on this branch,
 including the 0.1.0 cluster smoke artifacts. A code change invalidates unfinished
 training recovery by design. Checksums support reproducibility, not authentication.
 

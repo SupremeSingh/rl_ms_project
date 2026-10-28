@@ -5,7 +5,7 @@ from types import ModuleType
 import pytest
 from sympy import Rational, SympifyError
 
-from math_rl import math_verify_reward as reward
+from slice_critic import grading as reward
 from math_rl import verifier_batch
 
 

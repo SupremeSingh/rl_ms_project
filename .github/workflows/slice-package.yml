@@ -22,7 +22,9 @@ jobs:
       - name: Test installed wheel outside the repository
         run: python scripts/check_slice_release.py --out outputs/slice-release-ci
       - name: Check research adapters and cumulative equations
-        run: python -m pytest -q tests/test_slice_adapter.py tests/test_slice_ppo_smoke.py tests/test_cumulative_lstd.py
+        run: |
+          python -m pip install --no-deps -e .
+          python -m pytest -q
       - uses: actions/upload-artifact@v4
         if: always()
         with:

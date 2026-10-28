@@ -9,7 +9,7 @@ import torch
 from slice_critic import Critic, State, TrainingConfig, train_critic, CumulativeCritic
 from slice_critic.config import select_layers, INSTRUCTION
 from slice_critic.storage import model_identity, read_artifact, read_json, sha256
-from slice_critic.legacy import export_filter
+from slice_critic.bridge import export_filter
 from slice_critic.inference import load_filter
 
 
@@ -117,7 +117,7 @@ def test_training_loading_scoring_export_and_resume(tmp_path, monkeypatch, metho
     before = sha256(out/'head-statistics.pt')
     assert train_critic(config,out,device='cpu',backend=backend,grader=grader) == artifact
     assert backend.generated == 40 and sha256(out/'head-statistics.pt') == before
-    # The legacy PPO adapter intentionally supports only the established 768 basis.
+    # The fixed-width PPO adapter intentionally supports only the established 768 basis.
     with pytest.raises(ValueError,match='width 768'): export_filter(artifact,tmp_path/'filter.pt')
     from dataclasses import replace
     with pytest.raises(ValueError,match='Configuration changed'):

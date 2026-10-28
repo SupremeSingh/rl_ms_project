@@ -27,7 +27,7 @@ def test_select_excludes_fitting_families_and_preserves_splits():
 def test_command_locks_package_basis_and_online_algorithm(tmp_path, method):
     exported = dict(path='/tmp/filter.pt', sha256='digest', layers=[27, 26, 24, 20, 12], rms_eps=1e-6)
     cmd = smoke.command(tmp_path, method, exported)
-    for setting in ['experiment.critic_statistics=cumulative', 'experiment.critic_lambda=0.99',
+    for setting in ['experiment.critic_statistics=cumulative', 'experiment.critic_lambda=0.9',
                     'experiment.cumulative_epsilon=0.01', 'experiment.replay_capacity=0',
                     'actor_rollout_ref.model.critic_feature_mode=frozen',
                     'actor_rollout_ref.model.critic_encoder_precision=fp32',
@@ -44,7 +44,7 @@ def write_run(case, method):
     folder.mkdir(parents=True)
     (case / 'result.json').write_text(json.dumps(dict(updates=2, answers=128,
         evaluation_split='val', training_gpu_hours=.1)))
-    stats = dict(step=2, epoch=0, method=method, epsilon=.01, trace_lambda=.99,
+    stats = dict(step=2, epoch=0, method=method, epsilon=.01, trace_lambda=.9,
         stats=[dict(a=torch.zeros(769, 769), b=torch.zeros(769), answers=64) for _ in range(2)])
     torch.save(stats, folder / 'statistics.pt')
     for step in (1, 2):

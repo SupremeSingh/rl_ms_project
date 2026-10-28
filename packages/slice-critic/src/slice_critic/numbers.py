@@ -11,4 +11,3 @@ def parse_number(text):
     if not NUMBER.fullmatch(text):
         return None
     return Decimal(text.replace(",", ""))
-

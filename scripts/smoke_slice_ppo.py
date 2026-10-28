@@ -13,7 +13,7 @@ from math_rl.provenance import sha256, snapshot, write_json
 from slice_critic.data import family_key
 from slice_critic import export_ppo_features as export_filter, load_ppo_features as load_filter
 from slice_critic.storage import read_artifact
-import math_comparison
+from math_rl import runner
 
 
 def select_questions(rows, manifest, train_count=64, val_count=16):
@@ -37,10 +37,10 @@ def select_questions(rows, manifest, train_count=64, val_count=16):
 
 
 def command(out, method, exported):
-    return math_comparison.command(out, method, 42, 2, feature_mode='frozen',
+    return runner.command(out, method, 42, 2, feature_mode='frozen',
         evaluation_split='val') + [
         'experiment.critic_statistics=cumulative', 'experiment.cumulative_epsilon=0.01',
-        'experiment.critic_lambda=0.99', 'actor_rollout_ref.model.critic_encoder_precision=fp32',
+        'experiment.critic_lambda=0.9', 'actor_rollout_ref.model.critic_encoder_precision=fp32',
         'actor_rollout_ref.model.critic_feature_layer=bottleneck',
         f'actor_rollout_ref.model.critic_bottleneck_path={exported["path"]}',
         f'actor_rollout_ref.model.critic_bottleneck_sha256={exported["sha256"]}',
@@ -55,7 +55,7 @@ def verify_run(case, method):
         raise ValueError('Incomplete actor update/evaluation budget')
     stats = torch.load(case / 'linear-critic' / 'statistics.pt', map_location='cpu', weights_only=True)
     if (stats['step'] != 2 or stats['epoch'] != 0 or stats['method'] != method
-            or stats['epsilon'] != .01 or stats['trace_lambda'] != .99):
+            or stats['epsilon'] != .01 or stats['trace_lambda'] != .9):
         raise ValueError('Wrong cumulative fitting settings')
     if sum(s['answers'] for s in stats['stats']) != 128:
         raise ValueError('Statistics did not retain both updates')
@@ -127,7 +127,7 @@ def run(args):
             checks[method] = verify_run(out / f'{method}-seed42', method)
         write_json(out / 'verification.json', dict(passed=True, methods=checks,
             offline_value_head_loaded=False, frozen_encoder=True, frozen_compressor=True,
-            buffer_capacity=0, gamma=1, lstd_lambda=.99, gae_lambda=.95,
+            buffer_capacity=0, gamma=1, lstd_lambda=.9, gae_lambda=.95,
             scope='Two real PPO updates per method; integration check, not an accuracy ranking'))
         write_json(out / 'status.json', dict(state='complete'))
     except BaseException as exc:
@@ -138,6 +138,6 @@ def run(args):
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('artifact', type=Path)
-    p.add_argument('--source', type=Path, default=Path('outputs/numina-online-768-large-v1/data/questions.json'))
+    p.add_argument('--source', type=Path, default=Path('data/numina/online/questions.json'))
     p.add_argument('--out', type=Path, required=True)
     run(p.parse_args())

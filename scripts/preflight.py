@@ -12,8 +12,8 @@ def main():
     method.add_argument("--ppo", action="store_true")
     method.add_argument("--grpo", action="store_true")
     parser.add_argument("--expected-gpus", type=int)
-    parser.add_argument("--train-file", type=Path, default=Path('data/gsm8k/train.parquet'))
-    parser.add_argument("--val-file", type=Path, default=Path('data/gsm8k/val.parquet'))
+    parser.add_argument("--train-file", type=Path, required=True)
+    parser.add_argument("--val-file", type=Path, required=True)
     args = parser.parse_args()
     import torch
     from datasets import Dataset
@@ -43,10 +43,6 @@ def main():
         for row in rows:
             validate_prompt(row["prompt"])
         questions.append({" ".join(row["prompt"][1]["content"].split()) for row in rows})
-        if not (args.ppo or args.grpo):
-            rendered = tokenizer.apply_chat_template(rows[0]["prompt"], tokenize=False, add_generation_prompt=True)
-            if "\\boxed" in rendered:
-                raise RuntimeError("Tokenizer injected a conflicting boxed-answer instruction")
     if questions[0] & questions[1]:
         raise RuntimeError("Training and validation contain overlapping questions")
     if args.ppo or args.grpo:

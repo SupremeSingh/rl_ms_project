@@ -55,7 +55,7 @@ def test_reject_malformed_artifacts_before_encoder_loading(tmp_path, monkeypatch
 
 
 def test_public_ppo_exports_are_existing_implementations():
-    from slice_critic.legacy import export_filter
+    from slice_critic.bridge import export_filter
     from slice_critic.online import bottleneck_prefixes, load_filter
     assert export_ppo_features is export_filter
     assert load_ppo_features is load_filter

@@ -4,10 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "math-rl"
-version = "0.1.0"
+version = "0.2.0"
 description = "Small math RL experiments"
 requires-python = ">=3.10"
-dependencies = ["slice-critic==0.1.1", "datasets", "pyarrow", "huggingface-hub", "PyYAML"]
+dependencies = ["slice-critic==0.2.0", "datasets", "pyarrow", "huggingface-hub", "PyYAML"]
+
+[project.scripts]
+math-rl = "math_rl.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest"]

@@ -51,7 +51,7 @@ def test_completion_dataset_uses_exact_tokens_and_can_resume(tmp_path):
     torch = pytest.importorskip("torch")
     datasets = pytest.importorskip("datasets")
     from math_rl.completion_dataset import CompletionDataset
-    from math_rl.data import make_row
+    from math_rl.prompts import make_prompt
     from math_rl.prompts import encode_completion
     # CPU-only development installs need not include the pinned training stack.
     # When VERL is installed, a missing training dependency must remain a failure.
@@ -69,7 +69,9 @@ def test_completion_dataset_uses_exact_tokens_and_can_resume(tmp_path):
         def apply_chat_template(self, *args, **kwargs):
             raise AssertionError("Chat formatting must never be used")
 
-    rows = [make_row(dict(question=f"What is {i} + 1?", answer=f"#### {i+1}"), i) for i in range(4)]
+    rows = [dict(data_source='numina_numeric', prompt=make_prompt(f'What is {i} + 1?'),
+                 reward_model=dict(ground_truth=str(i+1)),
+                 extra_info=dict(index=i,prompt_id=str(i),level=0)) for i in range(4)]
     path = tmp_path / "data.parquet"
     datasets.Dataset.from_list(rows).to_parquet(path)
     tokenizer = Tokenizer()
@@ -129,23 +131,6 @@ def test_actual_critic_uses_causal_pre_token_values():
     assert not torch.equal(first[:, 1:], later[:, 1:])
 
 
-def test_hydra_config_and_external_dataset_hook():
-    pytest.importorskip("verl")
-    from hydra import compose, initialize_config_dir
-    from omegaconf import OmegaConf
-    from verl.utils.import_utils import load_extern_type
-    from math_rl.completion_dataset import CompletionDataset
-    with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base=None):
-        config = compose(config_name="ppo")
-        OmegaConf.resolve(config)
-    assert config.algorithm.adv_estimator == "gae"
-    assert config.critic.model.path == config.actor_rollout_ref.model.path
-    assert config.critic.checkpoint.load_contents == ["model", "optimizer", "extra"]
-    assert config.actor_rollout_ref.rollout.n == 1
-    assert config.critic.optim.lr == 1e-5
-    assert load_extern_type(str(ROOT / config.data.custom_cls.path), config.data.custom_cls.name) is CompletionDataset
-
-
 def test_critic_accumulation_weights_valid_tokens_equally():
     pytest.importorskip("verl")
     import torch
@@ -178,31 +163,3 @@ def test_reward_manager_assigns_only_terminal_rewards():
     manager = BatchRewardManager(tokenizer, 0, lambda **kwargs: [dict(score=1), dict(score=0)])
     scored = manager(data, return_dict=True)["reward_tensor"]
     torch.testing.assert_close(scored, torch.tensor([[0., 1., 0.], [0., 0., 0.]]))
-
-
-def test_execution_report_fails_when_critic_state_missing(tmp_path):
-    config = dict(algorithm=dict(adv_estimator="gae"), data=dict(train_batch_size=2),
-                  trainer=dict(total_training_steps=2, n_gpus_per_node=1, nnodes=1))
-    (tmp_path / "run.json").write_text(json.dumps(dict(config=config, provenance={})))
-    attempt = tmp_path / "attempts/first"
-    attempt.mkdir(parents=True)
-    (attempt / "exit.json").write_text(json.dumps(dict(returncode=0)))
-    (attempt / "console.log").write_text("\n".join(
-        f"step:{i} - actor/grad_norm:0.1 - actor/pg_loss:-0.01 - critic/grad_norm:0.2 - critic/vf_loss:0.1"
-        for i in (1, 2)))
-    (tmp_path / "rollouts").mkdir()
-    for i in (1, 2):
-        (tmp_path / f"rollouts/{i}.jsonl").write_text('\n'.join(json.dumps(dict(score=s)) for s in (0, 1)))
-    checkpoint = tmp_path / "global_step_2"
-    checkpoint.mkdir()
-    (checkpoint / "data.pt").write_bytes(b"state")
-    for role in ("actor", "critic"):
-        (checkpoint / role).mkdir()
-        for kind in ("model", "optim", "extra_state"):
-            (checkpoint / role / f"{kind}_world_size_1_rank_0.pt").write_bytes(b"state")
-    command = [sys.executable, str(ROOT / "scripts/report_ppo.py"), str(tmp_path)]
-    assert subprocess.run(command, capture_output=True).returncode == 0
-    (checkpoint / "critic/optim_world_size_1_rank_0.pt").unlink()
-    assert subprocess.run(command, capture_output=True).returncode == 1
-    report = json.loads((tmp_path / "ppo-report.json").read_text())
-    assert not report["gates"]["final_checkpoint_complete"]

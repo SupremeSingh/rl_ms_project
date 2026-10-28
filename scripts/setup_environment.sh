@@ -13,5 +13,5 @@ if ! python -m pip check > configs/pip-check.txt 2>&1; then
 fi
 python -m pip freeze > configs/environment.txt
 python -m pytest -q
-python scripts/prepare_data.py
-python -m math_rl.train --cfg job --resolve
+python scripts/prepare_assets.py
+python -m math_rl.main --cfg job --resolve

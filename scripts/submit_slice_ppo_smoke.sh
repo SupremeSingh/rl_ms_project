@@ -16,4 +16,5 @@ export MATH_RL_GPU=1 OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 PYTHONUNBUFFERED=1
 artifact="${1:?Usage: sbatch scripts/submit_slice_ppo_smoke.sh ARTIFACT NEW_OUTPUT_DIRECTORY}"
 out="${2:?Pass a new output directory}"
 srun bash scripts/container_exec.sh env -u TORCH_ALLOW_TF32_CUBLAS_OVERRIDE \
-  "$PWD/.venv/bin/python" scripts/smoke_slice_ppo.py "$artifact" --out "$out"
+  "$PWD/.venv/bin/python" scripts/smoke_slice_ppo.py "$artifact" --out "$out" \
+  --source "${3:-data/numina/online/questions.json}"

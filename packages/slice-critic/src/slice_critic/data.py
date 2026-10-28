@@ -10,10 +10,7 @@ from .references import reference_decision
 from .storage import sha256
 
 
-def family_key(text):
-    text=unicodedata.normalize('NFKC',text).lower()
-    text=re.sub(r'\d+(?:[.,]\d+)*',' NUMBER ',text)
-    return re.sub(r'\W+',' ',text).strip()
+from .text import family_key
 
 
 def load_rows(config):

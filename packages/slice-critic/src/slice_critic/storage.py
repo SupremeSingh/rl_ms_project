@@ -21,12 +21,12 @@ def read_json(path):
     return json.loads(Path(path).read_text())
 
 
-def write_json(path, record):
+def write_json(path, record, *, sort_keys=False):
     path=Path(path); path.parent.mkdir(parents=True,exist_ok=True)
     fd, name=tempfile.mkstemp(prefix=path.name+'.',suffix='.tmp',dir=path.parent)
     try:
         with os.fdopen(fd,'w') as handle:
-            json.dump(record,handle,indent=2,allow_nan=False); handle.write('\n')
+            json.dump(record,handle,indent=2,allow_nan=False,sort_keys=sort_keys); handle.write('\n')
         os.replace(name,path)
     finally:
         if os.path.exists(name): os.unlink(name)
