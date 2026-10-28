@@ -43,39 +43,36 @@ The diagram's correctness score is an outcome estimate, not a proof of the
 reasoning. Online Ridge/LSTD values are unbounded linear predictions; standalone
 package scoring also provides a separately calibrated probability.
 
-## The learning algorithm used in the completed studies
+## Current v2 algorithm: one shared critic
 
 During PPO, **only the actor is updated by gradients** in the SLICE arms. Its
 critic uses the frozen base encoder and frozen compressor, with fresh linear
 weights fitted from accumulated statistics. Ridge fits each prefix to its
 observed final reward. LSTD fits trace-weighted temporal-difference equations.
 
-Every training question belongs permanently to one of two groups, or *folds*.
-Each fold's rewards fit one head, which predicts values for the opposite fold.
-This keeps a question's own current and historical rewards out of the head used
-to calculate its advantages.
+Every training question uses the **same** matrix system and value head.
+There is no question assignment or opposite-head prediction. After each batch,
+we add all answers to the accumulated statistics, solve once, and predict that
+batch's token values with the resulting weights.
 
-Here, `x = [768 compressed features; 1]` includes an intercept, so each `A` is
-**769 × 769** and each `b` and `w` has 769 entries. The final Numina settings are
+Here, `x = [768 compressed features; 1]` includes an intercept, so `A` is
+**769 × 769** and `b` and `w` each have 769 entries. The final Numina settings are
 `gamma = 1`, `critic_lambda = 0.9`, `GAE_lambda = 0.95` and `epsilon = 0.01`.
 Critic lambda and GAE lambda control different calculations.
 
 ```text
 Freeze the base encoder, learned bottleneck and feature normalization.
-Assign each training question to a fixed fold: 0 or 1.
-Initialize A[fold] = 0 and b[fold] = 0 for both folds.
+Initialize one A = 0 and one b = 0 for all questions.
 
 For each PPO update:
     Generate fresh answers with the current actor; score their final outcomes.
     Extract frozen features for every pre-action prefix; append intercept 1.
 
     For each answer:
-        f = its question's fixed fold
-
         If using Ridge:
             For each prefix x:
-                A[f] += outer(x, x)
-                b[f] += x * final_reward
+                A += outer(x, x)
+                b += x * final_reward
 
         If using LSTD:
             Reset eligibility trace z = 0 at the start of this answer.
@@ -83,14 +80,11 @@ For each PPO update:
                 # reward is zero except at the last action.
                 # At termination, x_next is all zero, including its intercept.
                 z = gamma * critic_lambda * z + x
-                A[f] += outer(z, x - gamma * x_next)
-                b[f] += z * reward
+                A += outer(z, x - gamma * x_next)
+                b += z * reward
 
-    For each fold f:
-        w[f] = solve(A[f] + epsilon * I, b[f])
-
-    Predict each question's token values with the opposite fold's weights:
-        value(x) = dot(w[1 - f], x)
+    w = solve(A + epsilon * I, b)
+    Predict every current prefix's value: value(x) = dot(w, x)
     Compute GAE using these values, fresh rewards and terminal value zero.
     Update the actor with PPO on fresh answers only.
 
@@ -100,16 +94,17 @@ For each PPO update:
 
 The small matrix statistics persist; generated answers are not kept in a buffer.
 Regularization is added when solving, including on the intercept. Past policies
-remain represented in `A` and `b` without off-policy correction: question
-cross-fitting limits reward leakage, but does not make old experience on-policy.
+remain represented in `A` and `b` without off-policy correction. Values are
+fitted on current as well as historical answers; their fitting error is not a
+held-out value-quality measurement.
 
-![PPO system architecture: fresh answers, frozen SLICE features, cumulative opposite-fold linear critics, GAE and actor updates.](docs/figures/final-architecture.png)
+![PPO system architecture: fresh answers, frozen SLICE features, one cumulative linear critic, GAE and actor updates.](docs/figures/final-architecture.png)
 
 [Open the scalable architecture diagram](docs/figures/final-architecture.svg).
 
 ## v2 experiment: one cumulative head, without folds
 
-The package now also supports `CumulativeCritic(..., folds=1)`. All questions
+The default package mode is now `CumulativeCritic(..., folds=1)`. All questions
 update one persistent `A,b`; after adding each fresh batch, we solve once and use
 that head for every prefix's value. Frozen features, raw accumulation, terminal
 rewards, epsilon, GAE and PPO are unchanged. This is fit-then-predict on the same
@@ -123,7 +118,8 @@ unchanged. All actors start fresh; old results remain untouched.
 
 ## Recorded Numina results
 
-The original comparison and the completed production replay each used five actor seeds, six methods,
+These completed studies used the previous two-fold critic. They are historical
+results, not measurements of the new one-head version. Each used five actor seeds, six methods,
 **120 updates × 64 answers per run**, 2,000 test questions,
 fixed greedy evaluation and a 2,048-token response cap. Gamma is 1; GAE lambda is
 0.95; online LSTD lambda is 0.9; cumulative regularization is 0.01. Each run uses

@@ -28,9 +28,9 @@ zero, including its intercept. Gamma is 1; traces reset between answers. Matrix
 sums persist without per-update normalization. The encoder/compressor must not
 change while those sums are retained.
 
-In the original/default two-fold mode, question folds remain fixed across all
+In the historical two-fold mode, question folds remain fixed across all
 historical and current answers; values use the opposite fold's matrices.
-The v2 experiment also supports `critic_folds=1`: one system fits all historical
+The current/default v2 protocol uses `critic_folds=1`: one system fits all historical
 and current answers before predicting the current batch, without cross-fitting.
 Both modes keep the feature basis fixed and accumulate raw sums.
 Supervised representation-fitting

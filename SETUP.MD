@@ -77,7 +77,8 @@ cat outputs/slice-prod-smoke-v1/verification.json
 ```
 
 This runs two actor updates each for Ridge and LSTD(0.9), checking frozen features,
-finite 769-dimensional heads, two question folds and accumulated statistics.
+one finite 769-dimensional head per method and accumulated statistics.
+The smoke defaults to the current one-head mode.
 It is not an accuracy benchmark. The full six-method study has a separate smoke
 gate before its array of actor runs.
 

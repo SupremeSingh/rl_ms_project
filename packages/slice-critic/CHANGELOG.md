@@ -2,8 +2,8 @@
 
 ## 0.3.0 - one-head cumulative critic experiment
 
-- Optional `folds=1` shared-head Ridge/LSTD: accumulate all answers, solve once,
-  then predict the current batch. Existing `folds=2` remains the default.
+- Default `folds=1` shared-head Ridge/LSTD: accumulate all answers, solve once,
+  then predict the current batch. Explicit `folds=2` remains available for historical reproduction.
 - Explicit system routing, fold counts and in-sample versus out-of-fold metrics
   in checkpoints/diagnostics. Offline artifact schema and equations unchanged.
 - New no-fold six-method protocol: one head in every linear arm, original

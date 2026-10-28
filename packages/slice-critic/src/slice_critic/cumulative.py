@@ -34,7 +34,7 @@ def trajectory_statistics(states, outcome, trace_lambda=0.):
 
 
 class CumulativeCritic:
-    def __init__(self, question_ids, seed=42, epsilon=.01, trace_lambda=0., reset_interval=0, method="lstd", *, folds=2):
+    def __init__(self, question_ids, seed=42, epsilon=.01, trace_lambda=0., reset_interval=0, method="lstd", *, folds=1):
         if not np.isfinite(epsilon) or epsilon <= 0 or not 0 <= trace_lambda <= 1 or reset_interval < 0:
             raise ValueError('Invalid cumulative LSTD settings')
         if method not in ('lstd', 'ridge'):

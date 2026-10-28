@@ -17,7 +17,7 @@ Qwen2.5-Math-1.5B and numeric final-answer tasks, not arbitrary architectures.
 | `load_ppo_features(path, checksum, layers=..., eps=..., model_path=...)` | Checks checkpoint and supplied identities; returns frozen compressor, CPU mean and scale. Pass all compatibility arguments. |
 | `encode_hidden_rollout_features(encoder, ids, masks, response_width, layer)` | Frozen raw-layer control readout; same causal alignment, no compressor. |
 | `encode_rollout_features(encoder, ids, masks, response_width, fitted, layers, eps)` | Per-answer detached arrays for every pre-action response state. Consumer supplies the matching encoder, tokenizer and completion prompt. |
-| `CumulativeCritic(question_ids, seed=..., epsilon=.01, trace_lambda=.9, method=..., folds=2)` | Persistent matrix fitting: `folds=2` uses opposite-question heads; `folds=1` uses one shared head fitted before current-batch predictions. Explicitly specify `method` and `trace_lambda`; the constructor's trace default is zero. |
+| `CumulativeCritic(question_ids, seed=..., epsilon=.01, trace_lambda=.9, method=..., folds=1)` | Persistent matrix fitting: `folds=2` uses opposite-question heads; `folds=1` uses one shared head fitted before current-batch predictions. Explicitly specify `method` and `trace_lambda`; the constructor's trace default is zero. |
 
 ## Online fitting is separate from offline prediction
 
@@ -25,7 +25,7 @@ Qwen2.5-Math-1.5B and numeric final-answer tasks, not arbitrary architectures.
 from slice_critic import CumulativeCritic
 
 critic = CumulativeCritic(all_training_question_ids, seed=42,
-                         method="lstd", trace_lambda=.99, epsilon=.01)
+                         method="lstd", trace_lambda=.9, epsilon=.01)
 for step, batch in enumerate(fresh_rollouts, start=1):
     values, heads, diagnostics = critic.update(
         batch.features, batch.terminal_rewards, batch.response_mask,
@@ -40,7 +40,8 @@ fixed to 1; only binary rewards at the final response token are supported.
 Termination uses a zero successor, including its intercept. Consumers must define
 truncation semantics for other tasks; our math project defines a capped task.
 
-By default, two question folds persist: values for one fold use the other fold's matrices.
+By default, all questions share one matrix system and one prediction head.
+Explicit `folds=2` is retained only to reproduce historical cross-fitted studies.
 Pass `folds=1` for the no-fold experiment: every question contributes to the same
 system, which is solved after adding the current batch and then predicts that
 batch. There is one head and one solve per update; no cross-fitting or delayed

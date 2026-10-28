@@ -68,8 +68,8 @@ values, weights, diagnostics = head.update(
 ```
 
 For LSTD, specify `method="lstd", trace_lambda=.9` (or the desired tested trace).
-Gamma is 1. By default, statistics accumulate in two persistent question folds; no head fits
-its predicted question's rewards. Features stay frozen. Historical-policy data
+Gamma is 1. By default, all questions accumulate into one shared matrix system,
+which fits and predicts the current batch. Features stay frozen. Historical-policy data
 are uncorrected. LSTD requires consecutive states, not isolated random prefixes.
 
 Set `folds=1` in `CumulativeCritic` to fit one shared system on all accumulated

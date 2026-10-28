@@ -27,7 +27,7 @@ def payload():
 @pytest.mark.parametrize('method',['ridge','lstd'])
 def test_public_one_head_fits_all_answers_before_prediction(method):
     from slice_critic.cumulative import raw_design, trajectory_statistics
-    critic=CumulativeCritic(['one question'],method=method,trace_lambda=.9,folds=1)
+    critic=CumulativeCritic(['one question'],method=method,trace_lambda=.9)
     features=[torch.tensor([[.1],[.7]]),torch.tensor([[.3],[.9]])]
     rewards=torch.tensor([[0.,1.],[0.,0.]])
     a=torch.zeros(2,2,dtype=torch.float64);b=torch.zeros(2,dtype=torch.float64)
@@ -83,7 +83,7 @@ def test_public_ppo_exports_are_existing_implementations():
 @pytest.mark.parametrize('method', ['ridge', 'lstd'])
 def test_cumulative_public_api_matches_explicit_raw_sums_and_cross_fitting(method):
     from slice_critic.cumulative import trajectory_statistics, raw_design
-    critic = CumulativeCritic(['a', 'b', 'c', 'd'], seed=42, epsilon=.01, trace_lambda=.99, method=method)
+    critic = CumulativeCritic(['a', 'b', 'c', 'd'], seed=42, epsilon=.01, trace_lambda=.99, method=method, folds=2)
     ids = [next(q for q, fold in critic.assignment.items() if fold == f) for f in (0, 1)]
     features = [torch.tensor([[.1, .2], [.3, .4]]), torch.tensor([[.2, .7], [.5, .8]])]
     rewards = torch.tensor([[0., 1.], [0., 0.]])

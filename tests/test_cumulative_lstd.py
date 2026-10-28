@@ -28,7 +28,7 @@ def test_statistics_match_explicit_transition_loop(lam):
 
 
 def test_raw_cumulative_solve_and_no_repeated_regularization():
-    f,r,m,q=batch();c=CumulativeCritic(q,epsilon=.001,trace_lambda=.99)
+    f,r,m,q=batch();c=CumulativeCritic(q,epsilon=.001,trace_lambda=.99,folds=2)
     _,_,first=c.update(f,r,m,q,1)
     _,heads,last=c.update(f,r,m,q,2)
     for fold in range(2):
@@ -42,7 +42,7 @@ def test_raw_cumulative_solve_and_no_repeated_regularization():
 
 
 def test_historical_question_labels_never_leak():
-    f,r,m,q=batch();a=CumulativeCritic(q,trace_lambda=.99);b=CumulativeCritic(q,trace_lambda=.99)
+    f,r,m,q=batch();a=CumulativeCritic(q,trace_lambda=.99,folds=2);b=CumulativeCritic(q,trace_lambda=.99,folds=2)
     changed=r.clone();held=[i for i,x in enumerate(q) if a.assignment[x]==0]
     changed[held,-1]=1-changed[held,-1]
     for step in (1,2):
@@ -51,26 +51,26 @@ def test_historical_question_labels_never_leak():
 
 
 def test_refresh_resets_statistics_and_rejects_duplicate_steps():
-    f,r,m,q=batch();c=CumulativeCritic(q,reset_interval=2)
+    f,r,m,q=batch();c=CumulativeCritic(q,reset_interval=2,folds=2)
     c.update(f,r,m,q,1);c.update(f,r,m,q,2)
     with pytest.raises(ValueError,match='consecutive'):c.update(f,r,m,q,2)
     v,_,metric=c.update(f,r,m,q,3,feature_epoch=1)
-    reference=CumulativeCritic(q);expected,_,_=reference.update(f,r,m,q,1)
+    reference=CumulativeCritic(q,folds=2);expected,_,_=reference.update(f,r,m,q,1)
     torch.testing.assert_close(v,expected)
     assert metric['reset'] and sum(x['transitions'] for x in metric['folds'])==24
     assert [encoder_epoch(i,2) for i in range(1,6)]==[0,0,1,1,2]
 
 
 def test_reward_shape_and_terminal_checks():
-    f,r,m,q=batch();c=CumulativeCritic(q)
+    f,r,m,q=batch();c=CumulativeCritic(q,folds=2)
     r[0,0]=1
     with pytest.raises(ValueError,match='terminal'):c.update(f,r,m,q,1)
 
 
 def test_accumulated_ridge_matches_direct_returns_and_lstd_one():
     f,r,m,q=batch()
-    ridge=CumulativeCritic(q,method='ridge')
-    lstd=CumulativeCritic(q,trace_lambda=1.)
+    ridge=CumulativeCritic(q,method='ridge',folds=2)
+    lstd=CumulativeCritic(q,trace_lambda=1.,folds=2)
     for step in (1,2):
         vr,hr,_=ridge.update(f,r,m,q,step)
         vl,_,_=lstd.update(f,r,m,q,step)
