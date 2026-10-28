@@ -4,13 +4,13 @@ from pathlib import Path
 import time
 import torch
 from math_rl import experiment
-from math_rl.reproduction import prepare_from_artifact, import_final, prepare_fold_study
+from math_rl.reproduction import prepare_from_artifact, import_final, prepare_no_fold_study
 from math_rl.provenance import write_json
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--stage', required=True, choices=['prepare','import-study','prepare-fold-study','smoke','calibrate','run','report'])
+    p.add_argument('--stage', required=True, choices=['prepare','import-study','prepare-no-fold-study','smoke','calibrate','run','report'])
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--artifact', type=Path)
     p.add_argument('--data', type=Path)
@@ -23,9 +23,9 @@ def main():
     if args.stage=='import-study':
         if not args.source: p.error('import-study requires --source')
         import_final(args.source,out);return
-    if args.stage=='prepare-fold-study':
-        if not args.source: p.error('prepare-fold-study requires --source')
-        prepare_fold_study(args.source,out);return
+    if args.stage=='prepare-no-fold-study':
+        if not args.source: p.error('prepare-no-fold-study requires --source')
+        prepare_no_fold_study(args.source,out);return
     m=experiment.validate(out)
     torch.set_num_threads(8)
     status=out/f'{args.stage}-{args.task}-status.json';started=time.perf_counter()

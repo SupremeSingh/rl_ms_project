@@ -143,18 +143,18 @@ def test_fold_study_captures_exact_inputs_with_empty_heads_and_locked_controls(t
     write_json(source/'selection.json',dict(profile='higher_lr',tuning_training_gpu_hours=19.588))
     write_json(source/'ridge-sparse-seed301/result.json',dict(do_not_copy=True))
     before=sha256(source/'manifest.json')
-    out=tmp_path/'fold-study';reproduction.prepare_fold_study(source,out)
+    out=tmp_path/'fold-study';reproduction.prepare_no_fold_study(source,out)
     assert sha256(source/'manifest.json')==before
     assert not list(out.glob('*-seed*')) and not (out/'smoke.json').exists()
     shutil.rmtree(source)
     m=experiment.validate(out)
-    assert m['conditions']==experiment.FOLD_METHODS
-    assert m['primary_comparisons']==list(experiment.FOLD_PRIMARY)
-    assert len(m['conditions'])*len(m['seeds'])==20
-    assert {q['critic_folds'] for q in m['conditions'].values()}=={1,2}
-    m['conditions']['ridge-fold1']['critic_folds']=2
+    assert m['conditions']==experiment.NO_FOLD_METHODS
+    assert m['primary_comparisons']==list(experiment.PRIMARY)
+    assert len(m['conditions'])*len(m['seeds'])==30
+    assert {q['critic_folds'] for q in m['conditions'].values() if q['method'] in ('ridge','lstd')}=={1}
+    m['conditions']['ridge-sparse']['critic_folds']=2
     write_json(out/'manifest.json',m)
-    with pytest.raises(ValueError,match='Fold study settings changed'):
+    with pytest.raises(ValueError,match='No-fold study settings changed'):
         experiment.validate(out)
 
 
@@ -166,5 +166,5 @@ def test_fold_study_rejects_changed_source_data_before_creating_output(tmp_path,
     (source/'data/train.parquet').write_bytes(b'changed')
     out=tmp_path/'fold-study'
     with pytest.raises(ValueError,match='Source data changed'):
-        reproduction.prepare_fold_study(source,out)
+        reproduction.prepare_no_fold_study(source,out)
     assert not out.exists()

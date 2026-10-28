@@ -113,13 +113,13 @@ The package now also supports `CumulativeCritic(..., folds=1)`. All questions
 update one persistent `A,b`; after adding each fresh batch, we solve once and use
 that head for every prefix's value. Frozen features, raw accumulation, terminal
 rewards, epsilon, GAE and PPO are unchanged. This is fit-then-predict on the same
-batch, not a delayed critic update. Two-fold fitting remains available as the
-matched control; its smaller per-head training set is an empirical tradeoff,
-not a requirement of PPO. No-fold training has **no accuracy results yet**.
+batch, not a delayed critic update. There is no two-fold arm in the new experiment. The library keeps two-fold
+compatibility only for reproducing the completed studies. No-fold training has **no accuracy results yet**.
 
-[Experiment and cluster commands](docs/NO_FOLDS.md): Ridge and LSTD(0.9), each
-with one versus two heads, five matched actor seeds, 120 updates and the same
-sparse-768 filter. Both modes start fresh; old results remain untouched.
+[Experiment and cluster commands](docs/NO_FOLDS.md): repeat the original six
+methods and five actor seeds with 120 updates, but use one shared head in every
+Ridge/LSTD arm. Conventional PPO/GRPO, data, frozen filter and budgets are
+unchanged. All actors start fresh; old results remain untouched.
 
 ## Recorded Numina results
 

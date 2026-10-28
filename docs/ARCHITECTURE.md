@@ -38,7 +38,7 @@ families are excluded from RL data; cross-fitting alone cannot undo that leakage
 Actor updates always use fresh rollouts, even when critic statistics include
 uncorrected older-policy data.
 
-The matched one/two-head study and exact commands are in [NO_FOLDS.md](NO_FOLDS.md).
+The no-fold six-method study and exact commands are in [NO_FOLDS.md](NO_FOLDS.md).
 
 Conventional PPO retains its own trainable transformer critic. GRPO retains
 within-question group normalization. These are baselines with the same prompt,

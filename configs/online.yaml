@@ -15,7 +15,7 @@ experiment:
   test_file: null
   critic_statistics: batch
   cumulative_epsilon: 0.01
-  critic_folds: 2
+  critic_folds: 1
   statistics_reset_interval: 0
   encoder_refresh_interval: 0
   critic_alpha: 0.01

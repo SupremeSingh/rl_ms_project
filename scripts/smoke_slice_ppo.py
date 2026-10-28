@@ -36,7 +36,7 @@ def select_questions(rows, manifest, train_count=64, val_count=16):
     return selected
 
 
-def command(out, method, exported, folds=2):
+def command(out, method, exported, folds=1):
     return runner.command(out, method, 42, 2, feature_mode='frozen',
         evaluation_split='val') + [
         'experiment.critic_statistics=cumulative', 'experiment.cumulative_epsilon=0.01',
@@ -116,5 +116,5 @@ if __name__ == '__main__':
     p.add_argument('artifact', type=Path)
     p.add_argument('--source', type=Path, default=Path('data/numina/online/questions.json'))
     p.add_argument('--out', type=Path, required=True)
-    p.add_argument('--folds', type=int, choices=(1,2), default=2)
+    p.add_argument('--folds', type=int, choices=(1,2), default=1)
     run(p.parse_args())

@@ -1,39 +1,45 @@
-# One-head cumulative fitting (v2)
+# One shared cumulative critic (v2)
 
-This experiment removes question cross-fitting without changing the learned
-sparse-768 representation or PPO recipe. `folds=1` means one shared matrix
-system, not one train/test split. Each batch is added before solving and predicting
-that batch. No statistics are thrown away, normalized or reset. The two-fold
-control retains the previous opposite-question prediction rule.
+All questions use one persistent A, b and w. There is no question splitting,
+held-out fold or opposite-head prediction. The conceptual assignment is always
+`f = 1`; Python indexes the single system as 0. The algorithm is:
 
-## Matched comparison
+```text
+Initialize A = 0, b = 0; freeze encoder, bottleneck and normalization.
+For each PPO update:
+    Generate and score 64 fresh answers.
+    Add every answer's Ridge/LSTD contributions to the same A and b.
+    Solve (A + 0.01 I) w = b once.
+    Predict every current prefix with value(x) = dot(w, x).
+    Compute GAE; update the actor with PPO on the fresh batch.
+    Retain A and b for the next update.
+```
 
-| Arm | Head fitting | Value prediction |
-|---|---|---|
-| `ridge-fold1` | All historical/current answers; one Ridge system | Same shared head |
-| `ridge-fold2` | Permanent question groups; two Ridge systems | Opposite fold |
-| `lstd-fold1` | All historical/current answers; one LSTD system | Same shared head |
-| `lstd-fold2` | Permanent question groups; two LSTD systems | Opposite fold |
+This is fit-then-predict on the current batch, exactly as requested. Gamma is 1,
+LSTD lambda 0.9, GAE lambda 0.95; traces reset per answer; terminal successor
+features are zero, including the intercept. No buffer, normalization by sample
+count, encoder/compressor refresh or delayed critic fit. Diagnostics from this
+head are in-sample, not held-out value estimates. Historical-policy statistics
+remain uncorrected.
 
-Five actor seeds (301-305), 120 updates x 64 answers, final greedy evaluation on
-the same 2,000 inspected questions. Two predeclared primary contrasts: no-fold
-minus two-fold accuracy for Ridge and for LSTD, with paired seed/question
-bootstrap intervals and Bonferroni adjustment over those two comparisons.
-This is an ablation on reused questions, not a fresh benchmark.
+## Same original comparison, one head in each linear arm
 
-All four arms use frozen base encoder/compressor, FP32 feature capture, gamma 1,
-LSTD lambda 0.9, GAE lambda 0.95, raw-sum epsilon 0.01 (including intercept), no
-buffer, fresh actor rollouts and zero initial statistics. The only arm setting
-changed within each Ridge/LSTD pair is `critic_folds`. Effective regularization
-per fitted sample consequently differs with the per-head sample count; epsilon
-is deliberately not retuned. No-fold diagnostics are explicitly in-sample and
-must not be interpreted as held-out value quality. Neither mode corrects
-historical-policy mismatch or guarantees stable actor training.
+The six methods are unchanged: sparse-768 Ridge PPO, sparse-768 LSTD PPO,
+two-thirds Ridge PPO, two-thirds LSTD PPO, conventional PPO and GRPO. Every
+Ridge/LSTD arm explicitly uses `critic_folds=1`; no two-fold control runs are
+submitted. Conventional PPO and GRPO retain their original implementations.
 
-## Run on Duke
+Keep the original five actor seeds, 120 updates x 64 answers, 2,000 test questions,
+frozen data/filter, PPO profile and eight primary method comparisons. All 30
+actors start from the base model, with empty critic statistics. Comparison to
+previous runs is historical, not a contemporaneous fold ablation. Old results
+and directories are preserved. The library retains two-fold compatibility for
+reproduction of those old studies; the new protocol rejects any linear arm
+configured to use two folds.
 
-Push the finished `v2` changes from your Mac first. Run from the existing cluster
-checkout, with no jobs using that checkout while switching/installing:
+## Commands after pushing v2
+
+From the cluster checkout, with no jobs using it while switching/installing:
 
 ```bash
 git switch v2
@@ -42,58 +48,52 @@ source scripts/cluster_env.sh
 srun -p compsci --cpus-per-task=8 --mem=128G --time=00:45:00 --pty bash -i
 ```
 
-Inside the CPU allocation, install internal package 0.3.0, verify the wheel and
-capture unchanged data/filter/model inputs from the completed production replay:
+Inside the allocation:
 
 ```bash
 source scripts/cluster_env.sh
 bash scripts/container_exec.sh bash scripts/install_critic_package.sh
 bash scripts/container_exec.sh "$PWD/.venv/bin/python" \
-  scripts/check_slice_release.py --out outputs/slice-folds-release-v1
-cat outputs/slice-folds-release-v1/verification.json
+  scripts/check_slice_release.py --out outputs/slice-no-fold-release-v1
+cat outputs/slice-no-fold-release-v1/verification.json
 
 bash scripts/container_exec.sh "$PWD/.venv/bin/python" -m math_rl \
-  --stage prepare-fold-study \
+  --stage prepare-no-fold-study \
   --source outputs/numina-prod-replay-v1 \
-  --out outputs/numina-folds-v1
+  --out outputs/numina-no-folds-v1
 exit
 ```
 
-Require `passed: true` and package version 0.3.0 before proceeding. Use new output
-names if these directories exist. Preparation copies no actors or value heads;
-it locks the new code/runtime provenance, original data and compressor hashes.
-There is no offline refitting, conventional PPO arm or additional PPO calibration.
+Require passed=true and package version 0.3.0. Preparation copies verified
+inputs, never trained actors or old matrix statistics. It records the new code
+and installed runtime; do not edit inputs afterward. No compressor retraining or
+new PPO calibration is performed.
 
-From the login node, submit the four-arm smoke, then the gated 20-run array and
-CPU report:
+From the login node:
 
 ```bash
 source scripts/cluster_env.sh
 bash scripts/submit_numina_online.sh \
-  --out outputs/numina-folds-v1 \
-  --full --smoke-first --concurrency 10
-cat outputs/numina-folds-v1/jobs.tsv
+  --out outputs/numina-no-folds-v1 \
+  --full --smoke-first --concurrency 15
+cat outputs/numina-no-folds-v1/jobs.tsv
 squeue -u "$USER"
 ```
 
-At most 20 GPUs run concurrently (two per training job). Based on the prior
-5-8-hour runs, allow roughly 14-22 hours of elapsed execution including the
-sequential smoke, subject to available hardware and queue delays. This is not a
-guaranteed completion deadline. Submission errors stop the chain; a scheduler
-timeout can still create a job, so inspect accounting before retrying.
+The six-arm GPU smoke must pass before the 30-run array starts. It checks one
+system per linear arm, retained counts, saved-head solves and conventional PPO
+health. Fifteen concurrent runs require up to 30 GPUs. Prior runtimes suggest
+roughly 16-24 hours of execution including smoke, but queue delays and hardware
+availability can extend that; there is no guaranteed deadline.
 
 ```bash
-cat outputs/numina-folds-v1/smoke.json
-# After the report job finishes:
-cat outputs/numina-folds-v1/report-0-status.json
-cat outputs/numina-folds-v1/report.txt
-cat outputs/numina-folds-v1/summary.json
+cat outputs/numina-no-folds-v1/smoke.json
+# After the report completes:
+cat outputs/numina-no-folds-v1/report.txt
+cat outputs/numina-no-folds-v1/summary.json
 ```
 
-Smoke requires two actual PPO updates for every arm and audits the number of
-matrix systems, retained answer counts, head routing, finite weights and agreement
-between the final saved head and its accumulated system. Full reporting repeats
-the checkpoint checks over all 120 updates and preserves generated test answers
-in `audit.jsonl`. CPU tests establish the equations and orchestration; real-model
-GPU integration still needs this new smoke. Historical two-fold results are not
-relabelled as no-fold results.
+Use fresh output names if a directory exists. If an earlier ablation chain was
+already submitted, cancel that specific chain before starting this one; do not
+run the obsolete prepare-fold-study command. A submission timeout can still
+create a job: inspect jobs.tsv and Slurm before retrying.

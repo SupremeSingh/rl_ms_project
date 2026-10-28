@@ -6,8 +6,8 @@
   then predict the current batch. Existing `folds=2` remains the default.
 - Explicit system routing, fold counts and in-sample versus out-of-fold metrics
   in checkpoints/diagnostics. Offline artifact schema and equations unchanged.
-- Matched sparse-768 fold ablation: fresh actors for both modes, fixed data and
-  filter, two primary comparisons and mandatory GPU smoke before the array.
+- New no-fold six-method protocol: one head in every linear arm, original
+  data/filter/budgets and method comparisons, mandatory GPU smoke before training.
 
 ## 0.2.0 — final workflow cleanup, 25 October 2026
 

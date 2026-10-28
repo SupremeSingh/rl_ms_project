@@ -7,7 +7,7 @@ from slice_critic import export_ppo_features
 from slice_critic.artifacts import load_validated_artifact
 from slice_critic.storage import model_identity
 from slice_critic.text import family_key
-from .experiment import METHODS, PRIMARY, FOLD_METHODS, FOLD_PRIMARY
+from .experiment import METHODS, PRIMARY, NO_FOLD_METHODS
 from .provenance import sha256, snapshot, write_json
 from .ppo_baseline import PPO_PROFILES
 
@@ -136,7 +136,7 @@ def import_final(source, out):
             shutil.copyfile(path,out/'runtime'/name)
 
 
-def prepare_fold_study(source, out):
+def prepare_no_fold_study(source, out):
     """Capture verified inputs, never previous actors or matrix statistics."""
     source, out = Path(source).resolve(), Path(out).resolve()
     if out == source or source in out.parents:
@@ -170,11 +170,11 @@ def prepare_fold_study(source, out):
         filters={'sparse':dict(original,path='sparse.pt')},revisions=old['revisions'],
         filter_pretraining=old.get('filter_pretraining'),
         source_study=dict(manifest_sha256=sha256(source/'manifest.json')),
-        scope='Matched fresh-actor Ridge/LSTD fold ablation on the same inspected Numina splits. '
-              'fold1 fits one head on all historical/current answers before predicting current values; '
-              'fold2 predicts with the opposite question fold. No old actors or heads reused; '
-              'historical-policy statistics are uncorrected in both modes.')
-    m.update(protocol='slice-numina-folds-v1',conditions=FOLD_METHODS,
-             primary_comparisons=list(FOLD_PRIMARY),method_subset='fold_ablation')
+        scope='Original six-method Numina recipe with one shared cumulative head in every Ridge/LSTD arm. '
+              'All historical/current answers fit the head before current-batch value prediction. '
+              'No question splitting, old actors or old matrix statistics. Same inspected questions; '
+              'historical-policy statistics remain uncorrected.')
+    m.update(protocol='slice-numina-no-folds-v1',conditions=NO_FOLD_METHODS,
+             primary_comparisons=list(PRIMARY),method_subset='six_method_no_folds')
     write_json(out/'manifest.json',m)
-    write_json(out/'selection.json',dict(selected,reused_for='No PPO arm or new tuning; historical record only'))
+    write_json(out/'selection.json',dict(selected,reused_for='Same locked PPO profile; no new calibration'))

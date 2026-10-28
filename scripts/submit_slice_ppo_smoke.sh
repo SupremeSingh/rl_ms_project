@@ -17,4 +17,4 @@ artifact="${1:?Usage: sbatch scripts/submit_slice_ppo_smoke.sh ARTIFACT NEW_OUTP
 out="${2:?Pass a new output directory}"
 srun bash scripts/container_exec.sh env -u TORCH_ALLOW_TF32_CUBLAS_OVERRIDE \
   "$PWD/.venv/bin/python" scripts/smoke_slice_ppo.py "$artifact" --out "$out" \
-  --source "${3:-data/numina/online/questions.json}" --folds "${4:-2}"
+  --source "${3:-data/numina/online/questions.json}" --folds "${4:-1}"

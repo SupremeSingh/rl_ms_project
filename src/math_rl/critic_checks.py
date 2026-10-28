@@ -3,9 +3,10 @@ import json
 from pathlib import Path
 
 
-def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val"):
+def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val", feature_width=768):
     if type(folds) is not int or folds not in (1, 2):
         raise ValueError('Expected one or two critic systems')
+    dimension = feature_width + 1
     case = Path(case)
     import torch
     result = json.loads((case / 'result.json').read_text())
@@ -22,7 +23,7 @@ def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val"):
     if sum(s['answers'] for s in stats['stats']) != steps * 64:
         raise ValueError('Statistics did not retain all updates')
     for s in stats['stats']:
-        if (s['a'].shape != (769, 769) or s['b'].shape != (769,) or not s['answers']
+        if (s['a'].shape != (dimension, dimension) or s['b'].shape != (dimension,) or not s['answers']
                 or not torch.isfinite(s['a']).all() or not torch.isfinite(s['b']).all()):
             raise ValueError('Invalid critic matrices')
     metrics = [json.loads(row) for row in (case / 'linear-critic' / 'metrics.jsonl').read_text().splitlines()]
@@ -35,7 +36,7 @@ def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val"):
         raise ValueError('Inconsistent fold metadata')
     for step in range(1, steps + 1):
         record = torch.load(case / 'linear-critic' / f'{step}.pt', map_location='cpu', weights_only=True)
-        if len(record['heads']) != folds or any(h['weights'].shape != (769,)
+        if len(record['heads']) != folds or any(h['weights'].shape != (dimension,)
                 or not torch.isfinite(h['weights']).all() for h in record['heads']):
             raise ValueError('Invalid fresh critic heads')
         for predicted_fold, head in enumerate(record['heads']):
@@ -45,7 +46,7 @@ def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val"):
                 raise ValueError('Head uses the wrong fitting/prediction system')
             if step == steps:
                 system = stats['stats'][fitting_fold]
-                a = system['a'].double() + .01 * torch.eye(769, dtype=torch.float64)
+                a = system['a'].double() + .01 * torch.eye(dimension, dtype=torch.float64)
                 b = system['b'].double()
                 weights = head['weights'].double()
                 residual = torch.linalg.vector_norm(a @ weights - b)
@@ -53,7 +54,7 @@ def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val"):
                          + torch.linalg.vector_norm(b)).clamp_min(1e-30)
                 if residual / scale > 1e-8:
                     raise ValueError('Saved head does not solve its accumulated system')
-    return dict(passed=True, updates=steps, answers=steps*64, matrix_dimension=769,
+    return dict(passed=True, updates=steps, answers=steps*64, matrix_dimension=dimension,
                 folds=folds, cross_fitted=folds == 2, statistics_answers=[s['answers'] for s in stats['stats']],
                 training_gpu_hours=result['training_gpu_hours'])
 
