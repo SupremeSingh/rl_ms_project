@@ -27,6 +27,11 @@ PRIMARY = (
     'ridge-sparse_minus_ppo', 'lstd-sparse_minus_ppo',
     'ridge-sparse_minus_grpo', 'lstd-sparse_minus_grpo',
 )
+FOLD_METHODS = {
+    f'{method}-fold{folds}': dict(method=method, representation='sparse', critic_folds=folds)
+    for method in ('ridge', 'lstd') for folds in (2, 1)
+}
+FOLD_PRIMARY = ('ridge-fold1_minus_ridge-fold2', 'lstd-fold1_minus_lstd-fold2')
 
 def read(path):
     return json.loads(Path(path).read_text())
@@ -34,8 +39,13 @@ def read(path):
 def validate(out):
     out = Path(out).resolve()
     m=read(out/'manifest.json')
-    if m.get('protocol') != 'slice-numina-online-v1' or m['conditions'] != METHODS:
-        raise ValueError('Expected the final SLICE six-method protocol')
+    if m.get('protocol') == 'slice-numina-folds-v1':
+        if (m['conditions'] != FOLD_METHODS or m['primary_comparisons'] != list(FOLD_PRIMARY)
+                or m['steps'] != 120 or m['critic_lambda'] != .9 or m['epsilon'] != .01
+                or m['seeds'] != [301,302,303,304,305]):
+            raise ValueError('Fold study settings changed from the locked paired protocol')
+    elif m.get('protocol') != 'slice-numina-online-v1' or m['conditions'] != METHODS:
+        raise ValueError('Expected the final six-method or paired fold protocol')
     if m['provenance']['files'] != snapshot(ROOT)['files']:
         raise ValueError('Code/config changed since preparation; use a new study')
     for name,checksum in m['data_hashes'].items():
@@ -55,6 +65,7 @@ def command(out,m,name,seed,steps,profile='more_fitting',calibration=False,case=
         evaluation_split='val' if calibration else 'test',case_name=case or f'{name}-seed{seed}')
     if method in ('ridge','lstd'):
         cmd += ['experiment.critic_statistics=cumulative','experiment.cumulative_epsilon=0.01',
+                f'experiment.critic_folds={setting.get("critic_folds", 2)}',
                 f'experiment.critic_lambda={m.get("critic_lambda", .99)}','actor_rollout_ref.model.critic_encoder_precision=fp32',
                 f'actor_rollout_ref.model.critic_feature_layer={"bottleneck" if rep in ("plain","sparse") else rep}']
         if rep in ('plain','sparse'):
@@ -96,15 +107,25 @@ def smoke(out,m):
         raise ValueError('Unknown smoke PPO profile')
     for name in m['conditions']:
         launch(out,m,name,19,2,profile=profile,calibration=True,case=f'smoke-{name}')
-    health=audit_health(out/'smoke-ppo/ppo-critic-audit',2)
-    if not all(health['gates'][k] for k in ('complete','finite','nonzero_updates','zero_initial_values')):
-        raise RuntimeError('Conventional PPO failed functional smoke checks')
+    health=None
+    if 'ppo' in m['conditions']:
+        health=audit_health(out/'smoke-ppo/ppo-critic-audit',2)
+        if not all(health['gates'][k] for k in ('complete','finite','nonzero_updates','zero_initial_values')):
+            raise RuntimeError('Conventional PPO failed functional smoke checks')
+    linear_checks={}
+    if m.get('protocol') == 'slice-numina-folds-v1':
+        from math_rl.critic_checks import verify_run
+        for name,setting in m['conditions'].items():
+            linear_checks[name]=verify_run(out/f'smoke-{name}',setting['method'],folds=setting['critic_folds'])
     write_json(out/'smoke.json',dict(passed=True,conditions=list(m['conditions']),steps=2,
         manifest_sha256=sha256(out/'manifest.json'),ppo_profile=profile,ppo_health=health,
+        linear_checks=linear_checks,
         scope='Integration check only; not a method ranking'))
 
 
 def calibrate(out,m):
+    if 'ppo' not in m['conditions']:
+        raise ValueError('This study has no conventional PPO arm; calibration is not applicable')
     if not read(out/'smoke.json')['passed']: raise ValueError('Smoke must pass first')
     candidates=[]
     for profile in PPO_PROFILES:
@@ -172,6 +193,9 @@ def report(out,m):
                 elif setting['method'] in ('ridge','lstd'):
                     metrics=[json.loads(x) for x in (case/'linear-critic/metrics.jsonl').read_text().splitlines()]
                     if [v['step'] for v in metrics]!=list(range(1,m['steps']+1)): raise ValueError('Missing critic metrics')
+                    if m.get('protocol') == 'slice-numina-folds-v1':
+                        from math_rl.critic_checks import verify_run
+                        verify_run(case,setting['method'],folds=setting['critic_folds'],steps=m['steps'],evaluation_split='test')
                     r['critic_fit_seconds']=sum(v['fit_seconds'] for v in metrics)
                     r['last_critic']=metrics[-1]
                 r['verifier_statuses']=dict(Counter(v['verifier_status'] for v in rows))
@@ -205,7 +229,7 @@ def report(out,m):
     summary=dict(methods=results,paired=paired,primary_comparisons=m['primary_comparisons'],
         base_accuracy=float(np.mean(base_ref)),ppo_health=health,selection=read(out/'selection.json'),
         filter_pretraining=m.get('filter_pretraining'),
-        scope=m['scope'],limitations=f'{len(m["seeds"])} actor seeds, one selected filter per arm. Approximate seed/question bootstrap; '
+        conditions=m['conditions'],scope=m['scope'],limitations=f'{len(m["seeds"])} actor seeds, one selected filter per arm. Approximate seed/question bootstrap; '
         f'{len(m["primary_comparisons"])} primary intervals use Bonferroni nominal coverage; other comparisons exploratory. '
         'No automatic superiority claim. Audit verifier answers before claims. Offline filter learning cost is additional.')
     write_json(out/'summary.json',summary)
@@ -213,9 +237,15 @@ def report(out,m):
         f'{m["steps"]} updates x 64 answers; {len(m["seeds"])} seeds; final greedy evaluation.',
         f'LSTD critic lambda: {m.get("critic_lambda", .99)}; GAE lambda: 0.95; gamma: 1.',
         'method                   accuracy    training GPUh   accounted GPUh']
+    if m.get('protocol') == 'slice-numina-folds-v1':
+        lines[0]='Paired fold ablation: frozen sparse-768 encoder/compressor; raw cumulative sums; no buffer.'
+        lines.insert(3,'fold1: one head, fit then predict same batch; fold2: two opposite-question heads. Only the fold setting changes.')
     lines += [f'{name:25} {r["accuracy_mean"]:.4f}      {r["training_gpu_hours_mean"]:.3f}          {r["accounted_gpu_hours_mean"]:.3f}' for name,r in results.items()]
     lines += [f'{k}: {paired[k]}' for k in m['primary_comparisons']]
-    lines += [f'PPO calibration training GPUh (additional): {summary["selection"]["tuning_training_gpu_hours"]:.3f}',
+    calibration_label = ('Historical PPO calibration GPUh (not rerun; no PPO arm)' if m.get('protocol') == 'slice-numina-folds-v1'
+                         else 'PPO calibration training GPUh (additional)')
+    lines += [f'{calibration_label}: {summary["selection"]["tuning_training_gpu_hours"]:.3f}',
         'Offline filter training/generation/extraction are additional costs; see summary.json.',
-        f'PPO health passed for all seeds: {all(v["pass_checks"] for v in health.values())}',summary['scope'],summary['limitations']]
+        (f'PPO health passed for all seeds: {all(v["pass_checks"] for v in health.values())}' if health else
+         'Conventional PPO health: not applicable; no conventional PPO arm.'),summary['scope'],summary['limitations']]
     (out/'report.txt').write_text('\n'.join(lines)+'\n')

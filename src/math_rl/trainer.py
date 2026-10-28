@@ -44,7 +44,7 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
             questions = [str(row['extra_info']['prompt_id']) for row in rows]
             cumulative = CumulativeCritic(questions, self.config.data.seed,
                 self.config.experiment.cumulative_epsilon, self.config.experiment.critic_lambda,
-                method=self.config.experiment.method)
+                method=self.config.experiment.method, folds=self.config.experiment.critic_folds)
 
         def advantages(data, *args, **kwargs):
             if self.linear:

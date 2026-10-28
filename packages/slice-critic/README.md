@@ -1,7 +1,7 @@
 # SLICE Critic
 
 An internal Python library for compact value prediction on frozen LLM features.
-Version **0.2.0** supports Qwen2.5-Math-1.5B and numeric math completions. It is not
+Version **0.3.0** supports Qwen2.5-Math-1.5B and numeric math completions. It is not
 published to PyPI or hosted as an API. It has no VERL or Slurm dependency.
 
 The library generates answers, verifies correctness, extracts selected hidden
@@ -68,9 +68,13 @@ values, weights, diagnostics = head.update(
 ```
 
 For LSTD, specify `method="lstd", trace_lambda=.9` (or the desired tested trace).
-Gamma is 1. Statistics accumulate in two persistent question folds; no head fits
+Gamma is 1. By default, statistics accumulate in two persistent question folds; no head fits
 its predicted question's rewards. Features stay frozen. Historical-policy data
 are uncorrected. LSTD requires consecutive states, not isolated random prefixes.
+
+Set `folds=1` in `CumulativeCritic` to fit one shared system on all accumulated
+answers, including the current batch, before predicting its values. This mode
+does not cross-fit. Both modes retain raw sums and a fixed feature basis.
 
 Export only features to PPO; the offline value head is not an online baseline.
 Exclude representation-training and selection families before collecting RL data.

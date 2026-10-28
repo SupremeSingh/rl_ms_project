@@ -1,6 +1,7 @@
 # Setup and acceptance
 
-Use the `prod` checkout on Duke. Do not change its code or environments while
+Use the checkout for the intended study on Duke (`v2` for the no-fold experiment).
+Do not change its code or environments while
 jobs use it. Saved outputs are inputs to reproduction, not disposable caches.
 See [README](README.md) for results and [reproduction](docs/REPRODUCING.md) for jobs.
 

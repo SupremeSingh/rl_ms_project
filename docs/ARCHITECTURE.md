@@ -28,11 +28,17 @@ zero, including its intercept. Gamma is 1; traces reset between answers. Matrix
 sums persist without per-update normalization. The encoder/compressor must not
 change while those sums are retained.
 
-Question folds remain fixed across all historical and current answers. Values
-for a fold use the opposite fold's matrices. Supervised representation-fitting
+In the original/default two-fold mode, question folds remain fixed across all
+historical and current answers; values use the opposite fold's matrices.
+The v2 experiment also supports `critic_folds=1`: one system fits all historical
+and current answers before predicting the current batch, without cross-fitting.
+Both modes keep the feature basis fixed and accumulate raw sums.
+Supervised representation-fitting
 families are excluded from RL data; cross-fitting alone cannot undo that leakage.
 Actor updates always use fresh rollouts, even when critic statistics include
 uncorrected older-policy data.
+
+The matched one/two-head study and exact commands are in [NO_FOLDS.md](NO_FOLDS.md).
 
 Conventional PPO retains its own trainable transformer critic. GRPO retains
 within-question group normalization. These are baselines with the same prompt,

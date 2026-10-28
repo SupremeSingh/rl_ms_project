@@ -1,4 +1,4 @@
-"""Raw-sum LSTD with a fixed feature basis and stable question cross-fitting.
+"""Raw-sum Ridge/LSTD on fixed features, with shared or cross-fitted heads.
 
 Old-policy transitions are retained as sufficient statistics, not an on-policy
 estimator. No answer buffer, mean normalization, adaptive ridge or pseudoinverse.
@@ -34,14 +34,20 @@ def trajectory_statistics(states, outcome, trace_lambda=0.):
 
 
 class CumulativeCritic:
-    def __init__(self, question_ids, seed=42, epsilon=.01, trace_lambda=0., reset_interval=0, method="lstd"):
+    def __init__(self, question_ids, seed=42, epsilon=.01, trace_lambda=0., reset_interval=0, method="lstd", *, folds=2):
         if not np.isfinite(epsilon) or epsilon <= 0 or not 0 <= trace_lambda <= 1 or reset_interval < 0:
             raise ValueError('Invalid cumulative LSTD settings')
         if method not in ('lstd', 'ridge'):
             raise ValueError('Unknown cumulative method')
+        if type(folds) is not int or folds not in (1, 2):
+            raise ValueError('Critic folds must be 1 (shared head) or 2 (cross-fitting)')
+        self.folds = folds
         self.method = method
         ids = sorted(set(question_ids))
-        self.assignment = dict(zip(ids, question_folds(ids, seed).tolist()))
+        if not ids:
+            raise ValueError('At least one training question is required')
+        self.assignment = (dict.fromkeys(ids, 0) if folds == 1 else
+                           dict(zip(ids, question_folds(ids, seed).tolist())))
         self.epsilon, self.trace_lambda, self.reset_interval = epsilon, trace_lambda, reset_interval
         self.step, self.epoch = 0, -1
         self.stats = None
@@ -70,11 +76,11 @@ class CumulativeCritic:
         if any(len(f) != int(n) or f.shape[1] != k for f, n in zip(states, lengths)):
             raise ValueError('Feature count/dimension differs from actions')
         if any(q not in self.assignment for q in questions):
-            raise ValueError('Question outside the sealed training fold assignment')
+            raise ValueError('Question outside the sealed training assignment')
         reset = epoch != self.epoch
         if reset:
             self.stats = [dict(a=torch.zeros(k, k, dtype=torch.float64), b=torch.zeros(k, dtype=torch.float64),
-                               transitions=0, answers=0) for _ in range(2)]
+                               transitions=0, answers=0) for _ in range(self.folds)]
         elif self.stats[0]['b'].numel() != k:
             raise ValueError('Feature dimension changed without a reset')
         for phi, outcome, q in zip(states, outcomes.tolist(), questions):
@@ -91,8 +97,9 @@ class CumulativeCritic:
             stats['answers'] += 1
         values = torch.zeros_like(rewards, dtype=torch.float32)
         heads, checks = [], []
-        for fold in range(2):
-            stats = self.stats[1 - fold]  # No current OR historical labels from predicted questions.
+        for fold in range(self.folds):
+            fitting_fold = 0 if self.folds == 1 else 1 - fold
+            stats = self.stats[fitting_fold]
             system = stats['a'] + self.epsilon * torch.eye(k, dtype=torch.float64)
             weights = torch.linalg.solve(system, stats['b'])
             residual = torch.linalg.vector_norm(system @ weights - stats['b'])
@@ -103,8 +110,8 @@ class CumulativeCritic:
             for i, (phi, q) in enumerate(zip(states, questions)):
                 if self.assignment[q] == fold:
                     values[i, :len(phi)] = (phi @ weights).float()
-            heads.append(dict(weights=weights, predicted_fold=fold, feature_epoch=feature_epoch))
-            checks.append(dict(predicted_fold=fold, transitions=stats['transitions'], answers=stats['answers'],
+            heads.append(dict(weights=weights, predicted_fold=fold, fitting_fold=fitting_fold, feature_epoch=feature_epoch))
+            checks.append(dict(predicted_fold=fold, fitting_fold=fitting_fold, transitions=stats['transitions'], answers=stats['answers'],
                 effective_mean_regularization=self.epsilon / max(stats['transitions'], 1),
                 relative_residual=float(relative), empty_fit=stats['transitions'] == 0,
                 weight_norm=float(torch.linalg.vector_norm(weights))))
@@ -114,13 +121,15 @@ class CumulativeCritic:
         valid = values[mask.bool()]
         target = outcomes[:, None].expand_as(mask)[mask.bool()]
         return values, heads, dict(method=self.method, fitting_mode='cumulative_raw_sum', step=step,
+            critic_folds=self.folds, cross_fitted=self.folds == 2,
             feature_epoch=feature_epoch, statistics_epoch=epoch, reset=reset, epsilon=self.epsilon,
             intercept_penalized=True, critic_lambda=self.trace_lambda, folds=checks,
             fit_seconds=time.perf_counter()-started, transitions=int(lengths.sum()), answers=len(states),
-            out_of_fold_brier=float((valid-target).square().mean()),
+            **({'out_of_fold_brier': float((valid-target).square().mean())} if self.folds == 2 else
+               {'in_sample_brier': float((valid-target).square().mean())}),
             outside_unit_interval=float(((valid < 0) | (valid > 1)).float().mean()),
             scope='Uncorrected mixture of behavior policies within each statistics epoch')
 
     def state_dict(self):
-        return dict(method=self.method, step=self.step, epoch=self.epoch, stats=self.stats, assignment=self.assignment,
+        return dict(method=self.method, folds=self.folds, step=self.step, epoch=self.epoch, stats=self.stats, assignment=self.assignment,
                     epsilon=self.epsilon, trace_lambda=self.trace_lambda, reset_interval=self.reset_interval)

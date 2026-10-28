@@ -31,6 +31,8 @@ def validate(config):
     if linear:
         import math
         e = config.experiment
+        if type(e.critic_folds) is not int or e.critic_folds not in (1, 2):
+            raise ValueError('Critic folds must be 1 or 2')
         if (e.critic_statistics != 'cumulative' or config.actor_rollout_ref.model.critic_feature_mode != 'frozen'
                 or e.replay_capacity or not math.isfinite(e.cumulative_epsilon) or e.cumulative_epsilon <= 0
                 or not 0 <= e.critic_lambda <= 1 or e.statistics_reset_interval or e.encoder_refresh_interval):

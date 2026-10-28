@@ -130,3 +130,41 @@ def test_from_scratch_preparation_pins_data_and_emits_disjoint_trainable_config(
     saved=json.loads((out/'manifest.json').read_text())
     assert saved['revisions']==revisions
     assert all(sha256(out/name)==digest for name,digest in saved['hashes'].items())
+
+
+def test_fold_study_captures_exact_inputs_with_empty_heads_and_locked_controls(tmp_path,monkeypatch):
+    model=setup_model(tmp_path,monkeypatch)
+    source=tmp_path/'production';source.mkdir();write_online_data(source/'data',questions())
+    (source/'filters').mkdir();(source/'filters/sparse.pt').write_bytes(b'frozen filter')
+    checkpoint=source/'filters/sparse.pt'
+    manifest=reproduction.base_manifest(source,model_identity(model),[27,26,24,20,12],1e-6,
+        filters={'sparse':dict(path=str(checkpoint),sha256=sha256(checkpoint))},revisions={})
+    write_json(source/'manifest.json',manifest)
+    write_json(source/'selection.json',dict(profile='higher_lr',tuning_training_gpu_hours=19.588))
+    write_json(source/'ridge-sparse-seed301/result.json',dict(do_not_copy=True))
+    before=sha256(source/'manifest.json')
+    out=tmp_path/'fold-study';reproduction.prepare_fold_study(source,out)
+    assert sha256(source/'manifest.json')==before
+    assert not list(out.glob('*-seed*')) and not (out/'smoke.json').exists()
+    shutil.rmtree(source)
+    m=experiment.validate(out)
+    assert m['conditions']==experiment.FOLD_METHODS
+    assert m['primary_comparisons']==list(experiment.FOLD_PRIMARY)
+    assert len(m['conditions'])*len(m['seeds'])==20
+    assert {q['critic_folds'] for q in m['conditions'].values()}=={1,2}
+    m['conditions']['ridge-fold1']['critic_folds']=2
+    write_json(out/'manifest.json',m)
+    with pytest.raises(ValueError,match='Fold study settings changed'):
+        experiment.validate(out)
+
+
+def test_fold_study_rejects_changed_source_data_before_creating_output(tmp_path,monkeypatch):
+    model=setup_model(tmp_path,monkeypatch)
+    source=tmp_path/'production';source.mkdir();write_online_data(source/'data',questions())
+    m=reproduction.base_manifest(source,model_identity(model),[27,26,24,20,12],1e-6)
+    write_json(source/'manifest.json',m)
+    (source/'data/train.parquet').write_bytes(b'changed')
+    out=tmp_path/'fold-study'
+    with pytest.raises(ValueError,match='Source data changed'):
+        reproduction.prepare_fold_study(source,out)
+    assert not out.exists()

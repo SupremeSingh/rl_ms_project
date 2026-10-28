@@ -1,4 +1,4 @@
-# SLICE public contract (0.2.x)
+# SLICE public contract (0.3.x)
 
 This is an internal alpha package. Import the symbols below from `slice_critic`;
 implementation helpers may change. Version 1 supports the frozen
@@ -17,7 +17,7 @@ Qwen2.5-Math-1.5B and numeric final-answer tasks, not arbitrary architectures.
 | `load_ppo_features(path, checksum, layers=..., eps=..., model_path=...)` | Checks checkpoint and supplied identities; returns frozen compressor, CPU mean and scale. Pass all compatibility arguments. |
 | `encode_hidden_rollout_features(encoder, ids, masks, response_width, layer)` | Frozen raw-layer control readout; same causal alignment, no compressor. |
 | `encode_rollout_features(encoder, ids, masks, response_width, fitted, layers, eps)` | Per-answer detached arrays for every pre-action response state. Consumer supplies the matching encoder, tokenizer and completion prompt. |
-| `CumulativeCritic(question_ids, seed=..., epsilon=.01, trace_lambda=.99, method=...)` | Persistent question-fold matrix fitting. Explicitly specify `method` and `trace_lambda`; the compatibility constructor's trace default is zero. |
+| `CumulativeCritic(question_ids, seed=..., epsilon=.01, trace_lambda=.9, method=..., folds=2)` | Persistent matrix fitting: `folds=2` uses opposite-question heads; `folds=1` uses one shared head fitted before current-batch predictions. Explicitly specify `method` and `trace_lambda`; the constructor's trace default is zero. |
 
 ## Online fitting is separate from offline prediction
 
@@ -40,7 +40,11 @@ fixed to 1; only binary rewards at the final response token are supported.
 Termination uses a zero successor, including its intercept. Consumers must define
 truncation semantics for other tasks; our math project defines a capped task.
 
-Two question folds persist: values for one fold use the other fold's matrices.
+By default, two question folds persist: values for one fold use the other fold's matrices.
+Pass `folds=1` for the no-fold experiment: every question contributes to the same
+system, which is solved after adding the current batch and then predicts that
+batch. There is one head and one solve per update; no cross-fitting or delayed
+critic update. Its diagnostics are labelled `in_sample_brier`, not held-out error.
 Ridge accumulates `phi.T @ phi` and `phi.T @ observed_return`; LSTD accumulates
 trace-weighted TD products. Sums are never divided by data count. Epsilon is added
 once at solve time, including on the intercept. Traces reset between trajectories.

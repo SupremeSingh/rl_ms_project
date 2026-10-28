@@ -36,10 +36,11 @@ def select_questions(rows, manifest, train_count=64, val_count=16):
     return selected
 
 
-def command(out, method, exported):
+def command(out, method, exported, folds=2):
     return runner.command(out, method, 42, 2, feature_mode='frozen',
         evaluation_split='val') + [
         'experiment.critic_statistics=cumulative', 'experiment.cumulative_epsilon=0.01',
+        f'experiment.critic_folds={folds}',
         'experiment.critic_lambda=0.9', 'actor_rollout_ref.model.critic_encoder_precision=fp32',
         'actor_rollout_ref.model.critic_feature_layer=bottleneck',
         f'actor_rollout_ref.model.critic_bottleneck_path={exported["path"]}',
@@ -48,32 +49,7 @@ def command(out, method, exported):
         f'actor_rollout_ref.model.critic_bottleneck_rms_eps={exported["rms_eps"]}']
 
 
-def verify_run(case, method):
-    import torch
-    result = json.loads((case / 'result.json').read_text())
-    if result['updates'] != 2 or result['answers'] != 128 or result['evaluation_split'] != 'val':
-        raise ValueError('Incomplete actor update/evaluation budget')
-    stats = torch.load(case / 'linear-critic' / 'statistics.pt', map_location='cpu', weights_only=True)
-    if (stats['step'] != 2 or stats['epoch'] != 0 or stats['method'] != method
-            or stats['epsilon'] != .01 or stats['trace_lambda'] != .9):
-        raise ValueError('Wrong cumulative fitting settings')
-    if sum(s['answers'] for s in stats['stats']) != 128:
-        raise ValueError('Statistics did not retain both updates')
-    for s in stats['stats']:
-        if (s['a'].shape != (769, 769) or s['b'].shape != (769,) or not s['answers']
-                or not torch.isfinite(s['a']).all() or not torch.isfinite(s['b']).all()):
-            raise ValueError('Invalid cross-fitted matrices')
-    metrics = [json.loads(row) for row in (case / 'linear-critic' / 'metrics.jsonl').read_text().splitlines()]
-    if len(metrics) != 2 or metrics[1]['reset'] or any(m['feature_epoch'] != 0 for m in metrics):
-        raise ValueError('Feature basis or matrices unexpectedly reset')
-    for step in (1, 2):
-        record = torch.load(case / 'linear-critic' / f'{step}.pt', map_location='cpu', weights_only=True)
-        if len(record['heads']) != 2 or any(h['weights'].shape != (769,)
-                or not torch.isfinite(h['weights']).all() for h in record['heads']):
-            raise ValueError('Invalid fresh cross-fitted heads')
-    return dict(passed=True, updates=2, answers=128, matrix_dimension=769,
-                folds=2, statistics_answers=[s['answers'] for s in stats['stats']],
-                training_gpu_hours=result['training_gpu_hours'])
+from math_rl.critic_checks import verify_run
 
 
 def run(args):
@@ -122,12 +98,12 @@ def run(args):
             with tempfile.TemporaryDirectory(prefix='sp-', dir='/tmp') as ray_tmp:
                 env['RAY_TMPDIR'] = ray_tmp
                 with (out / f'{method}.log').open('w') as log:
-                    subprocess.run(command(out, method, exported), cwd=ROOT, env=env,
+                    subprocess.run(command(out, method, exported, args.folds), cwd=ROOT, env=env,
                                    stdout=log, stderr=subprocess.STDOUT, check=True)
-            checks[method] = verify_run(out / f'{method}-seed42', method)
+            checks[method] = verify_run(out / f'{method}-seed42', method, folds=args.folds)
         write_json(out / 'verification.json', dict(passed=True, methods=checks,
             offline_value_head_loaded=False, frozen_encoder=True, frozen_compressor=True,
-            buffer_capacity=0, gamma=1, lstd_lambda=.9, gae_lambda=.95,
+            buffer_capacity=0, critic_folds=args.folds, cross_fitted=args.folds == 2, gamma=1, lstd_lambda=.9, gae_lambda=.95,
             scope='Two real PPO updates per method; integration check, not an accuracy ranking'))
         write_json(out / 'status.json', dict(state='complete'))
     except BaseException as exc:
@@ -140,4 +116,5 @@ if __name__ == '__main__':
     p.add_argument('artifact', type=Path)
     p.add_argument('--source', type=Path, default=Path('data/numina/online/questions.json'))
     p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--folds', type=int, choices=(1,2), default=2)
     run(p.parse_args())

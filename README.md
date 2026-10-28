@@ -43,7 +43,7 @@ The diagram's correctness score is an outcome estimate, not a proof of the
 reasoning. Online Ridge/LSTD values are unbounded linear predictions; standalone
 package scoring also provides a separately calibrated probability.
 
-## The final learning algorithm
+## The learning algorithm used in the completed studies
 
 During PPO, **only the actor is updated by gradients** in the SLICE arms. Its
 critic uses the frozen base encoder and frozen compressor, with fresh linear
@@ -106,6 +106,20 @@ cross-fitting limits reward leakage, but does not make old experience on-policy.
 ![PPO system architecture: fresh answers, frozen SLICE features, cumulative opposite-fold linear critics, GAE and actor updates.](docs/figures/final-architecture.png)
 
 [Open the scalable architecture diagram](docs/figures/final-architecture.svg).
+
+## v2 experiment: one cumulative head, without folds
+
+The package now also supports `CumulativeCritic(..., folds=1)`. All questions
+update one persistent `A,b`; after adding each fresh batch, we solve once and use
+that head for every prefix's value. Frozen features, raw accumulation, terminal
+rewards, epsilon, GAE and PPO are unchanged. This is fit-then-predict on the same
+batch, not a delayed critic update. Two-fold fitting remains available as the
+matched control; its smaller per-head training set is an empirical tradeoff,
+not a requirement of PPO. No-fold training has **no accuracy results yet**.
+
+[Experiment and cluster commands](docs/NO_FOLDS.md): Ridge and LSTD(0.9), each
+with one versus two heads, five matched actor seeds, 120 updates and the same
+sparse-768 filter. Both modes start fresh; old results remain untouched.
 
 ## Recorded Numina results
 
@@ -174,10 +188,12 @@ alternative, not an established winner for long horizons.
 
 The package remains **internal**, installed from source or a checked wheel; there
 is no hosted API, registry or PyPI publication. Completed v1 artifacts remain
-supported. The cleaned-up version passed installed-wheel CPU acceptance on Duke,
+supported. The previous 0.2.0 release passed installed-wheel CPU acceptance on Duke,
 real Ridge/LSTD PPO integration checks, and the full **30-run production replay**
 with successful report generation. This validates the tested workflow; it does
-not guarantee fault-free behavior for every dataset or configuration.
+not guarantee fault-free behavior for every dataset or configuration. The 0.3.0
+one-head extension has passed CPU tests and installed-wheel acceptance; its new
+GPU smoke and fold comparison remain to be run.
 
 ## Reproduce or start fresh
 

@@ -24,6 +24,24 @@ def payload():
     return manifest, checkpoint, dict(method='platt', slope=1., intercept=0.)
 
 
+@pytest.mark.parametrize('method',['ridge','lstd'])
+def test_public_one_head_fits_all_answers_before_prediction(method):
+    from slice_critic.cumulative import raw_design, trajectory_statistics
+    critic=CumulativeCritic(['one question'],method=method,trace_lambda=.9,folds=1)
+    features=[torch.tensor([[.1],[.7]]),torch.tensor([[.3],[.9]])]
+    rewards=torch.tensor([[0.,1.],[0.,0.]])
+    a=torch.zeros(2,2,dtype=torch.float64);b=torch.zeros(2,dtype=torch.float64)
+    for features_i,outcome in zip(features,[1.,0.]):
+        x=raw_design(features_i)
+        ai,bi=(x.T@x,x.sum(0)*outcome) if method=='ridge' else trajectory_statistics(features_i,outcome,.9)[:2]
+        a+=ai;b+=bi
+    for step in (1,2):
+        values,heads,metric=critic.update(features,rewards,torch.ones_like(rewards),['one question']*2,step)
+        expected=torch.linalg.solve(step*a+.01*torch.eye(2,dtype=torch.float64),step*b)
+        assert len(heads)==1 and not metric['cross_fitted']
+        torch.testing.assert_close(values,torch.stack([(raw_design(x)@expected).float() for x in features]))
+
+
 def test_inspect_is_cpu_only_and_preserves_artifact_and_rng(tmp_path):
     manifest, checkpoint, calibration = payload()
     artifact = publish(tmp_path/'artifact', manifest, checkpoint, calibration, {'test': {}})

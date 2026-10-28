@@ -18,9 +18,11 @@ def manifest():
         layers=[27,26,24,20,12],rms_eps=1e-6,critic_lambda=.9,steps=120,seeds=[301,302,303,304,305])
 
 
-@pytest.mark.parametrize('name', study.METHODS)
+@pytest.mark.parametrize('name', list(study.METHODS)+list(study.FOLD_METHODS))
 def test_exact_final_command_contract_and_main_validation(tmp_path,name):
     m=manifest()
+    if name in study.FOLD_METHODS:
+        m['conditions']=copy.deepcopy(study.FOLD_METHODS)
     cmd=study.command(tmp_path,m,name,301,120,profile='higher_lr')
     assert cmd[1:3] == ['-m','math_rl.main']
     assert 'trainer.total_training_steps=120' in cmd and 'experiment.replay_capacity=0' in cmd
@@ -28,6 +30,7 @@ def test_exact_final_command_contract_and_main_validation(tmp_path,name):
         assert 'experiment.critic_statistics=cumulative' in cmd
         assert 'experiment.critic_lambda=0.9' in cmd
         assert 'actor_rollout_ref.model.critic_encoder_precision=fp32' in cmd
+        assert f'experiment.critic_folds={m["conditions"][name].get("critic_folds",2)}' in cmd
     if name=='ppo':
         assert 'experiment.ppo_profile=higher_lr' in cmd
         assert 'critic.optim.lr=5e-05' in cmd
@@ -118,3 +121,53 @@ def test_full_paired_report_does_not_drop_failed_ppo_health(tmp_path,monkeypatch
     assert len(summary['methods'])==6 and all(summary['paired'][k]['mean_pp']==0 for k in study.PRIMARY)
     assert not summary['ppo_health']['301']['pass_checks']
     assert len((tmp_path/'audit.jsonl').read_text().splitlines())==12
+
+
+def test_fold_smoke_routes_both_modes_and_all_twenty_tasks(tmp_path,monkeypatch):
+    import math_rl.critic_checks as checks
+    m=manifest();m.update(protocol='slice-numina-folds-v1',conditions=copy.deepcopy(study.FOLD_METHODS))
+    (tmp_path/'manifest.json').write_text(json.dumps(m))
+    (tmp_path/'selection.json').write_text(json.dumps(dict(profile='higher_lr')))
+    calls=[];verified=[]
+    monkeypatch.setattr(study,'launch',lambda *a,**kw:calls.append((a,kw)))
+    monkeypatch.setattr(study,'audit_health',lambda *a:pytest.fail('No conventional PPO arm'))
+    monkeypatch.setattr(checks,'verify_run',lambda *a,**kw:verified.append((a,kw)) or dict(passed=True))
+    study.smoke(tmp_path,m)
+    assert len(calls)==len(verified)==4
+    assert sorted(kw['folds'] for _,kw in verified)==[1,1,2,2]
+    assert json.loads((tmp_path/'smoke.json').read_text())['ppo_health'] is None
+    calls.clear()
+    for task in range(20):study.run_task(tmp_path,m,task)
+    assert {(a[2],a[3]) for a,_ in calls}=={(n,s) for n in study.FOLD_METHODS for s in m['seeds']}
+    with pytest.raises(ValueError,match='Invalid task'):
+        study.run_task(tmp_path,m,20)
+
+
+def test_fold_report_uses_two_primary_contrasts_and_checks_all_cases(tmp_path,monkeypatch):
+    import math_rl.critic_checks as checks
+    m=manifest();m.update(protocol='slice-numina-folds-v1',conditions=copy.deepcopy(study.FOLD_METHODS),
+        steps=1,seeds=[301,302],scope='fixture',primary_comparisons=list(study.FOLD_PRIMARY))
+    (tmp_path/'data').mkdir()
+    (tmp_path/'data/questions.json').write_text(json.dumps(dict(questions=[dict(id='q',ground_truth='1',split='test')])))
+    (tmp_path/'selection.json').write_text(json.dumps(dict(profile='higher_lr',tuning_training_gpu_hours=19.588)))
+    verified=[]
+    monkeypatch.setattr(study,'audit_health',lambda *a:pytest.fail('No conventional PPO arm'))
+    monkeypatch.setattr(checks,'verify_run',lambda *a,**kw:verified.append(kw))
+    for name,setting in m['conditions'].items():
+        for seed in m['seeds']:
+            case=tmp_path/f'{name}-seed{seed}';case.mkdir()
+            for label in ('base','final'):
+                score=int(label=='final' and setting['critic_folds']==1)
+                row=dict(id='q',ground_truth='1',score=score,verifier_status='correct' if score else 'incorrect',response_tokens=4,capped=False)
+                (case/f'{label}-test.jsonl').write_text(json.dumps(row)+'\n')
+            (case/'result.json').write_text(json.dumps(dict(updates=1,answers=64,initialization_seconds=1,
+                initial_test=dict(accuracy=0,seconds=1),final_test=dict(accuracy=score,seconds=1),training_gpu_hours=1)))
+            folder=case/'linear-critic';folder.mkdir()
+            (folder/'metrics.jsonl').write_text(json.dumps(dict(step=1,fit_seconds=1)))
+    study.report(tmp_path,m)
+    s=json.loads((tmp_path/'summary.json').read_text())
+    assert len(verified)==8 and not s['ppo_health']
+    assert s['primary_comparisons']==list(study.FOLD_PRIMARY)
+    assert all(s['paired'][key]['mean_pp']==100 for key in study.FOLD_PRIMARY)
+    text=(tmp_path/'report.txt').read_text()
+    assert 'no conventional PPO arm' in text and 'not rerun' in text
