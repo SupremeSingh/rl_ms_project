@@ -3,9 +3,19 @@
 **A language model writes an answer. A small critic estimates whether it will
 finish correctly. PPO uses that estimate to help the model learn.**
 
-Usually, PPO trains a separate neural value network as its critic. Here, we keep
-a copy of the base language model frozen, compress a few of its internal
-representations, and fit a linear value head by solving a small matrix system.
+**Our aim: a cheaper critic with a stable feature basis.** LLM PPO often trains
+a separate transformer critic alongside the actor, adding backpropagation cost
+and another large optimization problem. SLICE keeps a copy of the base model and
+a learned compressor frozen, then fits a linear value head with regularized
+matrix solves. The actor changes; the critic's feature coordinates stay fixed,
+so its statistics can accumulate consistently across updates.
+
+This removes critic-transformer backpropagation, not the cost of its frozen
+forward pass. It simplifies critic fitting rather than proving that PPO is
+mathematically unstable or that SLICE eliminates training instability. Our
+experiment supports useful, lower-cost learning relative to the tested
+transformer-critic baseline; a general stability advantage remains unproven.
+
 SLICE is the reusable package; this repository also contains the PPO/GRPO
 comparison pipeline for numeric math questions.
 
@@ -181,3 +191,4 @@ Saved outputs, model weights and environments are never deleted by setup.
 The first stage established a working, lower-cost linear-critic path for PPO on
 this task. Value-guided Lean search is a future application, not an implemented
 or validated capability of this repository.
+
