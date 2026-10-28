@@ -99,36 +99,55 @@ cross-fitting limits reward leakage, but does not make old experience on-policy.
 
 ## Recorded Numina results
 
-The completed comparison used five actor seeds, six methods,
+The original comparison and the completed production replay each used five actor seeds, six methods,
 **120 updates × 64 answers per run**, 2,000 test questions,
 fixed greedy evaluation and a 2,048-token response cap. Gamma is 1; GAE lambda is
 0.95; online LSTD lambda is 0.9; cumulative regularization is 0.01. Each run uses
 two A5000 GPUs. Offline feature learning and PPO validation calibration are
 additional costs.
 
-| Method | Accuracy | Training GPU hours, mean |
-|---|---:|---:|
-| Sparse-768 Ridge PPO | **74.60%** | **10.35** |
-| Conventional PPO | 73.52% | 12.51 |
-| GRPO | 72.75% | 9.38 |
-| Two-thirds-layer Ridge PPO | 72.54% | 10.15 |
-| Two-thirds-layer LSTD(0.9) PPO | 72.40% | 9.61 |
-| Sparse-768 LSTD(0.9) PPO | 70.86% | 10.33 |
+| Method | Original accuracy | Production replay accuracy | Replay training GPU hours, mean |
+|---|---:|---:|---:|
+| Sparse-768 Ridge PPO | **74.60%** | **74.22%** | **10.39** |
+| Two-thirds-layer Ridge PPO | 72.54% | 72.61% | 9.77 |
+| GRPO | 72.75% | 72.42% | 8.68 |
+| Two-thirds-layer LSTD(0.9) PPO | 72.40% | 72.40% | 9.77 |
+| Sparse-768 LSTD(0.9) PPO | 70.86% | 72.10% | 10.24 |
+| Conventional PPO | 73.52% | 69.93% | 12.17 |
 
-Sparse Ridge gained **2.06 percentage points** over two-thirds Ridge; its adjusted
-interval was **[0.59, 3.53] pp**. Against GRPO the gain was **1.85 pp**, interval
-**[0.08, 3.50] pp**. Against conventional PPO the gain was **1.08 pp**, interval
-**[-1.22, 3.56] pp**: superiority over PPO is unresolved. Measured online training
-cost was about 17% below conventional PPO, excluding offline feature learning.
+**The main result held up:** sparse Ridge had the highest mean accuracy in both
+runs. In the replay it improved from the base model's **66.70% to 74.22%**, and
+beat two-thirds Ridge in all five seeds: **+1.61 percentage points**, adjusted
+interval **[0.17, 3.19] pp**. The original gain was +2.06 pp, interval
+[0.59, 3.53] pp.
+
+Against GRPO, the replay gain was **+1.80 pp**, adjusted interval
+**[-0.16, 3.80] pp**. The original gain was +1.85 pp with an interval above zero;
+the replay does not establish superiority after adjustment. Against conventional
+PPO, the replay gain was **+4.29 pp**, interval **[-2.28, 12.60] pp**: also
+inconclusive. PPO varied from **61.95% to 75.80%** across replay seeds, despite
+passing all critic health checks. These checks test training-target fitting and
+functional behavior, not held-out value accuracy or policy improvement.
+
+Sparse Ridge used about **15% less online training compute** than conventional
+PPO in the replay (about 17% in the original). It cost more than GRPO. These costs
+exclude offline generation, feature extraction and compressor learning; historical
+PPO calibration cost another **19.59 GPU hours** and was reused for the replay.
 
 These are approximate seed/question bootstrap intervals with Bonferroni nominal
 coverage for eight primary comparisons. Five actor seeds share one selected
 compressor. Eligibility uses numeric-template separation, not semantic or
-pretraining decontamination. Verifier labels need audit. One conventional PPO seed
-failed the training-target-MSE improvement gate; its other functional checks
-passed, and it remains in the comparison. No seeds are discarded.
+pretraining decontamination. Verifier labels need audit. All replay PPO health
+checks passed; one original PPO seed failed the training-target-MSE improvement
+gate while passing its other functional checks. No seeds are discarded.
 
-[Recorded results and per-seed data](docs/results/numina-six-method.json).
+The replay reused the same questions, actor seed IDs, frozen compressor and PPO
+profile, with fresh actors and empty online statistics. It validates the cleaned-up
+workflow and the main empirical pattern, not identical numerical outputs or an
+independent benchmark. Conventional PPO's mean accuracy was not closely reproduced.
+
+[Original results](docs/results/numina-six-method.json) ·
+[Production replay and per-seed data](docs/results/numina-prod-replay.json).
 Compression worked well here; sparsity itself has not been shown to speed up the
 implementation. Ridge is our practical default. LSTD remains a supported
 alternative, not an established winner for long horizons.
@@ -145,11 +164,10 @@ alternative, not an established winner for long horizons.
 
 The package remains **internal**, installed from source or a checked wheel; there
 is no hosted API, registry or PyPI publication. Completed v1 artifacts remain
-supported. The cleaned-up version passed installed-wheel CPU acceptance on Duke
-and two real PPO updates each with Ridge and LSTD(0.9), including accumulated
-statistics and opposite-fold predictions. A full six-method replay is underway
-to check accuracy reproducibility; the table above records the earlier completed
-study, not results from that replay.
+supported. The cleaned-up version passed installed-wheel CPU acceptance on Duke,
+real Ridge/LSTD PPO integration checks, and the full **30-run production replay**
+with successful report generation. This validates the tested workflow; it does
+not guarantee fault-free behavior for every dataset or configuration.
 
 ## Reproduce or start fresh
 
