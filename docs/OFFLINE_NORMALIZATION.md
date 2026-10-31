@@ -75,3 +75,25 @@ output directory; after a failed attempt use a new output path. These diagnostic
 live outside the active training provenance glob and do not change RL behavior.
 For future online normalization experiments, retrain heads from empty matrices;
 do not change transforms during an accumulated-statistics run.
+
+## Fixed Ridge-epsilon sweep
+
+To compare Ridge epsilon `0.1, 1, 10, 100` for all three representations, retaining
+the original `0.01` and relative policies as controls:
+
+```bash
+sbatch tools/diagnostics/submit_ridge_normalization.sh \
+  outputs/jlens-large-numina-v2 \
+  outputs/numina-no-folds-v1 \
+  outputs/ridge-normalization-epsilon-v1 \
+  --ridge-epsilons 0.1 1 10 100
+```
+
+These are **Ridge** penalties in `(A + epsilon I)w = b`. LayerNorm's internal
+denominator epsilon stays `1e-5` for every run. The comparison reports all declared
+settings, including within-representation differences versus epsilon `0.01`;
+it does not automatically select a winner. Test intervals remain exploratory and
+unadjusted across the expanded sweep. Full training Gram matrices are now saved
+as `<arm>-statistics.pt` for subsequent numerical checks. Source caches and older
+results remain unchanged. A new run refits the heads from cached features; no
+generation or GPU work is performed.

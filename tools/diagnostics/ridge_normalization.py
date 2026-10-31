@@ -32,9 +32,14 @@ def transform(arm, x, fitted, rms_eps, layernorm_eps):
     return z
 
 
-def ridge_fit(a, b, policy, strength):
+def ridge_fit(a, b, policy, strength, *, epsilon=None):
     # Raw sums retained. Relative policy: fixed fractional loading of mean diagonal.
-    epsilon = .01 if policy == 'legacy' else max(.01, strength * float(a.trace()) / len(b))
+    if epsilon is None:
+        if policy not in POLICIES:
+            raise ValueError('Unknown Ridge regularization policy')
+        epsilon = .01 if policy == 'legacy' else max(.01, strength * float(a.trace()) / len(b))
+    if not np.isfinite(epsilon) or epsilon <= 0:
+        raise ValueError('Ridge epsilon must be finite and positive')
     system = a + epsilon * torch.eye(len(b), dtype=a.dtype)
     w = torch.linalg.solve(system, b)
     residual = torch.linalg.vector_norm(system @ w - b) / (
@@ -102,6 +107,11 @@ def run(args):
         raise ValueError('Output must be separate from inputs')
     if out.exists():
         raise ValueError('Use a new output directory')
+    extra_epsilons = getattr(args, 'ridge_epsilons', [])
+    if any(not np.isfinite(e) or e <= 0 for e in extra_epsilons):
+        raise ValueError('Ridge epsilons must be finite and positive')
+    policies = dict.fromkeys(POLICIES)
+    policies.update({f'fixed_{float(e):.12g}': float(e) for e in extra_epsilons})
     source_manifest = json.loads((source / 'manifest.json').read_text())
     study_manifest = json.loads((study / 'manifest.json').read_text())
     if source_manifest['model_hashes'] != study_manifest['model_hashes']:
@@ -120,6 +130,7 @@ def run(args):
     out.mkdir(parents=True)
     started = time.perf_counter()
     protocol = dict(arms=list(ARMS), strength=args.strength, legacy_epsilon=.01,
+        regularization_policies=policies,
         relative_rule='max(0.01, strength * trace(A_train) / design_width)',
         intercept_penalized=True, layernorm_eps=args.layernorm_eps, affine=False,
         normalized_two_thirds='Per-prefix RMS, no learned gain, no dataset centering',
@@ -145,9 +156,11 @@ def run(args):
             y = metadata['train']['y'][start:stop].double()
             a += x.T @ x
             b += x.T @ y
-        for policy in POLICIES:
+        for policy, epsilon in policies.items():
             key = f'{arm}/{policy}'
-            weights[key], fits[key] = ridge_fit(a, b, policy, args.strength)
+            weights[key], fits[key] = ridge_fit(a, b, policy, args.strength, epsilon=epsilon)
+        torch.save(dict(a=a, b=b, training_prefixes=len(metadata['train']['y'])),
+                   out/f'{arm}-statistics.pt')
         print(f'Fitted {arm}', flush=True)
     torch.save(dict(weights=weights, fits=fits, protocol=protocol), out/'heads.pt')
     results, test_errors = {}, {}
@@ -155,13 +168,13 @@ def run(args):
     for split in ('val', 'test'):
         results[split] = {}
         for arm in ARMS:
-            predictions = {p:[] for p in POLICIES}
+            predictions = {p:[] for p in policies}
             for start in range(0, len(metadata[split]['y']), args.batch_size):
                 x = batch_features(splits[split], arm, start, start+args.batch_size, fitted,
                                    study_manifest['rms_eps'], args.layernorm_eps)
-                for policy in POLICIES:
+                for policy in policies:
                     predictions[policy].append((x @ weights[f'{arm}/{policy}']).numpy())
-            for policy in POLICIES:
+            for policy in policies:
                 key = f'{arm}/{policy}'
                 pred = np.concatenate(predictions[policy])
                 results[split][key], grouped = evaluate(metadata[split]['y'].numpy(), pred,
@@ -171,7 +184,7 @@ def run(args):
                     test_errors[key] = grouped
         torch.save(metadata[split], out/f'{split}-labels.pt')
     paired = {}
-    for policy in POLICIES:
+    for policy in policies:
         baseline = test_errors[f'slice_baseline/{policy}']
         for arm in ARMS[:-1]:
             delta = test_errors[f'{arm}/{policy}'] - baseline
@@ -181,9 +194,23 @@ def run(args):
                 question_mean_raw_brier_difference=float(delta.mean()),
                 descriptive_95_interval=np.quantile(draws, [.025, .975]).tolist(),
                 questions=len(delta), scope='Paired question bootstrap; exploratory, unadjusted')
+    # Within-arm comparisons distinguish epsilon effects from representation effects.
+    for arm in ARMS:
+        for policy in policies:
+            if policy == 'legacy':
+                continue
+            delta = test_errors[f'{arm}/{policy}'] - test_errors[f'{arm}/legacy']
+            rng = np.random.default_rng(42)
+            draws = [float(delta[rng.integers(len(delta), size=len(delta))].mean()) for _ in range(2000)]
+            paired[f'{arm}/{policy}_minus_legacy'] = dict(
+                question_mean_raw_brier_difference=float(delta.mean()),
+                descriptive_95_interval=np.quantile(draws, [.025, .975]).tolist(),
+                questions=len(delta), scope='Paired question bootstrap; exploratory, unadjusted')
+    # Include within-arm contrasts in the same report as representation contrasts.
     write_json(out/'summary.json', dict(protocol=protocol, fits=fits, results=results, paired=paired,
                                       seconds=time.perf_counter()-started))
-    lines = [protocol['scope'], '', 'Test sampled-prefix Ridge: raw Brier lower; accuracy higher.',
+    lines = [protocol['scope'], f'LayerNorm internal epsilon: {args.layernorm_eps}; Ridge epsilons are separate.',
+             '', 'Test sampled-prefix Ridge: raw Brier lower; accuracy higher.',
              'arm/policy                         Brier    accuracy   epsilon      condition']
     for key, result in results['test'].items():
         lines.append(f'{key:<34} {result["raw_brier"]:.5f}  {result["accuracy"]:.3f} '
@@ -201,6 +228,8 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--strength', type=float, default=1e-4)
     parser.add_argument('--layernorm-eps', type=float, default=1e-5)
+    parser.add_argument('--ridge-epsilons', type=float, nargs='+', default=[],
+                        help='Additional fixed Ridge penalties; does not change LayerNorm epsilon')
     parser.add_argument('--batch-size', type=int, default=2048)
     parser.add_argument('--threads', type=int, default=8)
     args = parser.parse_args()

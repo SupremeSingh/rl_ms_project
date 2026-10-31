@@ -15,6 +15,7 @@ export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8 PYTHONUNBUFFER
 features="${1:?Usage: sbatch tools/diagnostics/submit_ridge_normalization.sh FEATURE_SOURCE FROZEN_FILTER_STUDY NEW_OUTPUT}"
 study="${2:?Missing frozen-filter study directory}"
 out="${3:?Missing new output directory}"
+shift 3
 srun bash scripts/container_exec.sh "$PWD/.venv-critic/bin/python" \
   tools/diagnostics/ridge_normalization.py \
-  --features "$features" --study "$study" --out "$out" --strength 0.0001
+  --features "$features" --study "$study" --out "$out" --strength 0.0001 "$@"

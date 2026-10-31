@@ -43,6 +43,12 @@ def test_ridge_policies_solve_declared_objectives_even_with_dependent_features()
         assert checks['epsilon'] == eps
         torch.testing.assert_close((a+eps*torch.eye(3))@w, b, atol=1e-7, rtol=1e-7)
         assert checks['condition_2'] > 1
+    for epsilon in (.1, 1., 10., 100.):
+        w, checks = study.ridge_fit(a, b, 'fixed', .1, epsilon=epsilon)
+        assert checks['epsilon'] == epsilon
+        torch.testing.assert_close((a+epsilon*torch.eye(3))@w, b, atol=1e-7, rtol=1e-7)
+    with pytest.raises(ValueError,match='positive'):
+        study.ridge_fit(a, b, 'fixed', .1, epsilon=-1.)
 
 
 def test_question_metric_gives_equal_weight_to_questions():
@@ -76,7 +82,8 @@ def test_cache_pairing_and_checksums(tmp_path):
         study.open_split(tmp_path,'train')
 
 
-def test_complete_offline_run_writes_all_arms_without_modifying_inputs(tmp_path):
+@pytest.mark.parametrize('extra_epsilons', [[], [.1, 1., 10., 100.]])
+def test_complete_offline_run_writes_all_arms_without_modifying_inputs(tmp_path, extra_epsilons):
     source, online, out = tmp_path/'features', tmp_path/'online', tmp_path/'out'
     source.mkdir()
     (online/'filters').mkdir(parents=True)
@@ -105,12 +112,18 @@ def test_complete_offline_run_writes_all_arms_without_modifying_inputs(tmp_path)
     try:
         torch.set_num_threads(2)
         study.run(SimpleNamespace(features=source,study=online,out=out,strength=1e-4,
-                                  layernorm_eps=1e-5,batch_size=4))
+                                  layernorm_eps=1e-5,batch_size=4,ridge_epsilons=extra_epsilons))
     finally:
         torch.set_num_threads(threads)
     summary=json.loads((out/'summary.json').read_text())
-    assert len(summary['fits'])==6
-    assert len(summary['results']['test'])==6
-    assert len(summary['paired'])==4
+    policies=2+len(extra_epsilons)
+    assert len(summary['fits'])==3*policies
+    assert len(summary['results']['test'])==3*policies
+    assert len(summary['paired'])==2*policies+3*(policies-1)
+    assert summary['protocol']['layernorm_eps']==1e-5
+    for arm in study.ARMS:
+        for epsilon in extra_epsilons:
+            key=f'{arm}/fixed_{epsilon:.12g}'
+            assert summary['fits'][key]['epsilon']==epsilon
     assert json.loads((out/'status.json').read_text())['state']=='complete'
     assert before=={str(p):sha256(p) for root in (source,online) for p in root.rglob('*') if p.is_file()}
