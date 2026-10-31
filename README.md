@@ -193,6 +193,11 @@ GPU smoke and fold comparison remain to be run.
 
 ## Reproduce or start fresh
 
+An optional [offline normalization comparison](docs/OFFLINE_NORMALIZATION.md)
+tests RMS-normalized two-thirds features, SLICE with output LayerNorm, and unchanged
+SLICE using Ridge on matched saved Numina prefixes. It does not update the actor
+or change the online feature pipeline.
+
 The [reproduction guide](docs/REPRODUCING.md) provides two routes: train fresh
 actors from the final locked data/filter/profile, or build a new SLICE artifact
 and family-disjoint Numina study from pinned data. Retraining the representation
