@@ -43,6 +43,59 @@ The diagram's correctness score is an outcome estimate, not a proof of the
 reasoning. Online Ridge/LSTD values are unbounded linear predictions; standalone
 package scoring also provides a separately calibrated probability.
 
+## Feature normalization: current design and checks
+
+Our working PPO design is **frozen sparse-768 SLICE + Ridge, one shared head,
+without output LayerNorm**. Its feature pipeline is:
+
+```text
+Five block vectors → per-vector RMS normalization → concatenate (7,680)
+    → subtract the offline training mean of each coordinate
+    → divide by one shared training-derived scalar
+    → row-normalized learned projection + bias + ReLU (768)
+    → append intercept 1 → linear value head
+```
+
+RMS normalization has no learned gain. Centering/scaling statistics are fitted
+offline and frozen during PPO; the scalar scale is not per-coordinate
+standardization or whitening. Projection-row normalization controls weight norms,
+not output norms. No normalization is added after ReLU. The existing raw
+two-thirds online control has no additional feature normalization.
+
+We tested three frozen representations with newly fitted **offline Ridge** heads
+on matched sampled prefixes from the saved Numina data (2,000 test questions):
+
+| Representation | Test raw Brier ↓ | Correctness-prediction accuracy ↑ | Condition number of regularized system |
+|---|---:|---:|---:|
+| RMS-normalized two-thirds | 0.18957 | 71.8% | 481,000 |
+| SLICE + output LayerNorm | **0.18302** | 73.2% | 831,000 |
+| Unchanged SLICE | 0.18345 | 73.2% | **30,000** |
+
+These rows use the predeclared penalty
+`epsilon = max(0.01, 0.0001 * trace(A_train) / design_width)` (about 63, 63 and
+57.9 respectively). LayerNorm was applied **after the existing frozen ReLU
+features**, per prefix, without learned affine parameters; its internal epsilon
+was `1e-5`. We did not retrain the compressor with LayerNorm present.
+
+LayerNorm slightly reduced equal-question Brier error versus unchanged SLICE:
+**−0.000405**, descriptive 95% interval **[−0.000714, −0.000106]**. Accuracy was
+unchanged at the displayed precision. Sweeping **Ridge** epsilon through 0.01,
+0.1, 1, 10 and 100 barely changed predictions. For LayerNorm it reduced the
+condition number from **5.23 billion to 523,000**: zero-mean feature vectors have
+a redundant direction, so a large condition number need not imply poor predictions.
+Across five final online checkpoints, sparse LSTD was also better conditioned
+than sparse Ridge (about 2,700–2,950 versus 30,200–31,100), despite worse actor
+accuracy; final conditioning does not explain that performance gap.
+
+**Decision:** retain unchanged SLICE + Ridge for PPO. Output LayerNorm remains a
+small offline improvement, not a demonstrated RL improvement. We have not tested
+LayerNorm with LSTD or PPO, joint compressor training with LayerNorm, or whitening.
+This ablation lacks a matched raw two-thirds arm, so it does not establish whether
+RMS normalization itself helped that layer. Questions and verifier labels were
+reused; intervals are exploratory and unadjusted, not independent replications
+across epsilon settings. [Protocol and commands](docs/OFFLINE_NORMALIZATION.md) ·
+[Recorded normalization report](docs/results/ridge-normalization-epsilon.txt).
+
 ## Current v2 algorithm: one shared critic
 
 During PPO, **only the actor is updated by gradients** in the SLICE arms. Its
@@ -109,12 +162,32 @@ update one persistent `A,b`; after adding each fresh batch, we solve once and us
 that head for every prefix's value. Frozen features, raw accumulation, terminal
 rewards, epsilon, GAE and PPO are unchanged. This is fit-then-predict on the same
 batch, not a delayed critic update. There is no two-fold arm in the new experiment. The library keeps two-fold
-compatibility only for reproducing the completed studies. No-fold training has **no accuracy results yet**.
+compatibility only for reproducing the earlier studies.
 
 [Experiment and cluster commands](docs/NO_FOLDS.md): repeat the original six
 methods and five actor seeds with 120 updates, but use one shared head in every
 Ridge/LSTD arm. Conventional PPO/GRPO, data, frozen filter and budgets are
 unchanged. All actors start fresh; old results remain untouched.
+
+The latest supplied snapshot contains all five seeds for the linear critics and
+GRPO; conventional PPO had four of five results available:
+
+| Method | No-fold-study actor accuracy, mean | Completed seeds |
+|---|---:|---:|
+| Sparse-768 Ridge PPO | **75.16%** | 5/5 |
+| Two-thirds-layer Ridge PPO | 72.84% | 5/5 |
+| Two-thirds-layer LSTD(0.9) PPO | 72.36% | 5/5 |
+| GRPO | 72.26% | 5/5 |
+| Sparse-768 LSTD(0.9) PPO | 72.16% | 5/5 |
+| Conventional PPO | 72.66% | **4/5; partial** |
+
+Sparse Ridge improved by **0.94 percentage points** versus the previous two-fold
+production replay, with positive same-seed differences in all five runs. This
+supports the simpler shared-head design, but repeated actor runs also vary and
+the final aggregate report/adjusted intervals have not been supplied here. The
+partial conventional-PPO mean is not a completed five-seed comparison. These
+actor accuracies are distinct from the offline **critic-prediction accuracies**
+above. [Per-seed preview](docs/results/numina-no-folds-preview.json).
 
 ## Recorded Numina results
 
@@ -188,8 +261,8 @@ supported. The previous 0.2.0 release passed installed-wheel CPU acceptance on D
 real Ridge/LSTD PPO integration checks, and the full **30-run production replay**
 with successful report generation. This validates the tested workflow; it does
 not guarantee fault-free behavior for every dataset or configuration. The 0.3.0
-one-head extension has passed CPU tests and installed-wheel acceptance; its new
-GPU smoke and fold comparison remain to be run.
+one-head extension has passed CPU tests, installed-wheel acceptance and the real
+six-method GPU smoke; its latest supplied training results are recorded above.
 
 ## Reproduce or start fresh
 
