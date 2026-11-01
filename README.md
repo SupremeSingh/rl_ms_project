@@ -266,6 +266,11 @@ six-method GPU smoke; its latest supplied training results are recorded above.
 
 ## Reproduce or start fresh
 
+An [offline nonlinear-head benchmark](docs/OFFLINE_MLP.md) compares existing
+SLICE + Ridge with frozen SLICE + MLP and jointly trained SLICE + MLP. The encoder
+stays frozen; the joint arm backpropagates through the compressor and two-layer
+readout. It uses cached prefixes and does not change the working PPO design.
+
 An optional [offline normalization comparison](docs/OFFLINE_NORMALIZATION.md)
 tests RMS-normalized two-thirds features, SLICE with output LayerNorm, and unchanged
 SLICE using Ridge on matched saved Numina prefixes. It does not update the actor
