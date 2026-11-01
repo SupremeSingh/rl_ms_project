@@ -270,6 +270,9 @@ An [offline nonlinear-head benchmark](docs/OFFLINE_MLP.md) compares existing
 SLICE + Ridge with frozen SLICE + MLP and jointly trained SLICE + MLP. The encoder
 stays frozen; the joint arm backpropagates through the compressor and two-layer
 readout. It uses cached prefixes and does not change the working PPO design.
+A [validation-only tuning follow-up](docs/MLP_TUNING.md) tests lower learning rates,
+head-first fine-tuning and activation penalties before a separately invoked,
+locked-model test evaluation.
 
 An optional [offline normalization comparison](docs/OFFLINE_NORMALIZATION.md)
 tests RMS-normalized two-thirds features, SLICE with output LayerNorm, and unchanged

@@ -79,17 +79,21 @@ def predict(model, x, batch_size, device):
                       for i in range(0,len(x),batch_size)]).double().numpy()
 
 
-def train_one(fitted, train, val, args, kind, seed, out):
+def train_one(fitted, train, val, args, kind, seed, out, initial_checkpoint=None):
     case = out/f'{kind}-seed{seed}'
     case.mkdir(exist_ok=True)
+    initial_hash = sha256(initial_checkpoint) if initial_checkpoint else None
     if (case/'result.json').exists():
         r = json.loads((case/'result.json').read_text())
-        if sha256(case/'best.pt') != r['checkpoint_sha256']:
+        if (sha256(case/'best.pt') != r['checkpoint_sha256']
+                or r.get('initial_checkpoint_sha256') != initial_hash):
             raise ValueError('Saved neural checkpoint changed')
         return r
     # Deliberately restart incomplete fits from initialization, never mix epochs.
     torch.manual_seed(seed)
     model = ValueMLP(fitted, args.hidden, joint=kind=='joint_mlp').to(args.device)
+    if initial_checkpoint:
+        model.load_state_dict(torch.load(initial_checkpoint,map_location='cpu',weights_only=True)['state'],strict=True)
     groups = [dict(params=model.head.parameters(), lr=args.head_lr)]
     if kind == 'joint_mlp':
         groups.append(dict(params=model.compressor.projection.parameters(), lr=args.compressor_lr))
@@ -98,6 +102,12 @@ def train_one(fitted, train, val, args, kind, seed, out):
     y = train[1]['y'].float()
     best, best_epoch, history = float('inf'), 0, []
     started = time.perf_counter()
+    if initial_checkpoint:
+        predictions = predict(model,val[0],args.batch_size,args.device)
+        best = float(((predictions-val[1]['y'].numpy())**2).mean())
+        history.append(dict(epoch=0,validation_brier=best,train_objective=None,train_mse=None))
+        save_tensor(case/'best.pt',dict(state={k:v.detach().cpu().clone() for k,v in model.state_dict().items()},
+                    seed=seed,kind=kind,hidden=args.hidden,epoch=0,validation_brier=best))
     for epoch in range(1,args.epochs+1):
         model.train()
         total_loss, total_mse = 0., 0.
@@ -130,6 +140,7 @@ def train_one(fitted, train, val, args, kind, seed, out):
     if args.device.startswith('cuda'):
         torch.cuda.synchronize()
     result = dict(kind=kind, seed=seed, best_epoch=best_epoch, epochs_run=epoch,
+                  initial_checkpoint_sha256=initial_hash,
                   validation_brier=best, seconds=time.perf_counter()-started, history=history,
                   checkpoint_sha256=sha256(case/'best.pt'))
     write_json(case/'result.json', result)
