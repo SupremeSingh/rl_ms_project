@@ -113,9 +113,9 @@ tail -n 30 outputs/numina-seven-critics-gpu-v1/smoke-mlp-joint.log
 After the smoke passes and its runtime/memory are acceptable:
 
 ```bash
-python3 tools/diagnostics/submit_critic_study.py \
+python3 tools/diagnostics/start_verified_critic_training.py \
   --out outputs/numina-seven-critics-gpu-v1 \
-  --mode train --concurrency 6
+  --concurrency 6
 ```
 
 Each task verifies the smoke gate and immutable code/data first. Six concurrent
@@ -145,3 +145,29 @@ Results are `report.txt` and `summary.json`; report generation refuses missing
 runs. All actor answers, verifier statuses, neural audits and final critic weights
 remain available. The CUDA unit test and worker/Ray integration still require a
 real cluster smoke; local CPU tests cannot certify throughput or GPU memory use.
+
+## Recovery from a completed-gate dependency rejection
+
+The original split submission helper used `afterok:<gate job>` even after the
+saved gate had passed. Slurm can reject this once that job is no longer available
+to the controller. The additive `start_verified_critic_training.py` helper checks
+the saved gate, manifest and pinned files instead and omits this obsolete
+dependency. The report still depends on the newly submitted training array.
+It does not change any runtime/tool file hashed into an already prepared study.
+
+If the original helper explicitly failed with `Job dependency problem`, use:
+
+```bash
+python3 tools/diagnostics/start_verified_critic_training.py \
+  --out outputs/numina-seven-critics-gpu-v1 \
+  --concurrency 6 --recover-dependency-rejection
+```
+
+The flag acknowledges that specific rejection, not an unknown submission timeout.
+The helper checks for live and recent `slice-critics-run` jobs before archiving
+the unconfirmed old marker. It refuses recovery if it finds any named job or an
+already recorded training ID. Accounting queries failing also stop submission.
+The marker is preserved under `run-rejected-*`, not deleted. Do not use this flag
+for a timeout whose outcome has not been established. No study preparation or
+smoke rerun is needed. Future smoke-first studies can use the new helper without
+the recovery flag; the one-shot `--mode all` chain remains supported.
