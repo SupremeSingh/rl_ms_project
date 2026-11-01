@@ -273,6 +273,10 @@ readout. It uses cached prefixes and does not change the working PPO design.
 A [validation-only tuning follow-up](docs/MLP_TUNING.md) tests lower learning rates,
 head-first fine-tuning and activation penalties before a separately invoked,
 locked-model test evaluation.
+A [seven-arm PPO follow-up](docs/ONLINE_CRITICS.md) adds frozen/joint MLP critics
+and LSTD trace lambdas 0.05/0.99 alongside Ridge, conventional PPO and GRPO. It
+uses a single-owner GPU neural critic and parallel per-method smoke tests, with a
+shared success gate before the full training array. Cluster GPU validation is pending.
 
 An optional [offline normalization comparison](docs/OFFLINE_NORMALIZATION.md)
 tests RMS-normalized two-thirds features, SLICE with output LayerNorm, and unchanged

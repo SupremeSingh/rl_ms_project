@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 
-def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val", feature_width=768):
+def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val", feature_width=768, trace_lambda=.9):
     if type(folds) is not int or folds not in (1, 2):
         raise ValueError('Expected one or two critic systems')
     dimension = feature_width + 1
@@ -14,7 +14,7 @@ def verify_run(case, method, *, folds=2, steps=2, evaluation_split="val", featur
         raise ValueError('Incomplete actor update/evaluation budget')
     stats = torch.load(case / 'linear-critic' / 'statistics.pt', map_location='cpu', weights_only=True)
     if (stats['step'] != steps or stats['epoch'] != 0 or stats['method'] != method
-            or stats['epsilon'] != .01 or stats['trace_lambda'] != .9):
+            or stats['epsilon'] != .01 or stats['trace_lambda'] != trace_lambda):
         raise ValueError('Wrong cumulative fitting settings')
     if len(stats['stats']) != folds or stats.get('folds', 2) != folds:
         raise ValueError('Wrong number of critic systems')

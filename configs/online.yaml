@@ -21,6 +21,10 @@ experiment:
   critic_alpha: 0.01
   critic_lambda: 0.99
   replay_capacity: 0
+  neural_epochs: 2
+  neural_backend: worker_gpu
+  neural_head_lr: 0.0003
+  neural_compressor_lr: 0.000003
 
 data:
   train_files: null
@@ -33,6 +37,7 @@ actor_rollout_ref:
   model:
     critic_feature_mode: actor
     critic_feature_layer: final
+    critic_feature_view: compressed
     critic_encoder_precision: bf16
     critic_bottleneck_path: null
     critic_bottleneck_sha256: null

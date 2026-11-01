@@ -1,6 +1,6 @@
 """PPO/GRPO comparison using the pinned VERL loop, losses, GAE and checkpoints.
 
-For linear critics only, the scoped advantage hook supplies cross-fitted values
+For compact critics, the scoped advantage hook supplies per-token values
 where VERL normally reads transformer-critic values. No transformer critic is
 allocated or updated in those runs. The pinned loop remains otherwise unchanged.
 """
@@ -18,9 +18,9 @@ from math_rl.provenance import write_json
 
 class MathTrainer(ray_trainer.RayPPOTrainer):
     def _validate_config(self):
-        # The parent infers use_critic from GAE. Linear PPO supplies values itself;
+        # The parent infers use_critic from GAE. Compact critics supply values themselves;
         # disable the transformer before either config checks or worker creation.
-        if self.config.experiment.method in ('lstd', 'ridge'):
+        if self.config.experiment.method in ('lstd', 'ridge','mlp_frozen','mlp_joint'):
             self.use_critic = False
         super()._validate_config()
 
@@ -28,6 +28,7 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
         super().__init__(*args, **kwargs)
         self.method = self.config.experiment.method
         self.linear = self.method in ('lstd', 'ridge')
+        self.neural = self.method in ('mlp_frozen','mlp_joint')
         self.output = Path(self.config.trainer.default_local_dir)
         self.output.mkdir(parents=True, exist_ok=True)
         self.completed_updates = 0
@@ -37,6 +38,11 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
         model_config = getattr(getattr(self.config, 'actor_rollout_ref', None), 'model', None)
         feature_mode = getattr(model_config, 'critic_feature_mode', 'actor')
         cumulative = None
+        neural = None
+        if self.neural:
+            neural=dict(joint=self.method=='mlp_joint',seed=self.config.data.seed,
+                epochs=self.config.experiment.neural_epochs,head_lr=self.config.experiment.neural_head_lr,
+                compressor_lr=self.config.experiment.neural_compressor_lr)
         if self.linear:
             from datasets import Dataset
             from slice_critic import CumulativeCritic
@@ -47,6 +53,17 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
                 method=self.config.experiment.method, folds=self.config.experiment.critic_folds)
 
         def advantages(data, *args, **kwargs):
+            prediction_seconds=0.
+            if neural is not None:
+                if any(int(v)!=0 for v in data.non_tensor_batch.pop('critic_encoder_epoch')):
+                    raise RuntimeError('Neural critic requires unchanged encoder coordinates')
+                started=time.perf_counter()
+                reply=self.actor_rollout_wg.neural_predict(data.non_tensor_batch.pop('pretoken_features'),
+                    data.batch['response_mask'].detach().cpu(),self.global_steps,neural)
+                if reply['backend']!='cuda' or reply['owner_rank']!=0 or reply['step']!=self.global_steps:
+                    raise RuntimeError('Neural values did not come from the owning GPU')
+                data.batch['values']=reply['values'].to(data.batch['token_level_rewards'].device)
+                prediction_seconds=time.perf_counter()-started
             if self.linear:
                 device = data.batch['token_level_rewards'].device
                 features = data.non_tensor_batch.pop('pretoken_features')
@@ -76,6 +93,21 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
             result = original(data, *args, **kwargs)
             if not all(torch.isfinite(result.batch[k]).all() for k in ('advantages', 'returns')):
                 raise RuntimeError('Nonfinite advantages or returns')
+            if neural is not None:
+                started=time.perf_counter()
+                final=self.global_steps==self.total_training_steps
+                reply=self.actor_rollout_wg.neural_fit(result.batch['returns'].detach().cpu(),
+                    data.batch['response_mask'].detach().cpu(),self.global_steps,final)
+                if reply['backend']!='cuda' or reply['owner_rank']!=0 or reply['step']!=self.global_steps:
+                    raise RuntimeError('Neural fit did not execute on the owning GPU')
+                metrics=reply['metrics']
+                metrics.update(prediction_rpc_seconds=prediction_seconds,
+                               fit_rpc_seconds=time.perf_counter()-started)
+                folder=self.output/'neural-critic';folder.mkdir(exist_ok=True)
+                if final:
+                    if reply['state'] is None: raise RuntimeError('Final neural checkpoint missing')
+                    torch.save(dict(state=reply['state'],step=self.global_steps,metrics=metrics),folder/'latest.pt')
+                with (folder/'metrics.jsonl').open('a') as handle: handle.write(json.dumps(metrics)+'\n')
             return result
 
         # A single trainer runs in its own Ray driver process. Restore the module

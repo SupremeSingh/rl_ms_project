@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 
-from verl.single_controller.base.decorator import Dispatch, register
+from verl.single_controller.base.decorator import Dispatch, Execute, register
 from verl.workers.fsdp_workers import ActorRolloutRefWorker
 
 from slice_critic import encode_hidden_rollout_features as frozen_prefixes
@@ -10,6 +10,27 @@ from slice_critic import load_ppo_features as load_filter, encode_rollout_featur
 
 
 class FeatureActorWorker(ActorRolloutRefWorker):
+    @register(dispatch_mode=Dispatch.ALL_TO_ALL,execute_mode=Execute.RANK_ZERO)
+    def neural_predict(self,features,mask,step,settings):
+        if self.rank!=0 or not torch.cuda.is_available():
+            raise RuntimeError('Neural critic must run on rank-zero GPU')
+        if not hasattr(self,'_neural_service'):
+            from math_rl.neural_critic import NeuralCriticService
+            # compute_log_prob already verified/loaded this immutable filter and
+            # offloaded the actor and frozen encoder before this blocking RPC.
+            if not hasattr(self,'_critic_filter'): raise RuntimeError('Extract features before neural values')
+            self._neural_service=NeuralCriticService(self._critic_filter,
+                device=torch.device('cuda',torch.cuda.current_device()),**settings)
+            self._neural_settings=dict(settings)
+        if self._neural_settings!=dict(settings): raise ValueError('Neural settings changed during training')
+        return self._neural_service.predict(features,mask,step)
+
+    @register(dispatch_mode=Dispatch.ALL_TO_ALL,execute_mode=Execute.RANK_ZERO)
+    def neural_fit(self,returns,mask,step,checkpoint=False):
+        if self.rank!=0 or not hasattr(self,'_neural_service'):
+            raise RuntimeError('Neural values must be predicted by rank zero before fitting')
+        return self._neural_service.fit(returns,mask,step,checkpoint)
+
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_log_prob(self, data):
         if (self.config.rollout.log_prob_micro_batch_size_per_gpu != 1
@@ -50,9 +71,22 @@ class FeatureActorWorker(ActorRolloutRefWorker):
                         layers=list(self.config.model.critic_bottleneck_layers),
                         eps=self.config.model.critic_bottleneck_rms_eps,
                         model_path=self.config.model.path)
-                features = bottleneck_prefixes(self._critic_encoder, ids, masks, width,
-                    self._critic_filter, list(self.config.model.critic_bottleneck_layers),
-                    self.config.model.critic_bottleneck_rms_eps)
+                if self.config.model.get('critic_feature_view','compressed')=='raw_concat':
+                    from slice_critic.layers import sampled_block_states
+                    from slice_critic.features import rms_coordinates
+                    features=[]
+                    layers=list(self.config.model.critic_bottleneck_layers)
+                    for row,mask in zip(ids,masks,strict=True):
+                        prompt=int(mask[:-width].sum());response=int(mask[-width:].sum())
+                        tokens=row[mask.bool()].unsqueeze(0).to(torch.cuda.current_device())
+                        blocks=sampled_block_states(self._critic_encoder,tokens,prompt,response,list(range(response)),layers)
+                        x=torch.cat([rms_coordinates(blocks[l].float(),self.config.model.critic_bottleneck_rms_eps)
+                                     for l in layers],1)
+                        features.append(x.numpy().copy())
+                else:
+                    features = bottleneck_prefixes(self._critic_encoder, ids, masks, width,
+                        self._critic_filter, list(self.config.model.critic_bottleneck_layers),
+                        self.config.model.critic_bottleneck_rms_eps)
             else:
                 features = frozen_prefixes(self._critic_encoder, ids, masks, width, layer=layer)
         finally:

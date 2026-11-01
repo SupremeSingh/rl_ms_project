@@ -17,7 +17,7 @@ def command(out, method, seed, steps, feature_mode='actor', ppo_profile='not_app
             'critic.loss_agg_mode=seq-mean-token-mean', 'critic.use_dynamic_bsz=false']
     return [sys.executable, '-m', 'math_rl.main',
         f'experiment.method={method}',
-        f'actor_rollout_ref.model.critic_feature_mode={feature_mode if method in ("lstd", "ridge") else "actor"}',
+        f'actor_rollout_ref.model.critic_feature_mode={feature_mode if method in ("lstd", "ridge", "mlp_frozen", "mlp_joint") else "actor"}',
         'experiment.replay_capacity=0',
         f'algorithm.adv_estimator={"grpo" if method == "grpo" else "gae"}',
         f'data.train_files={out / "data/train.parquet"}', f'data.val_files={out / "data/val.parquet"}',
