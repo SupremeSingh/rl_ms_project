@@ -145,3 +145,31 @@ rejects changed source code. No environment reinstall is needed if the isolated
 verifier already passes its pinned provenance check. If it fails, inspect that
 environment before submitting GPU work; do not add verifier packages to the RL
 environment as a workaround.
+
+## Model cache paths across the login host and container
+
+Full preparation job 13250110 failed before generation because the submission
+controller resolved the successful smoke's cache path through a host symlink.
+The resulting `/usr/project/xtmp/...` alias was not visible in that container;
+Transformers then treated the nonexistent local path as an invalid Hub repo ID.
+The dataset and prediction logic were not reached.
+
+The controller now preserves model-path spelling, making paths absolute without
+resolving symlinks on the login host. This differs from resolving paths inside
+the container, where the model is actually loaded. The passed smoke can be reused
+only when its sole changed pinned file is the exact known predecessor of the
+submission controller; all other runtime hashes must match. The new submission
+records the smoke hash, recognized change and model argument in
+`<OUT>-submission/smoke-reuse.json`. Unrecognized changes still require a new smoke.
+
+After pulling this fix, preserve the failed full output/sidecar and submit:
+
+```bash
+python3 tools/transfer/submit.py --mode full \
+  --smoke outputs/slice-transfer-smoke-v2 \
+  --out outputs/slice-transfer-numina-gsm8k-v2 --shards 4 --concurrency 4
+```
+
+Non-array Slurm logs use a sentinel array-task suffix, not `_0`. Find them with
+`ls <OUT>-submission/logs/prepare-*.out`, or read them with
+`tail -n 120 <OUT>-submission/logs/prepare-*.out`.

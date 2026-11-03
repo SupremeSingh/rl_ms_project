@@ -6,6 +6,29 @@ import subprocess
 
 ROOT=Path(__file__).resolve().parents[2]
 
+# One known smoke-compatible migration: preserve model-path spelling at submission.
+# Every other pinned source hash must still match. This does not waive GPU smoke.
+PATH_FIX_PREDECESSOR = "cb66a2fa0a4cf5d9a7723d4cf3d7fb0dfddf15148e4322d7c0ec74d93d2c8d13"
+
+
+def model_argument(value):
+    # A path resolved on a login host can be invalid in a container's mount namespace.
+    # Make it absolute without resolving symlinks (/usr/xtmp vs /usr/project/xtmp).
+    return str(Path(value).expanduser().absolute())
+
+
+def smoke_changes(manifest):
+    import hashlib
+    changes={}
+    for name,digest in manifest['code'].items():
+        actual=hashlib.sha256((ROOT/name).read_bytes()).hexdigest()
+        if actual==digest:continue
+        if name=='tools/transfer/submit.py' and digest==PATH_FIX_PREDECESSOR:
+            changes[name]=dict(smoke_sha256=digest,current_sha256=actual,
+                               reason='Model-path spelling preserved across host/container namespaces')
+        else:raise ValueError('Implementation changed after smoke; rerun smoke')
+    return changes
+
 
 def submit(out,mode,shards=4,concurrency=4,model=None):
     out=out.resolve()
@@ -16,10 +39,12 @@ def submit(out,mode,shards=4,concurrency=4,model=None):
     return chain(out,mode,shards,concurrency,model)
 
 
-def chain(out,mode,shards,concurrency,model):
+def chain(out,mode,shards,concurrency,model,smoke_reuse=None):
     (out.parent).mkdir(parents=True,exist_ok=True)
     # Sidecar holds submission bookkeeping so prepare can enforce a fresh output.
     side=out.with_name(out.name+'-submission');side.mkdir()
+    if smoke_reuse is not None:
+        (side/'smoke-reuse.json').write_text(json.dumps(smoke_reuse,indent=2)+'\n')
     logdir=side/'logs';logdir.mkdir();previous=None
     for stage in ('prepare','generate','pack','fit','evaluate'):
         gpu=stage in ('generate','fit')
@@ -35,7 +60,7 @@ def chain(out,mode,shards,concurrency,model):
         if stage=='prepare':
             cmd+=['--shards',str(shards)]
             if mode=='smoke':cmd+=['--train','40','--val','20','--test','20','--epochs','2','--tokens','256']
-            if model:cmd+=['--model',str(Path(model).resolve())]
+            if model:cmd+=['--model',model_argument(model)]
         (side/f'{stage}.json').write_text(json.dumps(dict(state='submitting',command=cmd),indent=2))
         result=subprocess.run(cmd,text=True,capture_output=True,timeout=90)
         job=result.stdout.strip().split(';')[0]
@@ -54,10 +79,13 @@ def submit_full(out,smoke,shards,concurrency,model):
     if not 1<=concurrency<=shards<=32:raise ValueError('Invalid concurrency')
     m=json.loads((smoke/'manifest.json').read_text());status=json.loads((smoke/'status/evaluate-0.json').read_text())
     if m['protocol']!='slice-transfer-v1' or status['state']!='complete' or not (smoke/'report.txt').exists():raise ValueError('Smoke is not complete')
-    for name,digest in m['code'].items():
-        if hashlib.sha256((ROOT/name).read_bytes()).hexdigest()!=digest:raise ValueError('Implementation changed after smoke; rerun smoke')
-    if model and str(Path(model).resolve())!=m['model_path']:raise ValueError('Smoke used a different model path')
-    return chain(out,'full',shards,concurrency,m['model_path'])
+    changes=smoke_changes(m)
+    if model and model_argument(model)!=model_argument(m['model_path']):raise ValueError('Smoke used a different model path')
+    if changes:print('Reusing passed smoke with recognized submission-path fix only.',flush=True)
+    return chain(out,'full',shards,concurrency,m['model_path'],smoke_reuse=dict(
+        smoke=str(smoke),manifest_sha256=hashlib.sha256((smoke/'manifest.json').read_bytes()).hexdigest(),
+        recognized_changes=changes,model_argument=model_argument(m['model_path'])))
+
 
 
 def main():

@@ -162,3 +162,45 @@ def test_changed_verifier_blocks_before_encoder(tmp_path):
     with patch.object(m,'verify',return_value=manifest),patch.object(m,'VerificationClient',Grader),patch.object(m,'TransformersBackend') as model:
         with pytest.raises(ValueError,match='Verifier identity changed'):m.generate(tmp_path,0)
         model.assert_not_called()
+
+
+
+def test_model_path_alias_is_preserved_in_submission(tmp_path):
+    m=module('submit');real=tmp_path/'real-cache';real.mkdir()
+    alias=tmp_path/'cache-alias';alias.symlink_to(real,target_is_directory=True)
+    model=alias/'snapshot';(real/'snapshot').mkdir()
+    calls=[]
+    class Result:
+        returncode=0;stderr=''
+        def __init__(self,n):self.stdout=str(n)
+    def run(cmd,**kwargs):calls.append(cmd);return Result(200+len(calls))
+    with patch.object(m.subprocess,'run',run):m.submit(tmp_path/'alias-study','smoke',model=model)
+    command=calls[0]
+    assert command[command.index('--model')+1]==str(model)
+    assert str(model)!=str(model.resolve())
+
+
+def test_full_accepts_only_known_path_only_smoke_migration(tmp_path):
+    m=module('submit');smoke=tmp_path/'smoke';(smoke/'status').mkdir(parents=True)
+    import hashlib,json
+    wrapper='tools/transfer/run.sh'
+    manifest=dict(protocol='slice-transfer-v1',model_path=str(tmp_path/'cache-alias'/'snapshot'),
+                  code={'tools/transfer/submit.py':m.PATH_FIX_PREDECESSOR,
+                        wrapper:hashlib.sha256((ROOT/wrapper).read_bytes()).hexdigest()})
+    (smoke/'manifest.json').write_text(json.dumps(manifest))
+    (smoke/'status/evaluate-0.json').write_text(json.dumps(dict(state='complete')))
+    (smoke/'report.txt').write_text('successful smoke')
+    calls=[]
+    class Result:
+        returncode=0;stderr=''
+        def __init__(self,n):self.stdout=str(n)
+    def run(cmd,**kwargs):calls.append(cmd);return Result(300+len(calls))
+    with patch.object(m.subprocess,'run',run):m.submit_full(tmp_path/'full',smoke,4,4,None)
+    assert len(calls)==5
+    assert calls[0][calls[0].index('--model')+1]==manifest['model_path']
+    audit=json.loads((tmp_path/'full-submission/smoke-reuse.json').read_text())
+    assert set(audit['recognized_changes'])=={'tools/transfer/submit.py'}
+    manifest['code'][wrapper]='0'*64
+    with pytest.raises(ValueError,match='Implementation changed'):m.smoke_changes(manifest)
+    manifest['code']={'tools/transfer/submit.py':'1'*64}
+    with pytest.raises(ValueError,match='Implementation changed'):m.smoke_changes(manifest)
