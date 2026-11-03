@@ -27,7 +27,7 @@ EPSILONS=(.01,1.,100.)
 
 
 def code_hashes():
-    paths=[Path(__file__),*sorted((ROOT/'packages/slice-critic/src/slice_critic').glob('*.py'))]
+    paths=[Path(__file__),Path(__file__).with_name('run.sh'),Path(__file__).with_name('submit.py'),*sorted((ROOT/'packages/slice-critic/src/slice_critic').glob('*.py'))]
     return {str(p.relative_to(ROOT)):sha256(p) for p in paths}
 
 
@@ -65,12 +65,15 @@ def assign(rows,train,val,test):
 
 
 def prepare(a):
-    from transformers import AutoTokenizer
     if a.out.exists():raise ValueError('Use a new output directory')
     c=TrainingConfig(dataset='AI-MO/NuminaMath-CoT',model_path=a.model,max_new_tokens=a.tokens,
         responses_per_question=a.answers,prefixes_per_answer=8,epochs=a.epochs,
         verifier_python=a.verifier_python)
-    c.validate();model,rev=resolve_model(c)
+    c.validate()
+    # Preflight the isolated pinned grader on the CPU node, before downloads/GPU jobs.
+    grader=VerificationClient(c.verifier_python);grader.check()
+    from transformers import AutoTokenizer
+    model,rev=resolve_model(c)
     tok=AutoTokenizer.from_pretrained(model,local_files_only=True)
     class Backend:
         max_context=4096
@@ -93,7 +96,7 @@ def prepare(a):
     a.out.mkdir(parents=True);write_json(a.out/'questions.json',qs)
     write_json(a.out/'manifest.json',dict(protocol='slice-transfer-v1',code=code_hashes(),
         questions_sha256=sha256(a.out/'questions.json'),model_path=str(model),model_revision=rev,
-        model_hashes=model_identity(model),config=c.__dict__,shards=a.shards,layers=select_layers(28)+[18],
+        model_hashes=model_identity(model),verifier=grader.provenance,config=c.__dict__,shards=a.shards,layers=select_layers(28)+[18],
         train_questions=a.train,val_questions=a.val,test_questions=a.test,seeds=list(SEEDS),ridge_epsilons=list(EPSILONS),
         datasets=dict(numina=ni,gsm_train=ti,gsm_test=ei),eligibility=dict(numina=nx,
         cross_domain_removed=before-len(nr),numina_selected=na,gsm_train=tx,gsm_test=ex,gsm_selected=ga,gsm_test_selected=gb),
@@ -105,6 +108,7 @@ def generate(out,task):
     m=verify(out)
     if not 0<=task<m['shards']:raise ValueError('Invalid shard')
     c=TrainingConfig(**m['config']);grader=VerificationClient(c.verifier_python);grader.check()
+    if grader.provenance!=m['verifier']:raise ValueError('Verifier identity changed after preparation')
     backend=TransformersBackend(m['model_path'])
     if backend.model_files!=m['model_hashes']:raise ValueError('Model changed')
     qs=[q for i,q in enumerate(read_json(out/'questions.json')) if i%m['shards']==task]
@@ -266,7 +270,7 @@ def evaluate(out):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--out',type=Path,required=True);p.add_argument('--stage',choices=['prepare','generate','pack','fit','evaluate'],required=True)
-    p.add_argument('--task',type=int,default=0);p.add_argument('--model');p.add_argument('--verifier-python');p.add_argument('--shards',type=int,default=4)
+    p.add_argument('--task',type=int,default=0);p.add_argument('--model');p.add_argument('--verifier-python',default=str(Path('.venv-ppo-verifier/bin/python').absolute()));p.add_argument('--shards',type=int,default=4)
     for name,default in [('train',2000),('val',500),('test',1000),('answers',4),('tokens',1024),('epochs',30)]:p.add_argument('--'+name,type=int,default=default)
     a=p.parse_args();a.out=a.out.resolve();torch.set_num_threads(8)
     if min(a.train,a.val,a.test)<20 or min(a.shards,a.answers,a.tokens,a.epochs)<1:p.error('Question counts >=20 and positive budgets required')

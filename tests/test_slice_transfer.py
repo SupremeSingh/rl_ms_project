@@ -104,6 +104,7 @@ def test_saved_shard_pipeline_with_toy_backend(tmp_path):
         def trajectory_features(self,prompt,answer,positions,layers):
             return torch.ones(len(positions),len(layers)*1536)*prompt[0]
     class Grader:
+        provenance={'kind':'toy'}
         def __init__(self,*args):pass
         def check(self):pass
         def __call__(self,responses,reference):
@@ -113,7 +114,7 @@ def test_saved_shard_pipeline_with_toy_backend(tmp_path):
         for s in ('train','val','test'):
             questions.append(dict(domain=domain,split=s,id=domain+'-'+s,prompt_token_ids=[1],reference='1'))
     c=TrainingConfig(dataset='toy',responses_per_question=2)
-    manifest=dict(shards=1,config=c.__dict__,model_path='unused',model_hashes={'toy':'identity'},layers=[27,26,24,20,12,18])
+    manifest=dict(shards=1,verifier={'kind':'toy'},config=c.__dict__,model_path='unused',model_hashes={'toy':'identity'},layers=[27,26,24,20,12,18])
     write_json(tmp_path/'manifest.json',manifest);write_json(tmp_path/'questions.json',questions)
     with patch.object(m,'verify',return_value=manifest),patch.object(m,'TransformersBackend',Backend),patch.object(m,'VerificationClient',Grader):
         m.generate(tmp_path,0)
@@ -126,3 +127,38 @@ def test_saved_shard_pipeline_with_toy_backend(tmp_path):
             assert set(record['y'].tolist())=={0.,1.}
     done=read_json(tmp_path/'shards/0/complete.json')
     assert done['label_statuses']['gsm8k/test/correct']==1
+
+
+def test_verifier_preflight_blocks_before_model_or_output(tmp_path):
+    from types import SimpleNamespace
+    m=module('study')
+    args=SimpleNamespace(out=tmp_path/'new',model=None,tokens=256,answers=4,epochs=2,
+                         verifier_python='/isolated-verifier/bin/python')
+    class BadGrader:
+        def __init__(self,python):assert python==args.verifier_python
+        def check(self):raise RuntimeError('missing pinned verifier')
+    with patch.object(m,'VerificationClient',BadGrader),patch.object(m,'resolve_model') as model:
+        with pytest.raises(RuntimeError,match='missing pinned verifier'):m.prepare(args)
+        model.assert_not_called()
+    assert not args.out.exists()
+
+
+def test_launcher_uses_isolated_verifier():
+    source=(ROOT/'tools/transfer/run.sh').read_text()
+    assert '--verifier-python "$PWD/.venv-ppo-verifier/bin/python"' in source
+    assert '--verifier-python "$PWD/.venv/bin/python"' not in source
+    m=module('study')
+    assert {'tools/transfer/run.sh','tools/transfer/submit.py'}<=set(m.code_hashes())
+
+
+def test_changed_verifier_blocks_before_encoder(tmp_path):
+    m=module('study')
+    from slice_critic.config import TrainingConfig
+    class Grader:
+        provenance={'kind':'changed'}
+        def __init__(self,*args):pass
+        def check(self):pass
+    manifest=dict(shards=1,config=TrainingConfig(dataset='toy').__dict__,verifier={'kind':'prepared'})
+    with patch.object(m,'verify',return_value=manifest),patch.object(m,'VerificationClient',Grader),patch.object(m,'TransformersBackend') as model:
+        with pytest.raises(ValueError,match='Verifier identity changed'):m.generate(tmp_path,0)
+        model.assert_not_called()

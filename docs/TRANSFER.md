@@ -124,3 +124,24 @@ retries must not overlap a running task. Fit retries restart that seed from the
 beginning unless already locked, in which case they refuse overwriting. Model
 and source hashes are checked. Learned representations/checkpoints here are
 research artifacts, not yet package-published critics or PPO filter exports.
+
+## Verifier environment and the first failed smoke
+
+The transfer runner uses `.venv-critic` for Qwen/features and the isolated
+`.venv-ppo-verifier/bin/python` for the pinned Math-Verify scorer. The general
+`.venv` does not need Math-Verify installed. Virtualenv executable paths must not
+be resolved through their system-Python symlinks.
+
+The first smoke (generation array 13249766) incorrectly selected `.venv` as the
+verifier, so its shards failed before loading Qwen or generating answers.
+The corrected preparation stage checks the verifier before model/dataset downloads,
+records its provenance, and cancels dependent jobs if this CPU preflight fails.
+Generation rechecks the same provenance before loading the encoder. The study
+also hashes its Slurm wrapper and submission controller.
+
+Preserve the old prepared directory for diagnosis. After pulling this fix, use
+`outputs/slice-transfer-smoke-v2` for a new smoke; the old manifest intentionally
+rejects changed source code. No environment reinstall is needed if the isolated
+verifier already passes its pinned provenance check. If it fails, inspect that
+environment before submitting GPU work; do not add verifier packages to the RL
+environment as a workaround.
