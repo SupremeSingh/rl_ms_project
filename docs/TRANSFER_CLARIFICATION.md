@@ -134,3 +134,23 @@ retries; inspect squeue/sacct before attempting recovery. Non-array log suffixes
 may be `4294967294`, so use `logs/prepare-*.out`. Cache model paths are preserved
 without resolving login-host symlinks; grading uses the source's isolated verifier.
 No dependency reinstall or changes to the PPO pipeline are required.
+
+## Plots from saved results
+
+```bash
+srun -p compsci --cpus-per-task=2 --mem=4G --time=00:10:00 \
+  bash scripts/container_exec.sh "$PWD/.venv-critic/bin/python" \
+  tools/transfer/plot_clarify.py --study outputs/transfer-clarify-v1
+```
+
+This creates `figures/learning-curves`, `figures/paired-differences` and
+`figures/epsilon-sensitivity`, each as PNG and PDF. No fits, predictions or
+selection decisions change. Learning curves show validation-selected means;
+paired differences carry the supplied unadjusted seed/question intervals.
+Epsilon plots show fixed-grid test diagnostics, not a new test-based optimum.
+
+A report-only transcription and the first two plots are also stored in
+`docs/results/transfer-clarify-report.json` and `docs/figures/transfer-clarify/`.
+Its displayed means are rounded to six decimals from the supplied report. The
+full cluster `summary.json` is needed to regenerate epsilon sensitivity; it is
+not inferred from the selected-head results.
