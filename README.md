@@ -22,7 +22,10 @@ experiment supports useful, lower-cost learning relative to the tested
 transformer-critic baseline; a general stability advantage remains unproven.
 
 SLICE is the reusable package; this repository also contains the PPO/GRPO
-comparison pipeline for numeric math questions.
+comparison pipeline and offline feature-transfer studies for numeric math questions.
+Our transfer results support trying a source-trained SLICE when target head-fitting
+data are limited, with a full-width single-layer readout as a strong alternative
+when more target data are available.
 
 [Setup](SETUP.MD) · [Package API](packages/slice-critic/API.md) ·
 [Reproduce the study](docs/REPRODUCING.md)
@@ -224,6 +227,95 @@ PPO mean is not a completed five-seed comparison.
 [Per-seed snapshot](docs/results/numina-no-folds-preview.json) ·
 [One-head protocol](docs/NO_FOLDS.md).
 
+## Feature transfer: reuse SLICE when target labels are scarce
+
+**We demonstrated useful feature transfer within math:** a SLICE trained on
+Numina can stay frozen while a new Ridge head learns to predict correctness on
+GSM8K or MATH. Think of SLICE as a learned measuring instrument; refitting Ridge
+teaches us how to interpret its readings in the new dataset. This transfers a
+representation, not a guarantee that the original value head stays calibrated.
+
+Our follow-up compares three representations: **Numina-trained SLICE (768
+features)**, **target-trained SLICE (768)**, and **RMS-normalized Qwen block 19
+(1,536)**. Qwen stays frozen in every arm. The layer control transfers no
+Numina-trained component; its Ridge head is fitted directly on target data.
+
+Five compressor seeds (42–46) share generated answers. Each head uses the same
+nested **100/500/2,000 target-question subsets** and saved sampled pre-action
+prefixes. Representation-training/validation question counts are matched between
+source and target SLICEs and recorded in the locked fits. The target-trained
+SLICE uses its larger fixed representation-training budget even when its head
+uses only 100 questions: these are **head-adaptation curves**, not equal-total-label
+comparisons with that arm.
+
+All Ridge arms use training-only centering/scaling. Epsilon is selected on
+validation from **0.01, 1, 10, 100, 1,000, 10,000**, with automatic expansion if the
+ceiling wins. Nearly all fits selected **1,000**, inside the grid. This is an
+offline setting; it does not change online cumulative PPO's epsilon of 0.01.
+Models were locked before explicitly submitting test evaluation.
+
+| Target evaluation | Ridge-training questions | RMS two-thirds Brier ↓ | Transferred SLICE Brier ↓ | Target-trained SLICE Brier ↓ |
+|---|---:|---:|---:|---:|
+| GSM8K | 100 | 0.23311 | **0.23094** | 0.24083 |
+| GSM8K | 500 | **0.20744** | 0.20863 | 0.21756 |
+| GSM8K | 2,000 | **0.19968** | 0.20367 | 0.21514 |
+| MATH-500 numeric eligible subset | 100 | 0.22884 | 0.21905 | **0.21671** |
+| MATH-500 numeric eligible subset | 500 | 0.19534 | **0.19342** | 0.20140 |
+| MATH-500 numeric eligible subset | 2,000 | **0.18553** | 0.18564 | 0.19663 |
+
+These are **test equal-question raw Brier scores**, averaged across five seeds;
+bold marks the lowest mean, not a conclusive difference. Lower is better. They
+are prediction errors, not Qwen answer accuracies.
+
+![Transfer learning curves: correctness-prediction error versus target questions used to fit Ridge.](docs/figures/transfer-clarify/learning-curves.png)
+
+**What the uncertainty supports:** on MATH with 100 head-training questions,
+transferred SLICE improves over RMS two-thirds by **0.00979 Brier**, descriptive
+95% interval **[0.00445, 0.01490]** for that improvement. At 2,000 GSM8K questions,
+RMS two-thirds is better by **0.00400**, interval **[0.00223, 0.00573]**. The other
+four transferred-SLICE-versus-layer intervals include zero, including the almost
+identical 2,000-question MATH means. That is inconclusive, not equivalence.
+Transferred SLICE also beats target-trained SLICE in five of the six comparisons
+with descriptive intervals favoring transfer; the 100-question MATH comparison
+is inconclusive.
+
+<details>
+<summary>Paired differences and descriptive confidence intervals</summary>
+
+![Transferred SLICE minus the layer control or target-trained SLICE; negative Brier differences favor transfer.](docs/figures/transfer-clarify/paired-differences.png)
+
+</details>
+
+**Our working design guide:** when target head-fitting data are scarce, try a
+frozen source-trained SLICE and refit Ridge. Its compact features can provide a
+useful prior for a new task. With abundant target data, keep a full-width
+single-layer readout as a strong alternative: it won on GSM8K at 2,000 questions
+and had essentially the same mean on MATH. The crossover is task-dependent;
+this study does not establish a universal 100/500/2,000-question threshold.
+Here “full-width” means one 1,536-coordinate layer, not concatenating every layer.
+SLICE halves the feature width and uses a 769×769 head system versus 1537×1537,
+but extra compressor work and prior source training still cost compute. This
+experiment does not isolate sparsity as the cause of any benefit.
+
+The earlier transfer study also tested an unchanged Numina critic, pooled SLICE
+and combined specialist SLICEs. Refitting the head helped, while the tested
+ensemble did not improve prediction; the present study focuses on the three
+simpler alternatives. These offline results do not establish transferred-PPO gains.
+
+GSM8K caches were reused; only new MATH answers were generated, under the shared
+1,024-token cap. MATH train supplies training/validation; MATH-500 is evaluation
+only, with unsupported references excluded. Source fitting excludes MATH
+train/test question-template overlaps. The numeric subset, historically inspected
+benchmarks, retained-answer conditioning, shared generations and **12 exploratory,
+unadjusted intervals** limit generalization. This is evidence of transfer in this
+setup, not proof across arbitrary domains.
+
+[Protocol and commands](docs/TRANSFER_CLARIFICATION.md) ·
+[Recorded report and exact intervals](docs/results/transfer-clarify-report.json) ·
+[PDF learning curves](docs/figures/transfer-clarify/learning-curves.pdf).
+The repository plots transcribe the supplied report (means rounded to six
+decimals); the cluster summary also contains fixed-epsilon diagnostics and coverage.
+
 ## Offline MLP checks: prediction is not policy improvement
 
 These experiments predict eventual correctness from saved prefixes. They reuse
@@ -345,6 +437,7 @@ source of approximation error. These are hypotheses, not established causes.
 | `packages/slice-critic/` | Frozen features, compressor training, Ridge/LSTD, verification, artifacts and scoring; independent of VERL. |
 | `src/math_rl/` | Numina preparation, PPO/GRPO, linear and neural critics, GAE and reporting. |
 | `tools/diagnostics/` | Offline ablations and the seven-method GPU comparison. |
+| `tools/transfer/` | Dataset transfer, regularization learning curves, checks and plots. |
 | `scripts/` | Thin commands, environment setup, Slurm submission and smoke checks. |
 | `configs/` | The two active VERL configuration files. |
 | `tests/` | Tests for the supported production workflow; package tests live with the package. |
@@ -372,5 +465,6 @@ verifier audit.
 
 **Current decision:** keep frozen sparse-768 SLICE + cumulative Ridge as the
 practical default, LSTD(0.99) as a competitive alternative, and MLPs as nonlinear
-baselines. Value-guided Lean search and transfer across math datasets remain
-future studies, not demonstrated capabilities.
+baselines. Offline feature transfer within math is now demonstrated in the tested
+setting; choose compact or full-width features using target-data availability and
+validation. Transferred PPO and value-guided Lean search remain future studies.
