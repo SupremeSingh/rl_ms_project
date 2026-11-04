@@ -9,6 +9,7 @@ hydra:
     chdir: false
 
 experiment:
+  learning_curve: false
   method: ppo
   ppo_profile: not_applicable
   evaluation_split: test
@@ -35,6 +36,7 @@ data:
 
 actor_rollout_ref:
   model:
+    critic_feature_normalization: none
     critic_feature_mode: actor
     critic_feature_layer: final
     critic_feature_view: compressed

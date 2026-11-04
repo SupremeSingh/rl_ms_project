@@ -89,6 +89,10 @@ class FeatureActorWorker(ActorRolloutRefWorker):
                         self.config.model.critic_bottleneck_rms_eps)
             else:
                 features = frozen_prefixes(self._critic_encoder, ids, masks, width, layer=layer)
+                if self.config.model.get('critic_feature_normalization','none')=='rms':
+                    from slice_critic.features import rms_coordinates
+                    features=[rms_coordinates(torch.from_numpy(x),self._critic_encoder.config.rms_norm_eps).numpy().copy()
+                              for x in features]
         finally:
             self._critic_encoder.cpu()
             torch.cuda.empty_cache()

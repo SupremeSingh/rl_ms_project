@@ -29,6 +29,8 @@ def validate(config):
         raise ValueError('Comparison uses gamma=1, actor GAE lambda=.95, no KL shaping')
     linear = config.experiment.method in ('ridge', 'lstd')
     neural = config.experiment.method in ('mlp_frozen','mlp_joint')
+    if config.experiment.get('learning_curve',False) and (config.experiment.method!='ridge' or config.trainer.test_freq<=0):
+        raise ValueError('Learning-curve observer requires Ridge with positive evaluation frequency')
     if neural:
         import math
         if (config.experiment.neural_backend!='worker_gpu'
@@ -74,6 +76,9 @@ def validate(config):
     layer = config.actor_rollout_ref.model.get('critic_feature_layer', 'final')
     if layer not in ('final', 'two_thirds', 'bottleneck') or (layer != 'final' and mode != 'frozen'):
         raise ValueError('Intermediate features require a frozen encoder')
+    norm=config.actor_rollout_ref.model.get('critic_feature_normalization','none')
+    if norm not in ('none','rms') or (norm=='rms' and (not linear or layer!='two_thirds')):
+        raise ValueError('RMS feature normalization is supported only for frozen linear two-thirds critics')
     precision = config.actor_rollout_ref.model.get('critic_encoder_precision', 'bf16')
     if precision not in ('bf16', 'fp32'):
         raise ValueError('Unknown frozen encoder precision')
@@ -118,6 +123,9 @@ def run(config):
     from verl.utils.dataset.rl_dataset import collate_fn
     from verl.workers.fsdp_workers import ActorRolloutRefWorker
     from math_rl.trainer import MathTrainer
+    if config.experiment.get("learning_curve",False):
+        from math_rl.learning_curve import LearningCurveTrainer
+        MathTrainer=LearningCurveTrainer
     from math_rl.workers import FeatureActorWorker
 
     seed = config.data.seed
