@@ -1,35 +1,67 @@
 # SLICE: a compact critic for PPO
 
-**A language model writes an answer. A small critic estimates whether it will
-finish correctly. PPO uses that estimate to help the model learn.**
+**Can a small, reusable critic help a language model learn without training
+another large transformer?** SLICE explores this question by learning compact
+features from a frozen LLM, then fitting a linear value head to estimate whether
+a partial answer will eventually succeed.
 
-**What we have shown:** frozen SLICE + cumulative Ridge is a compact, reusable
-critic. In the seven-method Numina study it reached **73.97%** answer accuracy
-versus **72.65%** for tested conventional PPO, using **17.3% fewer online training
-GPU-hours**; the adjusted accuracy interval spans zero. In our newest study,
-Numina-trained SLICE supported PPO on MATH at **74.01%**, versus **73.74%** with a
-larger normalized raw-layer critic. That difference is inconclusive, and SLICE
-used **3.6% more online training GPU-hours** in this comparison.
+In PPO, the actor generates answers and the critic helps identify which token
+choices were better than expected. A conventional LLM critic can require a
+separate trainable transformer. Our approach separates **learning useful features**
+from **updating the value estimate**: train a sparse compressor offline, freeze it
+and the base encoder, then adapt a small Ridge or LSTD head during policy learning.
 
-**Our aim: a cheaper critic with a stable feature basis.** LLM PPO often trains
-a separate transformer critic alongside the actor, adding backpropagation cost
-and another large optimization problem. SLICE keeps a copy of the base model and
-a learned compressor frozen, then fits a linear value head with regularized
-matrix solves. The actor changes; the critic's feature coordinates stay fixed,
-so its statistics can accumulate consistently across updates.
+```text
+Question + partial answer
+    → frozen Qwen: read five geometrically spaced layers
+    → frozen learned compressor: 7,680 coordinates → 768 features
+    → adaptive linear head: estimate eventual reward
+    → GAE advantages → PPO updates the actor
+```
 
-This removes critic-transformer backpropagation, not the cost of its frozen
-forward pass. It simplifies critic fitting rather than proving that PPO is
-mathematically unstable or that SLICE eliminates training instability. Our
-experiment supports useful, lower-cost learning relative to the tested
-transformer-critic baseline; a general stability advantage remains unproven.
+The fixed features let us retain small matrix statistics across PPO updates.
+Each fresh batch adds evidence to `A` and `b`; a regularized solve updates the
+head. We accumulate statistics, not old answers in a replay buffer. This removes
+critic-transformer backpropagation while retaining its frozen forward pass.
+Historical statistics mix changing policies without off-policy correction, so
+this is an approximate value-learning recipe, not exact current-policy evaluation.
 
-SLICE is the reusable package; this repository also contains the PPO/GRPO
-comparison pipeline and offline feature-transfer studies for numeric math questions.
-Offline transfer results support trying a source-trained SLICE when target
-head-fitting data are limited, especially in the tested 100-question MATH setting.
-A full-width single-layer readout remains a strong alternative. We have not
-established universal accuracy, stability or total-cost advantages.
+**The studies tell a consistent but qualified story:**
+
+- **A simple head can be effective.** In the seven-method Numina study, SLICE +
+  Ridge reached **73.97%** actor accuracy versus **72.65%** for tested conventional
+  PPO, with **17.3% fewer online training GPU-hours**. The adjusted accuracy
+  interval spans zero. Tested MLP heads did not improve mean PPO performance;
+  LSTD(0.99) was competitive, while low-lambda LSTD performed worse. Earlier
+  conditioning checks showed that a better-conditioned solve need not produce
+  a better policy.
+- **The representation is reusable.** Numina-trained SLICE features supported
+  new Ridge heads on GSM8K and MATH. The clearest benefit over a larger normalized
+  raw-layer head was with **100 MATH head-training questions**. More target data
+  often narrowed that advantage or favored the layer baseline. This supports
+  task-dependent feature transfer, not a universally transferable value function.
+- **Transfer also worked inside PPO.** Frozen Numina SLICE with a fresh cumulative
+  Ridge head reached **74.01%** on the eligible MATH test subset, versus **73.74%**
+  for normalized raw-layer + Ridge. The difference is inconclusive; SLICE used
+  **3.6% more online training GPU-hours** in this comparison.
+- **Compression saves head storage, not automatically total cost.** Relative to
+  the 1,536-feature layer baseline, 768 features roughly halve feature storage
+  and quarter the cumulative matrix storage. Total GPU-memory savings were not
+  measured. About **97.6%** of audited offline transfer GPU allocation went to
+  answer generation and feature extraction, making data reuse important.
+
+Our working design is therefore **frozen sparse-768 SLICE + cumulative Ridge**,
+with high-lambda LSTD and normalized raw-layer features as important alternatives.
+The strongest evidence is for compact, reusable features and effective linear
+critic fitting. Universal accuracy, training stability and total-cost advantages
+remain unproven. Value-guided Lean search is a next research question requiring
+its own training data and matched-budget evaluation.
+
+SLICE is an internal reusable Python package; this repository supplies the
+PPO/GRPO pipeline, offline prediction and transfer studies, and reproducible
+reports. The supported experiments use Qwen2.5-Math-1.5B and verifiable numeric
+math answers. The sections below distinguish actor accuracy, critic prediction
+error and measured costs, with protocols and uncertainty for each result.
 
 [Setup](SETUP.MD) · [Package API](packages/slice-critic/API.md) ·
 [Reproduce the study](docs/REPRODUCING.md)
