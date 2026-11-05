@@ -1,0 +1,16 @@
+{
+  "provenance": "Transcription of user-supplied outputs/transfer-cost-audit-v1/report.txt; allocation hours rounded by original report; not a replacement for full cluster summary.",
+  "job": 13259243,
+  "allocated_gpu_hours": 53.87,
+  "allocated_cpu_hours": 436.264,
+  "ledger_gpu_hours": {
+    "original_full_collection": 31.309,
+    "new_math_full_collection": 20.256,
+    "full_fits": 0.898,
+    "smoke_and_failed": 1.407
+  },
+  "all_generation_extraction_gpu_hours_from_rounded_ledger": 52.597,
+  "full_collection_answers": 39176,
+  "full_collection_response_tokens": 17401764,
+  "scope": "Offline transfer studies and supplied smoke/failed ledgers only; excludes subsequent transfer PPO and whole-project history. Allocation is not utilization. No isolated method fitting cost, peak memory, dollar cost or equal-quality label-saving ratio measured."
+}
