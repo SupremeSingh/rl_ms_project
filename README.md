@@ -1,23 +1,67 @@
 # SLICE: a compact critic for PPO
 
-**A language model writes an answer. A small critic estimates whether it will
-finish correctly. PPO uses that estimate to help the model learn.**
+**Can a small, reusable critic help a language model learn without training
+another large transformer?** SLICE explores this question by learning compact
+features from a frozen LLM, then fitting a linear value head to estimate whether
+a partial answer will eventually succeed.
 
-**Our aim: a cheaper critic with a stable feature basis.** LLM PPO often trains
-a separate transformer critic alongside the actor, adding backpropagation cost
-and another large optimization problem. SLICE keeps a copy of the base model and
-a learned compressor frozen, then fits a linear value head with regularized
-matrix solves. The actor changes; the critic's feature coordinates stay fixed,
-so its statistics can accumulate consistently across updates.
+In PPO, the actor generates answers and the critic helps identify which token
+choices were better than expected. A conventional LLM critic can require a
+separate trainable transformer. Our approach separates **learning useful features**
+from **updating the value estimate**: train a sparse compressor offline, freeze it
+and the base encoder, then adapt a small Ridge or LSTD head during policy learning.
 
-This removes critic-transformer backpropagation, not the cost of its frozen
-forward pass. It simplifies critic fitting rather than proving that PPO is
-mathematically unstable or that SLICE eliminates training instability. Our
-experiment supports useful, lower-cost learning relative to the tested
-transformer-critic baseline; a general stability advantage remains unproven.
+```text
+Question + partial answer
+    → frozen Qwen: read five geometrically spaced layers
+    → frozen learned compressor: 7,680 coordinates → 768 features
+    → adaptive linear head: estimate eventual reward
+    → GAE advantages → PPO updates the actor
+```
 
-SLICE is the reusable package; this repository also contains the PPO/GRPO
-comparison pipeline for numeric math questions.
+The fixed features let us retain small matrix statistics across PPO updates.
+Each fresh batch adds evidence to `A` and `b`; a regularized solve updates the
+head. We accumulate statistics, not old answers in a replay buffer. This removes
+critic-transformer backpropagation while retaining its frozen forward pass.
+Historical statistics mix changing policies without off-policy correction, so
+this is an approximate value-learning recipe, not exact current-policy evaluation.
+
+**The studies tell a consistent but qualified story:**
+
+- **A simple head can be effective.** In the seven-method Numina study, SLICE +
+  Ridge reached **73.97%** actor accuracy versus **72.65%** for tested conventional
+  PPO, with **17.3% fewer online training GPU-hours**. The adjusted accuracy
+  interval spans zero. Tested MLP heads did not improve mean PPO performance;
+  LSTD(0.99) was competitive, while low-lambda LSTD performed worse. Earlier
+  conditioning checks showed that a better-conditioned solve need not produce
+  a better policy.
+- **The representation is reusable.** Numina-trained SLICE features supported
+  new Ridge heads on GSM8K and MATH. The clearest benefit over a larger normalized
+  raw-layer head was with **100 MATH head-training questions**. More target data
+  often narrowed that advantage or favored the layer baseline. This supports
+  task-dependent feature transfer, not a universally transferable value function.
+- **Transfer also worked inside PPO.** Frozen Numina SLICE with a fresh cumulative
+  Ridge head reached **74.01%** on the eligible MATH test subset, versus **73.74%**
+  for normalized raw-layer + Ridge. The difference is inconclusive; SLICE used
+  **3.6% more online training GPU-hours** in this comparison.
+- **Compression saves head storage, not automatically total cost.** Relative to
+  the 1,536-feature layer baseline, 768 features roughly halve feature storage
+  and quarter the cumulative matrix storage. Total GPU-memory savings were not
+  measured. About **97.6%** of audited offline transfer GPU allocation went to
+  answer generation and feature extraction, making data reuse important.
+
+Our working design is therefore **frozen sparse-768 SLICE + cumulative Ridge**,
+with high-lambda LSTD and normalized raw-layer features as important alternatives.
+The strongest evidence is for compact, reusable features and effective linear
+critic fitting. Universal accuracy, training stability and total-cost advantages
+remain unproven. Value-guided Lean search is a next research question requiring
+its own training data and matched-budget evaluation.
+
+SLICE is an internal reusable Python package; this repository supplies the
+PPO/GRPO pipeline, offline prediction and transfer studies, and reproducible
+reports. The supported experiments use Qwen2.5-Math-1.5B and verifiable numeric
+math answers. The sections below distinguish actor accuracy, critic prediction
+error and measured costs, with protocols and uncertainty for each result.
 
 [Setup](SETUP.MD) · [Package API](packages/slice-critic/API.md) ·
 [Reproduce the study](docs/REPRODUCING.md)
@@ -43,39 +87,37 @@ The diagram's correctness score is an outcome estimate, not a proof of the
 reasoning. Online Ridge/LSTD values are unbounded linear predictions; standalone
 package scoring also provides a separately calibrated probability.
 
-## The final learning algorithm
+## Current v2 algorithm: one shared critic
 
-During PPO, **only the actor is updated by gradients** in the SLICE arms. Its
+During PPO, **only the actor is updated by gradients** in the linear SLICE arms. Its
 critic uses the frozen base encoder and frozen compressor, with fresh linear
 weights fitted from accumulated statistics. Ridge fits each prefix to its
 observed final reward. LSTD fits trace-weighted temporal-difference equations.
 
-Every training question belongs permanently to one of two groups, or *folds*.
-Each fold's rewards fit one head, which predicts values for the opposite fold.
-This keeps a question's own current and historical rewards out of the head used
-to calculate its advantages.
+Every training question uses the **same** matrix system and value head.
+There is no question assignment or opposite-head prediction. After each batch,
+we add all answers to the accumulated statistics, solve once, and predict that
+batch's token values with the resulting weights.
 
-Here, `x = [768 compressed features; 1]` includes an intercept, so each `A` is
-**769 × 769** and each `b` and `w` has 769 entries. The final Numina settings are
-`gamma = 1`, `critic_lambda = 0.9`, `GAE_lambda = 0.95` and `epsilon = 0.01`.
+Here, `x = [768 compressed features; 1]` includes an intercept, so `A` is
+**769 × 769** and `b` and `w` each have 769 entries. The latest Numina settings are
+`gamma = 1`, `critic_lambda = 0.05 or 0.99` (LSTD only), `GAE_lambda = 0.95`
+and `epsilon = 0.01`.
 Critic lambda and GAE lambda control different calculations.
 
 ```text
 Freeze the base encoder, learned bottleneck and feature normalization.
-Assign each training question to a fixed fold: 0 or 1.
-Initialize A[fold] = 0 and b[fold] = 0 for both folds.
+Initialize one A = 0 and one b = 0 for all questions.
 
 For each PPO update:
     Generate fresh answers with the current actor; score their final outcomes.
     Extract frozen features for every pre-action prefix; append intercept 1.
 
     For each answer:
-        f = its question's fixed fold
-
         If using Ridge:
             For each prefix x:
-                A[f] += outer(x, x)
-                b[f] += x * final_reward
+                A += outer(x, x)
+                b += x * final_reward
 
         If using LSTD:
             Reset eligibility trace z = 0 at the start of this answer.
@@ -83,14 +125,11 @@ For each PPO update:
                 # reward is zero except at the last action.
                 # At termination, x_next is all zero, including its intercept.
                 z = gamma * critic_lambda * z + x
-                A[f] += outer(z, x - gamma * x_next)
-                b[f] += z * reward
+                A += outer(z, x - gamma * x_next)
+                b += z * reward
 
-    For each fold f:
-        w[f] = solve(A[f] + epsilon * I, b[f])
-
-    Predict each question's token values with the opposite fold's weights:
-        value(x) = dot(w[1 - f], x)
+    w = solve(A + epsilon * I, b)
+    Predict every current prefix's value: value(x) = dot(w, x)
     Compute GAE using these values, fresh rewards and terminal value zero.
     Update the actor with PPO on fresh answers only.
 
@@ -100,95 +139,474 @@ For each PPO update:
 
 The small matrix statistics persist; generated answers are not kept in a buffer.
 Regularization is added when solving, including on the intercept. Past policies
-remain represented in `A` and `b` without off-policy correction: question
-cross-fitting limits reward leakage, but does not make old experience on-policy.
+remain represented in `A` and `b` without off-policy correction. Values are
+fitted on current as well as historical answers; their fitting error is not a
+held-out value-quality measurement.
 
-![PPO system architecture: fresh answers, frozen SLICE features, cumulative opposite-fold linear critics, GAE and actor updates.](docs/figures/final-architecture.png)
+![PPO system architecture: fresh answers, frozen SLICE features, one cumulative linear critic, GAE and actor updates.](docs/figures/final-architecture.png)
 
 [Open the scalable architecture diagram](docs/figures/final-architecture.svg).
 
-## Recorded Numina results
+## Numina PPO: seven-method comparison
 
-The original comparison and the completed production replay each used five actor seeds, six methods,
-**120 updates × 64 answers per run**, 2,000 test questions,
-fixed greedy evaluation and a 2,048-token response cap. Gamma is 1; GAE lambda is
-0.95; online LSTD lambda is 0.9; cumulative regularization is 0.01. Each run uses
-two A5000 GPUs. Offline feature learning and PPO validation calibration are
-additional costs.
+All **21 training runs and report generation completed successfully**. Seven
+methods used three fresh actor seeds (**501–503**), **120 updates × 64 answers/run**
+(7,680 answers), **2,000 test questions**, greedy final evaluation, a **2,048-token
+response cap**, and **two A5000 GPUs/run**. All actors start from base Qwen;
+base answer accuracy on this task is **66.70%**. Gamma is **1**, GAE lambda is
+**0.95**, and cumulative Ridge/LSTD epsilon is **0.01**. LSTD trace lambda is a
+separate setting, tested at **0.05** and **0.99**. All linear arms use one shared
+matrix system; there is no buffer.
 
-| Method | Original accuracy | Production replay accuracy | Replay training GPU hours, mean |
+| Method | Final answer accuracy, mean ± seed SD | Training GPUh/run, mean |
+|---|---:|---:|
+| **Frozen SLICE + cumulative Ridge** | **73.97% ± 0.45 pp** | **10.37** |
+| Frozen SLICE + cumulative LSTD(0.99) | 73.62% ± 0.72 pp | 10.61 |
+| Trainable SLICE + MLP | 72.75% ± 1.18 pp | 10.68 |
+| Conventional transformer-critic PPO | 72.65% ± 1.28 pp | 12.53 |
+| Frozen SLICE + MLP | 72.23% ± 0.54 pp | 10.42 |
+| GRPO (no critic) | 70.73% ± 1.54 pp | 8.77 |
+| Frozen SLICE + cumulative LSTD(0.05) | 70.22% ± 3.20 pp | 10.11 |
+
+These are **actor answer accuracies**, not critic prediction accuracies. SD measures
+variability across three training seeds; it is not a confidence interval.
+
+### SLICE + MLP as a nonlinear baseline
+
+The MLP is `768 → 256 → ReLU → 1 → sigmoid`. All SLICE arms start from the same
+offline compressor; neural heads start fresh. The frozen MLP updates only its
+head, while the joint MLP updates the compressor and head with the encoder and
+saved normalization fixed. Neither neural arm accumulates matrices.
+
+The nonlinear baselines test whether extra trainable capacity improves policy
+learning. **Ridge achieved a higher mean than both MLP variants**, showing that a
+linear readout of learned nonlinear features is a capable practical critic.
+This does not establish that linear functions are universally better.
+
+An important distinction: neural values are predicted before fitting, GAE produces
+detached return targets, and the MLP fits those fresh targets for two epochs.
+Ridge/LSTD accumulate historical statistics and fit before GAE. Sigmoid bounds
+MLP values; Ridge/LSTD values remain unbounded. This is a comparison of complete
+critic recipes, not an architecture-only ablation. Neural prediction/fitting runs
+on one owning actor-worker GPU; feature transport and RPC overhead are included
+in training time. [Full protocol](docs/ONLINE_CRITICS.md).
+
+### Paired comparisons
+
+Positive differences favor the first method. Units are **percentage points of
+answer accuracy**. Intervals use an approximate paired seed/question bootstrap
+with 4,000 draws; adjusted intervals use Bonferroni nominal coverage across seven
+planned contrasts.
+
+| First method minus second | Mean difference | Descriptive 95% interval | Adjusted interval |
 |---|---:|---:|---:|
-| Sparse-768 Ridge PPO | **74.60%** | **74.22%** | **10.39** |
-| Two-thirds-layer Ridge PPO | 72.54% | 72.61% | 9.77 |
-| GRPO | 72.75% | 72.42% | 8.68 |
-| Two-thirds-layer LSTD(0.9) PPO | 72.40% | 72.40% | 9.77 |
-| Sparse-768 LSTD(0.9) PPO | 70.86% | 72.10% | 10.24 |
-| Conventional PPO | 73.52% | 69.93% | 12.17 |
+| Frozen MLP − Ridge | −1.73 | [−3.00, −0.50] | [−3.5953, −0.0047] |
+| Joint MLP − Ridge | −1.22 | [−3.22, +0.68] | [−4.20, +1.55] |
+| LSTD(0.05) − Ridge | −3.75 | [−7.05, −1.02] | [−8.44, −0.35] |
+| LSTD(0.99) − Ridge | −0.35 | [−1.58, +0.82] | [−2.20, +1.30] |
+| Joint MLP − frozen MLP | +0.52 | [−1.50, +2.43] | [−2.20, +3.14] |
+| Ridge − conventional PPO | +1.32 | [−0.30, +3.05] | [−0.99, +3.82] |
+| Ridge − GRPO | +3.23 | [+1.15, +5.65] | [+0.40, +6.64] |
 
-**The main result held up:** sparse Ridge had the highest mean accuracy in both
-runs. In the replay it improved from the base model's **66.70% to 74.22%**, and
-beat two-thirds Ridge in all five seeds: **+1.61 percentage points**, adjusted
-interval **[0.17, 3.19] pp**. The original gain was +2.06 pp, interval
-[0.59, 3.53] pp.
+The frozen MLP trails Ridge in all three seeds; its adjusted interval only narrowly
+excludes zero, so that endpoint is not a sharp scientific threshold. Joint training
+does not establish an advantage over Ridge or the frozen MLP. LSTD(0.99) is
+competitive but not proven equivalent to Ridge; LSTD(0.05) is worse here. Ridge's
+gain over GRPO remains positive after adjustment; its gain over PPO is inconclusive.
 
-Against GRPO, the replay gain was **+1.80 pp**, adjusted interval
-**[-0.16, 3.80] pp**. The original gain was +1.85 pp with an interval above zero;
-the replay does not establish superiority after adjustment. Against conventional
-PPO, the replay gain was **+4.29 pp**, interval **[-2.28, 12.60] pp**: also
-inconclusive. PPO varied from **61.95% to 75.80%** across replay seeds, despite
-passing all critic health checks. These checks test training-target fitting and
-functional behavior, not held-out value accuracy or policy improvement.
+Ridge used **17.3% less online training compute than PPO**, but **18.3% more than
+GRPO**. Costs include training-time feature extraction/transport, fitting,
+validation and checkpointing. They exclude setup, test evaluation, offline
+feature learning and historical PPO calibration, so they are not total development
+costs.
 
-Sparse Ridge used about **15% less online training compute** than conventional
-PPO in the replay (about 17% in the original). It cost more than GRPO. These costs
-exclude offline generation, feature extraction and compressor learning; historical
-PPO calibration cost another **19.59 GPU hours** and was reused for the replay.
+<details>
+<summary>Seven-method Numina per-seed answer accuracies (%)</summary>
 
-These are approximate seed/question bootstrap intervals with Bonferroni nominal
-coverage for eight primary comparisons. Five actor seeds share one selected
-compressor. Eligibility uses numeric-template separation, not semantic or
-pretraining decontamination. Verifier labels need audit. All replay PPO health
-checks passed; one original PPO seed failed the training-target-MSE improvement
-gate while passing its other functional checks. No seeds are discarded.
+| Method | Seed 501 | Seed 502 | Seed 503 |
+|---|---:|---:|---:|
+| Ridge | 73.55 | 73.90 | 74.45 |
+| Frozen MLP | 71.85 | 72.00 | 72.85 |
+| Joint MLP | 73.75 | 73.05 | 71.45 |
+| LSTD(0.05) | 66.55 | 72.45 | 71.65 |
+| LSTD(0.99) | 72.80 | 73.90 | 74.15 |
+| Conventional PPO | 72.60 | 71.40 | 73.95 |
+| GRPO | 71.25 | 71.95 | 69.00 |
 
-The replay reused the same questions, actor seed IDs, frozen compressor and PPO
-profile, with fresh actors and empty online statistics. It validates the cleaned-up
-workflow and the main empirical pattern, not identical numerical outputs or an
-independent benchmark. Conventional PPO's mean accuracy was not closely reproduced.
+</details>
 
-[Original results](docs/results/numina-six-method.json) ·
-[Production replay and per-seed data](docs/results/numina-prod-replay.json).
-Compression worked well here; sparsity itself has not been shown to speed up the
-implementation. Ridge is our practical default. LSTD remains a supported
-alternative, not an established winner for long horizons.
+[Recorded Numina results and exact intervals](docs/results/numina-seven-critics-gpu.json).
+This file transcribes the supplied cluster report, not an independent audit of
+predictions. Successful report generation checks paired test IDs/references,
+equal budgets and method-specific functional invariants; verifier answers still
+need review.
+
+## Earlier one-head study: representation controls
+
+The earlier study used seeds **301–305**, the same 120 × 64 budget and 2,000 test
+questions, with LSTD lambda **0.9**. The supplied snapshot contains all five seeds
+for linear methods and GRPO but only four conventional-PPO seeds. Keep these
+results separate from the seven-method study; do not pool the means.
+
+| Method | Answer accuracy, mean | Available seeds |
+|---|---:|---:|
+| SLICE + Ridge | **75.16%** | 5/5 |
+| Raw two-thirds layer + Ridge | 72.84% | 5/5 |
+| Raw two-thirds layer + LSTD(0.9) | 72.36% | 5/5 |
+| GRPO | 72.26% | 5/5 |
+| SLICE + LSTD(0.9) | 72.16% | 5/5 |
+| Conventional PPO | 72.66% | **4/5; partial** |
+
+SLICE + Ridge exceeded raw two-thirds Ridge by **2.32 pp** in this snapshot.
+No final adjusted intervals were supplied for that comparison, and the partial
+PPO mean is not a completed five-seed comparison.
+[Per-seed snapshot](docs/results/numina-no-folds-preview.json) ·
+[One-head protocol](docs/NO_FOLDS.md).
+
+## Feature transfer: reuse SLICE when target labels are scarce
+
+**We demonstrated useful feature transfer within math:** a SLICE trained on
+Numina can stay frozen while a new Ridge head learns to predict correctness on
+GSM8K or MATH. Think of SLICE as a learned measuring instrument; refitting Ridge
+teaches us how to interpret its readings in the new dataset. This transfers a
+representation, not a guarantee that the original value head stays calibrated.
+
+Our follow-up compares three representations: **Numina-trained SLICE (768
+features)**, **target-trained SLICE (768)**, and **RMS-normalized Qwen block 19
+(1,536)**. Qwen stays frozen in every arm. The layer control transfers no
+Numina-trained component; its Ridge head is fitted directly on target data.
+
+Five compressor seeds (42–46) share generated answers. Each head uses the same
+nested **100/500/2,000 target-question subsets** and saved sampled pre-action
+prefixes. Representation-training/validation question counts are matched between
+source and target SLICEs and recorded in the locked fits. The target-trained
+SLICE uses its larger fixed representation-training budget even when its head
+uses only 100 questions: these are **head-adaptation curves**, not equal-total-label
+comparisons with that arm.
+
+All Ridge arms use training-only centering/scaling. Epsilon is selected on
+validation from **0.01, 1, 10, 100, 1,000, 10,000**, with automatic expansion if the
+ceiling wins. Nearly all fits selected **1,000**, inside the grid. This is an
+offline setting. The Numina PPO studies used epsilon 0.01; the newer transferred-PPO
+study selects its own online penalties on validation.
+Models were locked before explicitly submitting test evaluation.
+
+| Target evaluation | Ridge-training questions | RMS two-thirds Brier ↓ | Transferred SLICE Brier ↓ | Target-trained SLICE Brier ↓ |
+|---|---:|---:|---:|---:|
+| GSM8K | 100 | 0.23311 | **0.23094** | 0.24083 |
+| GSM8K | 500 | **0.20744** | 0.20863 | 0.21756 |
+| GSM8K | 2,000 | **0.19968** | 0.20367 | 0.21514 |
+| MATH-500 numeric eligible subset | 100 | 0.22884 | 0.21905 | **0.21671** |
+| MATH-500 numeric eligible subset | 500 | 0.19534 | **0.19342** | 0.20140 |
+| MATH-500 numeric eligible subset | 2,000 | **0.18553** | 0.18564 | 0.19663 |
+
+These are **test equal-question raw Brier scores**, averaged across five seeds;
+bold marks the lowest mean, not a conclusive difference. Lower is better. They
+are prediction errors, not Qwen answer accuracies.
+
+![Transfer learning curves: correctness-prediction error versus target questions used to fit Ridge.](docs/figures/transfer-clarify/learning-curves.png)
+
+**What the uncertainty supports:** on MATH with 100 head-training questions,
+transferred SLICE improves over RMS two-thirds by **0.00979 Brier**, descriptive
+95% interval **[0.00445, 0.01490]** for that improvement. At 2,000 GSM8K questions,
+RMS two-thirds is better by **0.00400**, interval **[0.00223, 0.00573]**. The other
+four transferred-SLICE-versus-layer intervals include zero, including the almost
+identical 2,000-question MATH means. That is inconclusive, not equivalence.
+Transferred SLICE also beats target-trained SLICE in five of the six comparisons
+with descriptive intervals favoring transfer; the 100-question MATH comparison
+is inconclusive.
+
+<details>
+<summary>Paired differences and descriptive confidence intervals</summary>
+
+![Transferred SLICE minus the layer control or target-trained SLICE; negative Brier differences favor transfer.](docs/figures/transfer-clarify/paired-differences.png)
+
+</details>
+
+**Our working design guide:** when target head-fitting data are scarce, try a
+frozen source-trained SLICE and refit Ridge. Its compact features can provide a
+useful prior for a new task. With abundant target data, keep a full-width
+single-layer readout as a strong alternative: it won on GSM8K at 2,000 questions
+and had essentially the same mean on MATH. The crossover is task-dependent;
+this study does not establish a universal 100/500/2,000-question threshold.
+Here “full-width” means one 1,536-coordinate layer, not concatenating every layer.
+SLICE halves the feature width and uses a 769×769 head system versus 1537×1537,
+but extra compressor work and prior source training still cost compute. This
+experiment does not isolate sparsity as the cause of any benefit.
+
+The earlier transfer study also tested an unchanged Numina critic, pooled SLICE
+and combined specialist SLICEs. Refitting the head helped, while the tested
+ensemble did not improve prediction; the present study focuses on the three
+simpler alternatives. These offline results do not establish transferred-PPO gains.
+
+GSM8K caches were reused; only new MATH answers were generated, under the shared
+1,024-token cap. MATH train supplies training/validation; MATH-500 is evaluation
+only, with unsupported references excluded. Source fitting excludes MATH
+train/test question-template overlaps. The numeric subset, historically inspected
+benchmarks, retained-answer conditioning, shared generations and **12 exploratory,
+unadjusted intervals** limit generalization. This is evidence of transfer in this
+setup, not proof across arbitrary domains.
+
+[Protocol and commands](docs/TRANSFER_CLARIFICATION.md) ·
+[Recorded report and exact intervals](docs/results/transfer-clarify-report.json) ·
+[PDF learning curves](docs/figures/transfer-clarify/learning-curves.pdf).
+The repository plots transcribe the supplied report (means rounded to six
+decimals); the cluster summary also contains fixed-epsilon diagnostics and coverage.
+
+## Transferred PPO: does the reusable representation support learning?
+
+**Yes, in this tested setting; an advantage over raw-layer features is not
+established.** We froze a Numina-trained SLICE and fitted a fresh cumulative
+Ridge head during PPO on MATH. The comparator used the same frozen Qwen encoder's
+RMS-normalized two-thirds layer with its own fresh cumulative Ridge head. Neither
+arm loaded an offline value head or matrices.
+
+All **10 actor runs** completed: five fresh seeds (**701–705**) per arm,
+**60 updates × 64 answers** (3,840 answers/run), two A5000 GPUs/run, greedy
+evaluation on **294 numeric-eligible MATH-500 questions**, and a **2,048-token
+response cap**. Training/validation used 2,000/500 MATH questions. Gamma is 1,
+GAE lambda is 0.95, and each actor batch receives two PPO epochs.
+
+| Metric, mean across five actor seeds | Transferred SLICE + Ridge | RMS two-thirds + Ridge |
+|---|---:|---:|
+| Feature width, excluding intercept | **768** | 1,536 |
+| Final actor answer accuracy | **74.01%** | 73.74% |
+| Normalized accuracy AUC, updates 0–60 | **69.26%** | 68.91% |
+| Online training GPUh/run | 6.227 | **6.012** |
+| Accounted GPUh/run | 6.521 | **6.326** |
+
+AUC is the trapezoidal average of accuracy at the base model and predeclared
+10-update checkpoints. It describes learning over the fixed update budget,
+not critic prediction accuracy or a selected best checkpoint.
+
+| SLICE minus layer, percentage points | Mean | Descriptive 95% interval | Adjusted interval |
+|---|---:|---:|---:|
+| Final actor accuracy | +0.27 | [−3.54, +3.81] | [−4.35, +4.22] |
+| Accuracy AUC | +0.35 | [−1.24, +2.07] | [−1.49, +2.30] |
+
+Intervals use an approximate paired seed/question bootstrap with Bonferroni
+nominal adjustment for two planned endpoints. Similar means with these wide
+intervals establish neither superiority nor equivalence.
+
+One validation pilot seed (601), run for 20 updates, selected epsilon separately
+from **0.01, 100, 1,000, 10,000** using validation accuracy AUC. SLICE selected
+**10,000**, the grid ceiling; the layer selected **1,000**. These choices were
+fixed for the main runs. The boundary selection leaves possible further tuning
+unresolved; this compares selected recipes, not globally optimal penalties.
+
+Online training GPU-hours include feature extraction/transport, fitting,
+validation, test-curve monitoring and checkpointing. Accounted hours also include
+initialization, base evaluation and final evaluation. SLICE used about **3.6% more
+training hours** and **3.1% more accounted hours** than the layer. Prior compressor
+learning, smoke checks and eight tuning pilots are additional costs. The supplied
+pilot report totals **20.27 training GPU-hours** across both arms, separately
+from the main-run means above.
+
+The source compressor is fixed across seeds, questions were previously inspected,
+and the test is the eligible subset rather than all MATH-500. Offline transfer
+used a 1,024-token cap; this online task uses 2,048. The result demonstrates that
+reused features can support target PPO, not that the old value function transfers
+unchanged or that offline prediction gains guarantee policy gains.
+
+[Protocol and plotting commands](docs/TRANSFER_PPO.md) ·
+[Recorded report, selection and exact intervals](docs/results/transfer-ppo-report.json).
+
+## Cost accounting: where the work actually went
+
+A retrospective audit of the offline transfer studies recorded **53.870 allocated
+GPU-hours** and **436.264 allocated CPU-hours**, including the supplied smoke and
+failed-run ledgers. These are reserved resources, not utilization or elapsed
+turnaround, and do not include the later transfer-PPO study.
+
+| Audited work | Allocated GPU-hours |
+|---|---:|
+| Original Numina/GSM8K generation + feature extraction, counted once | 31.309 |
+| New MATH generation + feature extraction | 20.256 |
+| Full-study fitting stages, combined | 0.898 |
+| Smoke/failed-run GPU allocations | 1.407 |
+| **Total** | **53.870** |
+
+The two full collections contain **39,176 generated answers** and **17,401,764
+response tokens**. Including smoke generation/extraction, approximately **97.6%**
+of audited GPU allocation went to collecting answers and extracting features.
+Reusing these caches avoids repeating that work. Fit-stage timings bundle
+compressor training and Ridge sweeps, so they cannot establish a per-method
+training cost or the selected compressor's isolated cost.
+
+**Compact does not automatically mean cheaper end to end.** Compared with a
+1,536-feature head, SLICE roughly halves stored feature coordinates and reduces
+one float64 `A` matrix from **18.02 MiB to 4.51 MiB** (1537×1537 versus 769×769,
+including intercept). This is about one-quarter of matrix storage, not total GPU
+memory. Frozen encoder inference, actor training and dense compressor work remain.
+Peak GPU memory and sparse-kernel speedups were not measured.
+
+The 100-question MATH result motivates testing label-efficient adaptation, but
+we have not measured an equal-quality label-saving factor or a deployment
+break-even point. Source/validation labels and prior learning are real costs;
+this audit covers the specified transfer studies, not the project's entire history.
+
+[Audit scope and commands](docs/COST_ACCOUNTING.md) ·
+[Recorded cost totals and provenance](docs/results/transfer-cost-report.json).
+
+## Offline MLP checks: prediction is not policy improvement
+
+These experiments predict eventual correctness from saved prefixes. They reuse
+inspected Numina questions and the selected compressor. The tuned test contains
+**125,920 prefixes from 2,000 questions**; recipes were selected on validation
+before a separately invoked locked test evaluation. Three head-training seeds
+share the same starting compressor.
+
+| Predictor | Test Brier ↓ | Correctness-prediction accuracy |
+|---|---:|---:|
+| SLICE + raw Ridge | 0.183459 | 73.16% |
+| SLICE + Ridge, clipped to [0,1] for offline scoring | 0.181007 | 73.16% |
+| Frozen SLICE + MLP, initial recipe | 0.181589 | 73.19% |
+| Joint SLICE + MLP, initial recipe | 0.183017 | 73.01% |
+| Frozen SLICE + MLP, tuned recipe | 0.181095 | 73.27% |
+| Joint SLICE + MLP, tuned recipe | **0.180671** | **73.33%** |
+
+For binary labels, clipping to [0,1] cannot increase squared error. This is an
+additional offline comparator, **not a change to Ridge fitting or online values**.
+About 8.52% of raw Ridge predictions fell outside [0,1].
+
+The tuned joint MLP's equal-question Brier difference versus clipped Ridge was
+**−0.000306**, exploratory 95% interval **[−0.001019, +0.000453]**; the frozen MLP's
+was **+0.000125**, interval **[−0.000545, +0.000791]**. These are unadjusted
+seed/question intervals, including the tuning pilot seed. The small offline mean
+improvement did not establish better prediction than bounded Ridge, and did not
+translate into better PPO under the tested online recipes. Offline correctness
+labels and online GAE-return fitting are different objectives.
+
+[Initial offline benchmark](docs/OFFLINE_MLP.md) · [Validation tuning](docs/MLP_TUNING.md).
+
+## Feature normalization: current design and checks
+
+Our working PPO design is **frozen sparse-768 SLICE + Ridge, one shared head,
+without output LayerNorm**. Its feature pipeline is:
+
+```text
+Five block vectors → per-vector RMS normalization → concatenate (7,680)
+    → subtract the offline training mean of each coordinate
+    → divide by one shared training-derived scalar
+    → row-normalized learned projection + bias + ReLU (768)
+    → append intercept 1 → linear value head
+```
+
+RMS normalization has no learned gain. Centering/scaling statistics are fitted
+offline and frozen during PPO; the scalar scale is not per-coordinate
+standardization or whitening. Projection-row normalization controls weight norms,
+not output norms. No normalization is added after ReLU. The earlier Numina raw
+two-thirds online control had no added normalization; the new transferred-PPO
+comparison explicitly uses per-prefix RMS normalization for that layer.
+
+We tested three frozen representations with newly fitted **offline Ridge** heads
+on matched sampled prefixes from the saved Numina data (2,000 test questions):
+
+| Representation | Test raw Brier ↓ | Correctness-prediction accuracy ↑ | Condition number of regularized system |
+|---|---:|---:|---:|
+| RMS-normalized two-thirds | 0.18957 | 71.8% | 481,000 |
+| SLICE + output LayerNorm | **0.18302** | 73.2% | 831,000 |
+| Unchanged SLICE | 0.18345 | 73.2% | **30,000** |
+
+These rows use the predeclared penalty
+`epsilon = max(0.01, 0.0001 * trace(A_train) / design_width)` (about 63, 63 and
+57.9 respectively). LayerNorm was applied **after the existing frozen ReLU
+features**, per prefix, without learned affine parameters; its internal epsilon
+was `1e-5`. We did not retrain the compressor with LayerNorm present.
+
+LayerNorm slightly reduced equal-question Brier error versus unchanged SLICE:
+**−0.000405**, descriptive 95% interval **[−0.000714, −0.000106]**. Accuracy was
+unchanged at the displayed precision. Sweeping **Ridge** epsilon through 0.01,
+0.1, 1, 10 and 100 barely changed predictions. For LayerNorm it reduced the
+condition number from **5.23 billion to 523,000**: zero-mean feature vectors have
+a redundant direction, so a large condition number need not imply poor predictions.
+
+**Decision:** retain unchanged SLICE + Ridge for PPO. Output LayerNorm remains a
+small offline improvement, not a demonstrated RL improvement. We have not tested
+LayerNorm with LSTD or PPO, joint compressor training with LayerNorm, or whitening.
+This ablation lacks a matched raw two-thirds arm, so it does not establish whether
+RMS normalization itself helped that layer. Questions and verifier labels were
+reused; intervals are exploratory and unadjusted, not independent replications
+across epsilon settings. [Protocol and commands](docs/OFFLINE_NORMALIZATION.md) ·
+[Recorded normalization report](docs/results/ridge-normalization-epsilon.txt).
+
+## Discussion: LSTD and numerical conditioning
+
+LSTD learns through relationships between successive states. Its trace lambda
+controls how earlier features contribute to the TD equations; GAE lambda controls
+the separate advantage calculation. With gamma 1, direct trace contributions decay
+as `critic_lambda^distance`. This is not a hard credit-assignment cutoff: the
+joint TD solve can also propagate values.
+
+For complete episodes, gamma 1, zero terminal features and lambda **exactly 1**,
+the raw LSTD matrices equal Ridge's Monte Carlo regression matrices on the same
+trajectories. High lambda moves LSTD toward full-return regression; 0.99 remains
+different from 1. The seven-method Numina result supports keeping LSTD(0.99) as a competitive
+alternative, not claiming equivalence or a universal advantage on long horizons.
+Low lambda can trade sampling variance for bootstrapping/approximation error.
+
+For the solved system `M = A + epsilon I`, the 2-norm condition number is
+`kappa(M) = largest singular value / smallest singular value`. It measures
+worst-case sensitivity, not prediction quality. Ridge's matrix is symmetric;
+LSTD's generally is not, so singular values give a common diagnostic.
+Across five final checkpoints of the earlier one-head study (epsilon 0.01):
+
+| Features | Ridge condition number | LSTD(0.9) condition number |
+|---|---:|---:|
+| SLICE sparse-768 | 30,200–31,100 | 2,700–2,950 |
+| Raw two-thirds | 6.51–6.67 million | 0.752–0.778 million |
+
+LSTD was better conditioned yet produced worse mean actor accuracy. Final
+conditioning alone therefore does not explain its performance gap. These are
+older LSTD(0.9) final-checkpoint diagnostics, not measurements throughout training
+or of the seven-method 0.05/0.99 runs. Our features predict correctness but need not
+preserve all transition dynamics; changing-policy accumulation is another possible
+source of approximation error. These are hypotheses, not established causes.
 
 ## What lives where
 
 | Location | Responsibility |
 |---|---|
 | `packages/slice-critic/` | Frozen features, compressor training, Ridge/LSTD, verification, artifacts and scoring; independent of VERL. |
-| `src/math_rl/` | Numina preparation, PPO/GRPO, GAE integration, validation and reporting. |
+| `src/math_rl/` | Numina preparation, PPO/GRPO, linear and neural critics, GAE and reporting. |
+| `tools/diagnostics/` | Offline ablations and the seven-method GPU comparison. |
+| `tools/transfer/` | Dataset transfer, regularization learning curves, checks and plots. |
 | `scripts/` | Thin commands, environment setup, Slurm submission and smoke checks. |
 | `configs/` | The two active VERL configuration files. |
 | `tests/` | Tests for the supported production workflow; package tests live with the package. |
 
 The package remains **internal**, installed from source or a checked wheel; there
 is no hosted API, registry or PyPI publication. Completed v1 artifacts remain
-supported. The cleaned-up version passed installed-wheel CPU acceptance on Duke,
-real Ridge/LSTD PPO integration checks, and the full **30-run production replay**
-with successful report generation. This validates the tested workflow; it does
-not guarantee fault-free behavior for every dataset or configuration.
+supported. The one-head workflow has passed installed-wheel CPU acceptance and
+real GPU integration checks. All seven methods in the 21-run Numina study completed real
+actor training and report generation. This validates the tested workflow, not
+every dataset or configuration.
 
 ## Reproduce or start fresh
 
-The [reproduction guide](docs/REPRODUCING.md) provides two routes: train fresh
-actors from the final locked data/filter/profile, or build a new SLICE artifact
-and family-disjoint Numina study from pinned data. Retraining the representation
-is a new experiment; it is not a promise to recover identical percentages.
-Older exploratory code is available in Git history, not in the active workflow.
-Saved outputs, model weights and environments are never deleted by setup.
+Repeat the newest comparison using [the transferred-PPO protocol](docs/TRANSFER_PPO.md),
+or the broader Numina comparison using [the seven-method protocol](docs/ONLINE_CRITICS.md),
+with a new output directory. For a fresh SLICE artifact or the data/filter/actor
+pipeline, use [the reproduction guide](docs/REPRODUCING.md). Retraining features
+is a new experiment, not a promise to reproduce identical percentages. Saved
+outputs, model weights and environments are not removed by setup.
 
-The first stage established a working, lower-cost linear-critic path for PPO on
-this task. Value-guided Lean search is a future application, not an implemented
-or validated capability of this repository.
+The studies use fresh actor seeds on reused inspected questions and one selected
+compressor per comparison. The Numina study reused PPO calibration; transferred
+PPO selected penalties on validation. Numeric-template separation is not semantic
+or pretraining decontamination; small seed counts and approximate bootstrap
+intervals limit inference. No functional check substitutes for a
+verifier audit.
 
+**Current conclusion:** SLICE learns reusable compact features, and a fresh
+cumulative Ridge head can use them for effective PPO. The tested MLP recipes did
+not improve mean PPO performance; high-lambda LSTD remains a useful alternative.
+Offline limited-data benefits depend on the task. Transferred PPO now works in
+the tested MATH setting, with similar mean performance to the larger layer
+baseline but no established accuracy, speed or stability advantage over it.
+
+Keep SLICE + Ridge as our compact working design and the normalized layer as a
+serious baseline. Future Lean work should compare value-guided search against
+that baseline and policy-only search under matched search budgets, measuring
+proofs solved, prover calls, wall time and total compute. Lean-specific training
+and evaluation are still needed; there is no Lean search result yet.

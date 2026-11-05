@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1330" viewBox="0 0 1600 1330"><title>Frozen sparse 768 critic with cumulative cross-fitted fitting and PPO</title><desc>Fresh actor trajectories supply causal prefixes and terminal rewards. Frozen encoder features are compressed to 768 dimensions. Two persistent question-fold systems accumulate Ridge or LSTD statistics and predict the opposite fold. GAE and PPO update only the actor.</desc><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#46566b"/></marker></defs><rect width="1600" height="1330" fill="#fff"/><style>text{font-family:Arial,Helvetica,sans-serif;fill:#172b40}.title{font-size:32px;font-weight:700}.head{font-size:22px;font-weight:700}.body{font-size:17px}.small{font-size:16px}.tag{font-size:17px;font-weight:700;letter-spacing:1px}.line{fill:none;stroke:#46566b;stroke-width:2.5;marker-end:url(#arrow)}</style>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1330" viewBox="0 0 1600 1330"><title>Frozen sparse 768 critic with one cumulative linear head and PPO</title><desc>Fresh actor trajectories supply causal prefixes and terminal rewards. Frozen encoder features are compressed to 768 dimensions. One persistent matrix system accumulates every question and predicts all current prefixes. GAE and PPO update only the actor.</desc><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8" fill="#46566b"/></marker></defs><rect width="1600" height="1330" fill="#fff"/><style>text{font-family:Arial,Helvetica,sans-serif;fill:#172b40}.title{font-size:32px;font-weight:700}.head{font-size:22px;font-weight:700}.body{font-size:17px}.small{font-size:16px}.tag{font-size:17px;font-weight:700;letter-spacing:1px}.line{fill:none;stroke:#46566b;stroke-width:2.5;marker-end:url(#arrow)}</style>
 <text x="80" y="58" class="title">A SMALL CRITIC FOR PPO</text>
 <text x="80" y="92" class="tag">FINAL MATH-STAGE DESIGN  •  FROZEN SPARSE 768 FEATURES  •  RIDGE OR LSTD(0.9)</text>
 <text x="80" y="142" class="tag">1  COLLECT FRESH EXPERIENCE</text>
@@ -46,22 +46,18 @@
 <path d="M1020 485 H1100" class="line"/>
 <path d="M1310 580 V700" class="line"/>
 <text x="80" y="614" class="small">OFFLINE ONLY: CORRECTNESS BCE + 0.01 × MEAN ACTIVATION; DISCARD THE TEMPORARY PREDICTOR.</text>
-<text x="80" y="675" class="tag">3  FIT TWO LINEAR HEADS — QUESTION ASSIGNMENTS STAY FIXED</text>
+<text x="80" y="675" class="tag">3  FIT ONE SHARED LINEAR HEAD — ALL QUESTIONS USE THE SAME SYSTEM</text>
 <rect x="80" y="700" width="1440" height="300" rx="12" fill="#fff9ed" stroke="#cfbea1"/>
 <text x="105" y="734" class="head">ACCUMULATE RAW A AND b ACROSS PPO UPDATES; SOLVE (A + 0.01 I) w = b</text>
-<rect x="105" y="755" width="680" height="113" rx="12" fill="#fffdf7" stroke="#b4c4d3"/>
-<text x="127" y="790" class="head">SYSTEM 0: FIT ON FOLD 0 QUESTIONS</text>
-<text x="127" y="823" class="body">PREDICT VALUES ONLY FOR FOLD 1 QUESTIONS</text>
+<rect x="105" y="755" width="1390" height="113" rx="12" fill="#fffdf7" stroke="#b4c4d3"/>
+<text x="127" y="790" class="head">ONE SYSTEM: FIT ON ALL HISTORICAL AND CURRENT ANSWERS</text>
+<text x="127" y="823" class="body">SOLVE ONCE AFTER EACH BATCH; PREDICT EVERY PREFIX WITH THE SAME w</text>
 <text x="127" y="850" class="body">A: 769 × 769     b AND w: 769</text>
-<rect x="815" y="755" width="680" height="113" rx="12" fill="#fffdf7" stroke="#b4c4d3"/>
-<text x="837" y="790" class="head">SYSTEM 1: FIT ON FOLD 1 QUESTIONS</text>
-<text x="837" y="823" class="body">PREDICT VALUES ONLY FOR FOLD 0 QUESTIONS</text>
-<text x="837" y="850" class="body">A: 769 × 769     b AND w: 769</text>
 <text x="105" y="900" class="body">RIDGE: REGRESS EVERY PREFIX ON ITS OBSERVED FINAL RETURN.</text>
 <text x="105" y="929" class="body">LSTD(0.9): ACCUMULATE TRACE-WEIGHTED TD EQUATIONS; RESET TRACES FOR EACH ANSWER.</text>
 <text x="105" y="958" class="small">GAMMA = 1 • ZERO TERMINAL FEATURES • NO MATRIX RESET OR MEAN NORMALIZATION • NO REPLAY BUFFER</text>
 <path d="M800 1000 V1030 H60 V1120 H80" class="line"/>
-<text x="830" y="1027" class="small">OPPOSITE-FOLD VALUES: V = wᵀx</text>
+<text x="830" y="1027" class="small">SHARED-HEAD VALUES: V = wᵀx</text>
 <text x="80" y="1060" class="tag">4  UPDATE THE ACTOR — FRESH ANSWERS ONLY</text>
 <rect x="80" y="1080" width="420" height="140" rx="12" fill="#edf4fa" stroke="#b4c4d3"/>
 <text x="102" y="1115" class="head">GENERALIZED ADVANTAGES</text>
@@ -76,11 +72,11 @@
 <rect x="1100" y="1080" width="420" height="140" rx="12" fill="#edf4fa" stroke="#b4c4d3"/>
 <text x="1122" y="1115" class="head">NEXT ITERATION</text>
 <text x="1122" y="1148" class="body">KEEP ENCODER / BOTTLENECK FIXED</text>
-<text x="1122" y="1175" class="body">KEEP BOTH A, b SYSTEMS</text>
+<text x="1122" y="1175" class="body">KEEP THE SAME A, b SYSTEM</text>
 <text x="1122" y="1202" class="body">COLLECT NEW ANSWERS WITH THE ACTOR</text>
 <path d="M500 1150 H580" class="line"/>
 <path d="M1020 1150 H1100" class="line"/>
 <path d="M800 1220 V1243 H38 V235 H80" class="line"/>
 <text x="80" y="1281" class="small">HISTORICAL POLICIES REMAIN IN THE STATISTICS WITHOUT OFF-POLICY CORRECTION.</text>
-<text x="80" y="1308" class="small">CROSS-FITTING LIMITS OWN-QUESTION REWARD LEAKAGE; IT DOES NOT MAKE ACCUMULATED DATA ON-POLICY.</text>
+<text x="80" y="1308" class="small">ONE SHARED HEAD FITS THE CURRENT BATCH BEFORE VALUE PREDICTION; NO QUESTION SPLITTING.</text>
 </svg>

@@ -56,12 +56,14 @@ def select_questions(rows, blocked, tokenizer, counts, salt='numina-online-v1'):
     return selected, dict(eligible=len(eligible), exclusions=dict(reasons), counts=counts)
 
 
-def write_online_data(out, questions):
+def write_online_data(out, questions, data_source='numina_numeric'):
+    if data_source not in ('numina_numeric','math_numeric','gsm8k'):
+        raise ValueError('Unsupported numeric dataset source')
     from datasets import Dataset
     out = Path(out)
     out.mkdir(parents=True, exist_ok=False)
     for split in ('train', 'val', 'test'):
-        records = [dict(data_source='numina_numeric', prompt=make_prompt(q['question']), ability='math',
+        records = [dict(data_source=data_source, prompt=make_prompt(q['question']), ability='math',
             reward_model=dict(style='rule', ground_truth=q['ground_truth']),
             extra_info=dict(index=q['source_index'], prompt_id=q['id'], split=split, level=0))
             for q in questions if q['split'] == split]

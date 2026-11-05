@@ -1,0 +1,74 @@
+{
+  "provenance": "Transcription of user-supplied cluster report and selection.json; not the full summary or an independent prediction audit.",
+  "study": "outputs/transfer-ppo-v1",
+  "jobs": {
+    "run": 13262579,
+    "report": 13262580
+  },
+  "protocol": {
+    "actor_seeds": [
+      701,
+      702,
+      703,
+      704,
+      705
+    ],
+    "updates": 60,
+    "answers_per_update": 64,
+    "eligible_test_questions": 294,
+    "response_token_cap": 2048,
+    "gpus_per_run": 2
+  },
+  "results": {
+    "slice": {
+      "final_accuracy_reported": 0.7401,
+      "accuracy_auc_reported": 0.6926,
+      "training_gpu_hours_mean_reported": 6.227,
+      "accounted_gpu_hours_mean_reported": 6.521
+    },
+    "rms_two_thirds": {
+      "final_accuracy_reported": 0.7374,
+      "accuracy_auc_reported": 0.6891,
+      "training_gpu_hours_mean_reported": 6.012,
+      "accounted_gpu_hours_mean_reported": 6.326
+    }
+  },
+  "slice_minus_layer": {
+    "final_accuracy": {
+      "mean_pp": 0.272108843537415,
+      "descriptive_95_interval_pp": [
+        -3.5374149659863945,
+        3.8095238095238093
+      ],
+      "adjusted_interval_pp": [
+        -4.35374149659864,
+        4.217687074829932
+      ]
+    },
+    "accuracy_auc": {
+      "mean_pp": 0.3514739229024943,
+      "descriptive_95_interval_pp": [
+        -1.241638321995465,
+        2.0749716553287985
+      ],
+      "adjusted_interval_pp": [
+        -1.4852607709750567,
+        2.301658163265308
+      ]
+    }
+  },
+  "pilot": {
+    "seed": 601,
+    "updates": 20,
+    "selected_epsilons": {
+      "slice": 10000,
+      "rms_two_thirds": 1000
+    },
+    "upper_boundary_selected": {
+      "slice": true,
+      "rms_two_thirds": false
+    },
+    "training_gpu_hours_total": 20.269387637227645
+  },
+  "limitations": "Inspected questions; one source compressor; approximate seed/question intervals; prior feature learning and pilots additional; similar means do not establish equivalence."
+}

@@ -48,7 +48,8 @@ def write_run(case, method):
         stats=[dict(a=torch.zeros(769, 769), b=torch.zeros(769), answers=64) for _ in range(2)])
     torch.save(stats, folder / 'statistics.pt')
     for step in (1, 2):
-        torch.save(dict(heads=[dict(weights=torch.zeros(769)) for _ in range(2)]), folder / f'{step}.pt')
+        torch.save(dict(heads=[dict(weights=torch.zeros(769), predicted_fold=f,
+            fitting_fold=1-f, feature_epoch=0) for f in range(2)]), folder / f'{step}.pt')
     (folder / 'metrics.jsonl').write_text('\n'.join(json.dumps(dict(reset=step==1, feature_epoch=0))
                                                   for step in (1, 2)))
     return stats
@@ -61,7 +62,7 @@ def test_verify_real_trainer_checkpoint_format_and_accumulation(tmp_path, method
     assert smoke.verify_run(tmp_path, method)['passed']
     stats['stats'][0]['answers'] = 0
     torch.save(stats, tmp_path / 'linear-critic' / 'statistics.pt')
-    with pytest.raises(ValueError, match='retain both updates'):
+    with pytest.raises(ValueError, match='retain all updates'):
         smoke.verify_run(tmp_path, method)
 
 
@@ -71,3 +72,37 @@ def test_verify_rejects_matrix_reset(tmp_path):
         json.dumps(dict(reset=True, feature_epoch=0)) for _ in range(2)))
     with pytest.raises(ValueError, match='unexpectedly reset'):
         smoke.verify_run(tmp_path, 'lstd')
+
+
+@pytest.mark.parametrize('method',['ridge','lstd'])
+def test_one_head_smoke_audits_metadata_counts_and_single_solve(tmp_path,method):
+    stats=write_run(tmp_path,method)
+    stats.update(folds=1,assignment={'question':0})
+    stats['stats']=stats['stats'][:1];stats['stats'][0]['answers']=128
+    torch.save(stats,tmp_path/'linear-critic/statistics.pt')
+    for step in (1,2):
+        torch.save(dict(heads=[dict(weights=torch.zeros(769),predicted_fold=0,
+            fitting_fold=0,feature_epoch=0)]),tmp_path/f'linear-critic/{step}.pt')
+    (tmp_path/'linear-critic/metrics.jsonl').write_text('\n'.join(json.dumps(dict(
+        reset=step==1,feature_epoch=0,critic_folds=1,cross_fitted=False)) for step in (1,2)))
+    result=smoke.verify_run(tmp_path,method,folds=1)
+    assert result['folds']==1 and result['statistics_answers']==[128] and not result['cross_fitted']
+    with pytest.raises(ValueError,match='number of critic systems'):
+        smoke.verify_run(tmp_path,method,folds=2)
+    exported=dict(path='/filter.pt',sha256='digest',layers=[27,26,24,20,12],rms_eps=1e-6)
+    assert 'experiment.critic_folds=1' in smoke.command(tmp_path,method,exported,folds=1)
+
+
+def test_verify_rejects_wrong_head_routing_and_inconsistent_saved_solve(tmp_path):
+    write_run(tmp_path,'ridge')
+    path=tmp_path/'linear-critic/2.pt'
+    record=torch.load(path,weights_only=True)
+    record['heads'][0]['fitting_fold']=0
+    torch.save(record,path)
+    with pytest.raises(ValueError,match='wrong fitting'):
+        smoke.verify_run(tmp_path,'ridge')
+    record['heads'][0]['fitting_fold']=1
+    record['heads'][0]['weights'][0]=1
+    torch.save(record,path)
+    with pytest.raises(ValueError,match='does not solve'):
+        smoke.verify_run(tmp_path,'ridge')

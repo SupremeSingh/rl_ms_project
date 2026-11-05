@@ -1,0 +1,77 @@
+{
+  "source": "User-supplied completed-run preview from outputs/numina-no-folds-v1; not the final aggregate report.",
+  "scope": "Five configured actor seeds, 120 updates x 64 answers, same inspected Numina split. PPO preview contains only seeds 301-304. No adjusted comparison intervals supplied. All linear critics use one shared cumulative head; no output LayerNorm.",
+  "methods": {
+    "grpo": {
+      "accuracy_percent_by_seed": {
+        "301": 71.85,
+        "302": 72.6,
+        "303": 73.55,
+        "304": 70.75,
+        "305": 72.55
+      },
+      "accuracy_percent_mean": 72.26,
+      "completed_seeds": 5,
+      "expected_seeds": 5
+    },
+    "lstd-sparse": {
+      "accuracy_percent_by_seed": {
+        "301": 71.2,
+        "302": 74.1,
+        "303": 69.2,
+        "304": 73.8,
+        "305": 72.5
+      },
+      "accuracy_percent_mean": 72.16,
+      "completed_seeds": 5,
+      "expected_seeds": 5
+    },
+    "lstd-two_thirds": {
+      "accuracy_percent_by_seed": {
+        "301": 70.2,
+        "302": 71.95,
+        "303": 73.15,
+        "304": 72.2,
+        "305": 74.3
+      },
+      "accuracy_percent_mean": 72.36,
+      "completed_seeds": 5,
+      "expected_seeds": 5
+    },
+    "ppo": {
+      "accuracy_percent_by_seed": {
+        "301": 73.5,
+        "302": 75.25,
+        "303": 72.1,
+        "304": 69.8
+      },
+      "accuracy_percent_mean": 72.6625,
+      "completed_seeds": 4,
+      "expected_seeds": 5
+    },
+    "ridge-sparse": {
+      "accuracy_percent_by_seed": {
+        "301": 74.95,
+        "302": 75.8,
+        "303": 75.1,
+        "304": 74.85,
+        "305": 75.1
+      },
+      "accuracy_percent_mean": 75.16,
+      "completed_seeds": 5,
+      "expected_seeds": 5
+    },
+    "ridge-two_thirds": {
+      "accuracy_percent_by_seed": {
+        "301": 72.5,
+        "302": 73.5,
+        "303": 73.15,
+        "304": 72.7,
+        "305": 72.35
+      },
+      "accuracy_percent_mean": 72.84,
+      "completed_seeds": 5,
+      "expected_seeds": 5
+    }
+  }
+}

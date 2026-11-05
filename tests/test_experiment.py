@@ -18,9 +18,12 @@ def manifest():
         layers=[27,26,24,20,12],rms_eps=1e-6,critic_lambda=.9,steps=120,seeds=[301,302,303,304,305])
 
 
-@pytest.mark.parametrize('name', study.METHODS)
-def test_exact_final_command_contract_and_main_validation(tmp_path,name):
+@pytest.mark.parametrize('no_folds',[False,True])
+@pytest.mark.parametrize('name', list(study.METHODS))
+def test_exact_final_command_contract_and_main_validation(tmp_path,name,no_folds):
     m=manifest()
+    if no_folds:
+        m['conditions']=copy.deepcopy(study.NO_FOLD_METHODS)
     cmd=study.command(tmp_path,m,name,301,120,profile='higher_lr')
     assert cmd[1:3] == ['-m','math_rl.main']
     assert 'trainer.total_training_steps=120' in cmd and 'experiment.replay_capacity=0' in cmd
@@ -28,6 +31,7 @@ def test_exact_final_command_contract_and_main_validation(tmp_path,name):
         assert 'experiment.critic_statistics=cumulative' in cmd
         assert 'experiment.critic_lambda=0.9' in cmd
         assert 'actor_rollout_ref.model.critic_encoder_precision=fp32' in cmd
+        assert f'experiment.critic_folds={m["conditions"][name].get("critic_folds",2)}' in cmd
     if name=='ppo':
         assert 'experiment.ppo_profile=higher_lr' in cmd
         assert 'critic.optim.lr=5e-05' in cmd
@@ -97,8 +101,13 @@ def test_changed_ppo_calibration_gets_its_own_smoke(tmp_path,monkeypatch):
     assert json.loads((tmp_path/'smoke.json').read_text())['ppo_profile']=='normalized'
 
 
-def test_full_paired_report_does_not_drop_failed_ppo_health(tmp_path,monkeypatch):
+@pytest.mark.parametrize('no_folds',[False,True])
+def test_full_paired_report_does_not_drop_failed_ppo_health(tmp_path,monkeypatch,no_folds):
     m=manifest();m.update(steps=1,seeds=[301,302],scope='fixture',primary_comparisons=list(study.PRIMARY))
+    if no_folds:
+        import math_rl.critic_checks as checks
+        m.update(protocol='slice-numina-no-folds-v1',conditions=copy.deepcopy(study.NO_FOLD_METHODS))
+        monkeypatch.setattr(checks,'verify_run',lambda *a,**kw:dict(passed=True))
     (tmp_path/'data').mkdir()
     (tmp_path/'data/questions.json').write_text(json.dumps(dict(questions=[dict(id='q',ground_truth='1',split='test')])))
     (tmp_path/'selection.json').write_text(json.dumps(dict(profile='higher_lr',tuning_training_gpu_hours=1)))
@@ -118,3 +127,24 @@ def test_full_paired_report_does_not_drop_failed_ppo_health(tmp_path,monkeypatch
     assert len(summary['methods'])==6 and all(summary['paired'][k]['mean_pp']==0 for k in study.PRIMARY)
     assert not summary['ppo_health']['301']['pass_checks']
     assert len((tmp_path/'audit.jsonl').read_text().splitlines())==12
+
+
+def test_no_fold_smoke_routes_one_head_and_all_thirty_tasks(tmp_path,monkeypatch):
+    import math_rl.critic_checks as checks
+    m=manifest();m.update(protocol='slice-numina-no-folds-v1',conditions=copy.deepcopy(study.NO_FOLD_METHODS))
+    (tmp_path/'manifest.json').write_text(json.dumps(m))
+    (tmp_path/'selection.json').write_text(json.dumps(dict(profile='higher_lr')))
+    calls=[];verified=[]
+    monkeypatch.setattr(study,'launch',lambda *a,**kw:calls.append((a,kw)))
+    monkeypatch.setattr(study,'audit_health',lambda *a:dict(gates={
+        k:True for k in ('complete','finite','nonzero_updates','zero_initial_values')}))
+    monkeypatch.setattr(checks,'verify_run',lambda *a,**kw:verified.append((a,kw)) or dict(passed=True))
+    study.smoke(tmp_path,m)
+    assert len(calls)==6 and len(verified)==4
+    assert all(kw['folds']==1 for _,kw in verified)
+    assert sorted(kw['feature_width'] for _,kw in verified)==[768,768,1536,1536]
+    calls.clear()
+    for task in range(30):study.run_task(tmp_path,m,task)
+    assert {(a[2],a[3]) for a,_ in calls}=={(n,s) for n in study.NO_FOLD_METHODS for s in m['seeds']}
+    with pytest.raises(ValueError,match='Invalid task'):
+        study.run_task(tmp_path,m,30)

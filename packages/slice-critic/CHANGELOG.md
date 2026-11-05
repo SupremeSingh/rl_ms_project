@@ -1,5 +1,14 @@
 # Internal release notes
 
+## 0.3.0 - one-head cumulative critic experiment
+
+- Default `folds=1` shared-head Ridge/LSTD: accumulate all answers, solve once,
+  then predict the current batch. Explicit `folds=2` remains available for historical reproduction.
+- Explicit system routing, fold counts and in-sample versus out-of-fold metrics
+  in checkpoints/diagnostics. Offline artifact schema and equations unchanged.
+- New no-fold six-method protocol: one head in every linear arm, original
+  data/filter/budgets and method comparisons, mandatory GPU smoke before training.
+
 ## 0.2.0 — final workflow cleanup, 25 October 2026
 
 - One authoritative implementation for feature transforms, grading, numeric

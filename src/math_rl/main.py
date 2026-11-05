@@ -19,7 +19,7 @@ VERL_COMMIT = '8d9e350ea58c7ad4b50dd14d9dcb50577242c55f'
 
 
 def validate(config):
-    if config.experiment.method not in ('ppo', 'grpo', 'ridge', 'lstd'):
+    if config.experiment.method not in ('ppo', 'grpo', 'ridge', 'lstd','mlp_frozen','mlp_joint'):
         raise ValueError('Unknown comparison method')
     expected = 'grpo' if config.experiment.method == 'grpo' else 'gae'
     if config.algorithm.adv_estimator != expected:
@@ -28,9 +28,28 @@ def validate(config):
             or config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss):
         raise ValueError('Comparison uses gamma=1, actor GAE lambda=.95, no KL shaping')
     linear = config.experiment.method in ('ridge', 'lstd')
+    neural = config.experiment.method in ('mlp_frozen','mlp_joint')
+    if config.experiment.get('learning_curve',False) and (config.experiment.method!='ridge' or config.trainer.test_freq<=0):
+        raise ValueError('Learning-curve observer requires Ridge with positive evaluation frequency')
+    if neural:
+        import math
+        if (config.experiment.neural_backend!='worker_gpu'
+                or config.actor_rollout_ref.model.critic_feature_mode!='frozen'
+                or config.actor_rollout_ref.model.critic_feature_layer!='bottleneck'
+                or config.experiment.critic_statistics!='fresh_neural'
+                or config.experiment.encoder_refresh_interval or config.experiment.statistics_reset_interval
+                or config.experiment.neural_epochs!=2
+                or any(not math.isfinite(v) or v<=0 for v in
+                       (config.experiment.neural_head_lr,config.experiment.neural_compressor_lr))):
+            raise ValueError('Neural critics require fresh-rollout training with a frozen encoder')
+    view=config.actor_rollout_ref.model.get('critic_feature_view','compressed')
+    if view != ('raw_concat' if config.experiment.method=='mlp_joint' else 'compressed'):
+        raise ValueError('Raw concatenation is reserved for the trainable compressor')
     if linear:
         import math
         e = config.experiment
+        if type(e.critic_folds) is not int or e.critic_folds not in (1, 2):
+            raise ValueError('Critic folds must be 1 or 2')
         if (e.critic_statistics != 'cumulative' or config.actor_rollout_ref.model.critic_feature_mode != 'frozen'
                 or e.replay_capacity or not math.isfinite(e.cumulative_epsilon) or e.cumulative_epsilon <= 0
                 or not 0 <= e.critic_lambda <= 1 or e.statistics_reset_interval or e.encoder_refresh_interval):
@@ -57,12 +76,15 @@ def validate(config):
     layer = config.actor_rollout_ref.model.get('critic_feature_layer', 'final')
     if layer not in ('final', 'two_thirds', 'bottleneck') or (layer != 'final' and mode != 'frozen'):
         raise ValueError('Intermediate features require a frozen encoder')
+    norm=config.actor_rollout_ref.model.get('critic_feature_normalization','none')
+    if norm not in ('none','rms') or (norm=='rms' and (not linear or layer!='two_thirds')):
+        raise ValueError('RMS feature normalization is supported only for frozen linear two-thirds critics')
     precision = config.actor_rollout_ref.model.get('critic_encoder_precision', 'bf16')
     if precision not in ('bf16', 'fp32'):
         raise ValueError('Unknown frozen encoder precision')
     if layer == 'bottleneck':
         model = config.actor_rollout_ref.model
-        if (not linear or config.experiment.critic_statistics != 'cumulative' or precision != 'fp32' or config.experiment.encoder_refresh_interval
+        if (not (linear or neural) or (linear and config.experiment.critic_statistics != 'cumulative') or precision != 'fp32' or config.experiment.encoder_refresh_interval
                 or not model.critic_bottleneck_path or not model.critic_bottleneck_sha256
                 or not model.critic_bottleneck_layers):
             raise ValueError('Bottleneck requires immutable FP32 cumulative features and a hashed checkpoint')
@@ -101,6 +123,9 @@ def run(config):
     from verl.utils.dataset.rl_dataset import collate_fn
     from verl.workers.fsdp_workers import ActorRolloutRefWorker
     from math_rl.trainer import MathTrainer
+    if config.experiment.get("learning_curve",False):
+        from math_rl.learning_curve import LearningCurveTrainer
+        MathTrainer=LearningCurveTrainer
     from math_rl.workers import FeatureActorWorker
 
     seed = config.data.seed
@@ -110,8 +135,8 @@ def run(config):
     torch.manual_seed(seed)
     torch.set_num_threads(8)
     tokenizer = hf_tokenizer(config.actor_rollout_ref.model.path)
-    linear = config.experiment.method in ('ridge', 'lstd')
-    roles = {Role.ActorRollout: ray.remote(FeatureActorWorker if linear else ActorRolloutRefWorker)}
+    custom = config.experiment.method in ('ridge', 'lstd','mlp_frozen','mlp_joint')
+    roles = {Role.ActorRollout: ray.remote(FeatureActorWorker if custom else ActorRolloutRefWorker)}
     if config.experiment.method == 'ppo':
         from math_rl.ppo_baseline_worker import AuditedCriticWorker
         roles[Role.Critic] = ray.remote(AuditedCriticWorker)

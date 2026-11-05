@@ -1,0 +1,109 @@
+{
+  "source": "Transcribed from user-supplied outputs/transfer-clarify-v1/report.txt. Displayed means rounded to six decimals; paired intervals copied as supplied. Full fixed-epsilon records remain on cluster.",
+  "selected_question_brier": {
+    "gsm8k/100/rms_two_thirds": 0.233105,
+    "gsm8k/100/transferred_slice": 0.230942,
+    "gsm8k/100/target_slice": 0.240831,
+    "gsm8k/500/rms_two_thirds": 0.207439,
+    "gsm8k/500/transferred_slice": 0.208633,
+    "gsm8k/500/target_slice": 0.217556,
+    "gsm8k/2000/rms_two_thirds": 0.199678,
+    "gsm8k/2000/transferred_slice": 0.203674,
+    "gsm8k/2000/target_slice": 0.215138,
+    "math/100/rms_two_thirds": 0.228839,
+    "math/100/transferred_slice": 0.219051,
+    "math/100/target_slice": 0.216711,
+    "math/500/rms_two_thirds": 0.195342,
+    "math/500/transferred_slice": 0.193417,
+    "math/500/target_slice": 0.2014,
+    "math/2000/rms_two_thirds": 0.185528,
+    "math/2000/transferred_slice": 0.185644,
+    "math/2000/target_slice": 0.196631
+  },
+  "paired": {
+    "gsm8k/100/transferred_slice_minus_rms_two_thirds": {
+      "mean": -0.0021626700893711466,
+      "interval_95": [
+        -0.005300331310235693,
+        0.0006961395193779297
+      ]
+    },
+    "gsm8k/100/transferred_slice_minus_target_slice": {
+      "mean": -0.009888915270322502,
+      "interval_95": [
+        -0.017392389218205725,
+        -0.003344977104893554
+      ]
+    },
+    "gsm8k/500/transferred_slice_minus_rms_two_thirds": {
+      "mean": 0.0011937928955632823,
+      "interval_95": [
+        -0.001065572614877328,
+        0.0033580286801745667
+      ]
+    },
+    "gsm8k/500/transferred_slice_minus_target_slice": {
+      "mean": -0.008922475120270484,
+      "interval_95": [
+        -0.01304223533634554,
+        -0.004617856917406993
+      ]
+    },
+    "gsm8k/2000/transferred_slice_minus_rms_two_thirds": {
+      "mean": 0.003996145427488113,
+      "interval_95": [
+        0.0022256837828944025,
+        0.005733039508098142
+      ]
+    },
+    "gsm8k/2000/transferred_slice_minus_target_slice": {
+      "mean": -0.01146438910853513,
+      "interval_95": [
+        -0.01572619259294737,
+        -0.007113468601072478
+      ]
+    },
+    "math/100/transferred_slice_minus_rms_two_thirds": {
+      "mean": -0.009787998459482087,
+      "interval_95": [
+        -0.014900358107364441,
+        -0.004445864740936922
+      ]
+    },
+    "math/100/transferred_slice_minus_target_slice": {
+      "mean": 0.0023399479932756395,
+      "interval_95": [
+        -0.0023366925083423903,
+        0.0068499019174193525
+      ]
+    },
+    "math/500/transferred_slice_minus_rms_two_thirds": {
+      "mean": -0.0019255831976259464,
+      "interval_95": [
+        -0.005707478798679146,
+        0.0019247963470995508
+      ]
+    },
+    "math/500/transferred_slice_minus_target_slice": {
+      "mean": -0.00798330798837447,
+      "interval_95": [
+        -0.013102750118728463,
+        -0.0032811654143661104
+      ]
+    },
+    "math/2000/transferred_slice_minus_rms_two_thirds": {
+      "mean": 0.00011636505805443282,
+      "interval_95": [
+        -0.0031304491911576366,
+        0.0032924334898306357
+      ]
+    },
+    "math/2000/transferred_slice_minus_target_slice": {
+      "mean": -0.010986938472428768,
+      "interval_95": [
+        -0.015808605776577025,
+        -0.006405657190204214
+      ]
+    }
+  }
+}

@@ -1,0 +1,50 @@
+Frozen representations; same saved sampled prefixes/labels in every arm. Inspected Numina splits and previously validation-selected compressor. Not fresh data, all-token fitting, or an RL comparison. Primary regularization policy: relative. Legacy epsilon is a declared control. No hyperparameter selection on these results; no calibration.
+LayerNorm internal epsilon: 1e-05; Ridge epsilons are separate.
+
+Test sampled-prefix Ridge: raw Brier lower; accuracy higher.
+arm/policy                         Brier    accuracy   epsilon      condition
+rms_two_thirds/legacy              0.18957  0.718        0.01     5.36e+05
+rms_two_thirds/relative            0.18957  0.718          63     4.81e+05
+rms_two_thirds/fixed_0.1           0.18957  0.718         0.1     5.36e+05
+rms_two_thirds/fixed_1             0.18957  0.718           1     5.35e+05
+rms_two_thirds/fixed_10            0.18957  0.718          10     5.26e+05
+rms_two_thirds/fixed_100           0.18957  0.718         100     4.54e+05
+slice_layernorm/legacy             0.18302  0.732        0.01     5.23e+09
+slice_layernorm/relative           0.18302  0.732          63     8.31e+05
+slice_layernorm/fixed_0.1          0.18302  0.732         0.1     5.23e+08
+slice_layernorm/fixed_1            0.18302  0.732           1     5.23e+07
+slice_layernorm/fixed_10           0.18302  0.732          10     5.23e+06
+slice_layernorm/fixed_100          0.18302  0.732         100     5.23e+05
+slice_baseline/legacy              0.18346  0.732        0.01     3.04e+04
+slice_baseline/relative            0.18345  0.732        57.9        3e+04
+slice_baseline/fixed_0.1           0.18346  0.732         0.1     3.04e+04
+slice_baseline/fixed_1             0.18346  0.732           1     3.04e+04
+slice_baseline/fixed_10            0.18346  0.732          10     3.03e+04
+slice_baseline/fixed_100           0.18344  0.732         100     2.97e+04
+rms_two_thirds_minus_slice_baseline/legacy: {'question_mean_raw_brier_difference': 0.006084114071830721, 'descriptive_95_interval': [0.00501473073326397, 0.007132754568527101], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm_minus_slice_baseline/legacy: {'question_mean_raw_brier_difference': -0.0004136025469051918, 'descriptive_95_interval': [-0.0007227057442516641, -0.00011268519440434162], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds_minus_slice_baseline/relative: {'question_mean_raw_brier_difference': 0.006094067226047887, 'descriptive_95_interval': [0.005020084111015727, 0.007140125901283084], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm_minus_slice_baseline/relative: {'question_mean_raw_brier_difference': -0.00040529999306125153, 'descriptive_95_interval': [-0.00071350558869238, -0.00010585642824383557], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds_minus_slice_baseline/fixed_0.1: {'question_mean_raw_brier_difference': 0.006084129319424781, 'descriptive_95_interval': [0.005014748619690996, 0.007132765716033762], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm_minus_slice_baseline/fixed_0.1: {'question_mean_raw_brier_difference': -0.00041358891206450167, 'descriptive_95_interval': [-0.0007226905720902171, -0.00011267841686904485], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds_minus_slice_baseline/fixed_1: {'question_mean_raw_brier_difference': 0.006084281840202789, 'descriptive_95_interval': [0.0050149275118593906, 0.007132877227640593], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm_minus_slice_baseline/fixed_1: {'question_mean_raw_brier_difference': -0.0004134528275269318, 'descriptive_95_interval': [-0.0007225392011483485, -0.00011261089425888666], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds_minus_slice_baseline/fixed_10: {'question_mean_raw_brier_difference': 0.00608581094276175, 'descriptive_95_interval': [0.005016718655685751, 0.0071339954416765475], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm_minus_slice_baseline/fixed_10: {'question_mean_raw_brier_difference': -0.0004121024266380719, 'descriptive_95_interval': [-0.0007210363494647318, -0.00011194470842894365], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds_minus_slice_baseline/fixed_100: {'question_mean_raw_brier_difference': 0.006101041853943313, 'descriptive_95_interval': [0.005022388582868338, 0.007147369589230581], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm_minus_slice_baseline/fixed_100: {'question_mean_raw_brier_difference': -0.0003995959784546828, 'descriptive_95_interval': [-0.0007071318859998916, -9.820471977358703e-05], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds/relative_minus_legacy: {'question_mean_raw_brier_difference': 5.586094253489573e-07, 'descriptive_95_interval': [-4.3022365398888516e-06, 5.466105728532655e-06], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds/fixed_0.1_minus_legacy: {'question_mean_raw_brier_difference': -8.669397363880726e-11, 'descriptive_95_interval': [-7.832166872277757e-09, 7.75339878676373e-09], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds/fixed_1_minus_legacy: {'question_mean_raw_brier_difference': -7.795524009229782e-10, 'descriptive_95_interval': [-8.584029008506758e-08, 8.531726096745378e-08], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds/fixed_10_minus_legacy: {'question_mean_raw_brier_difference': 9.060895847975634e-09, 'descriptive_95_interval': [-8.355293434866756e-07, 8.635596146595461e-07], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+rms_two_thirds/fixed_100_minus_legacy: {'question_mean_raw_brier_difference': 1.2862184504826784e-06, 'descriptive_95_interval': [-5.997155823953157e-06, 8.632584972134811e-06], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm/relative_minus_legacy: {'question_mean_raw_brier_difference': -1.091990947875411e-06, 'descriptive_95_interval': [-3.186991355576147e-06, 1.0849258044764166e-06], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm/fixed_0.1_minus_legacy: {'question_mean_raw_brier_difference': -1.6994473421702224e-09, 'descriptive_95_interval': [-4.711779687022905e-09, 1.4655234966516424e-09], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm/fixed_1_minus_legacy: {'question_mean_raw_brier_difference': -1.882854620852831e-08, 'descriptive_95_interval': [-5.185992071702025e-08, 1.5535701102631675e-08], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm/fixed_10_minus_legacy: {'question_mean_raw_brier_difference': -1.8768976806012808e-07, 'descriptive_95_interval': [-5.211604959729942e-07, 1.5900612952880042e-07], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_layernorm/fixed_100_minus_legacy: {'question_mean_raw_brier_difference': -1.6349952116005376e-06, 'descriptive_95_interval': [-4.9557952584057165e-06, 1.8144760368388521e-06], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_baseline/relative_minus_legacy: {'question_mean_raw_brier_difference': -9.394544791815716e-06, 'descriptive_95_interval': [-1.3844923027392303e-05, -4.872608204446306e-06], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_baseline/fixed_0.1_minus_legacy: {'question_mean_raw_brier_difference': -1.5334288032292988e-08, 'descriptive_95_interval': [-2.2337448285897648e-08, -8.221711451287391e-09], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_baseline/fixed_1_minus_legacy: {'question_mean_raw_brier_difference': -1.6854792446859522e-07, 'descriptive_95_interval': [-2.4556726910004617e-07, -9.032559413340595e-08], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_baseline/fixed_10_minus_legacy: {'question_mean_raw_brier_difference': -1.6878100351800695e-06, 'descriptive_95_interval': [-2.463452924558903e-06, -9.000876316899341e-07], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
+slice_baseline/fixed_100_minus_legacy: {'question_mean_raw_brier_difference': -1.5641563662109576e-05, 'descriptive_95_interval': [-2.3253040395609735e-05, -7.904199130575006e-06], 'questions': 2000, 'scope': 'Paired question bootstrap; exploratory, unadjusted'}
