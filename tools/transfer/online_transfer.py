@@ -19,6 +19,8 @@ ROOT=runner.ROOT
 ARMS=('slice','rms_two_thirds')
 SEEDS=(701,702,703,704,705)
 EPS=(.01,100.,1000.,10000.)
+# NumPy 2.4 removed trapz; Duke's NumPy 1.26 does not have trapezoid.
+_trapezoid = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
 
 
 def tools():
@@ -142,7 +144,7 @@ def select(out,m):
         for eps in EPS:
             case=out/f'pilot-{arm}-{eps}';r=audit(case,20,eps,arm,'val')
             ys=[r['initial_validation']['accuracy']]+[read(case/f'curve-{s}.json')['accuracy'] for s in (10,20)]
-            auc=float(np.trapz(ys,[0,10,20])/20);values.append((auc,eps));candidates[f'{arm}/{eps}']=dict(validation_auc=auc,final_accuracy=r['final_validation']['accuracy'],training_gpu_hours=r['training_gpu_hours'])
+            auc=float(_trapezoid(ys,[0,10,20])/20);values.append((auc,eps));candidates[f'{arm}/{eps}']=dict(validation_auc=auc,final_accuracy=r['final_validation']['accuracy'],training_gpu_hours=r['training_gpu_hours'])
         # Deterministic ties favor smaller epsilon; no final test data read.
         selected[arm]=max(values,key=lambda x:(x[0],-x[1]))[1]
     write_json(out/'selection.json',dict(epsilons=selected,upper_boundary_selected={a:e==max(EPS) for a,e in selected.items()},candidates=candidates,manifest=sha256(out/'manifest.json'),scope='One pilot actor seed 601; validation-only accuracy AUC over 20 updates, grid [.01,100,1000,10000]. Limited online tuning, no claim of global optimum.'))
@@ -167,7 +169,7 @@ def report(out,m):
                 if [v['id'] for v in rows]!=expected:raise ValueError('Curve test mismatch')
                 values.append([v['score'] for v in rows])
             # Per-question predeclared AUC gives a paired statistic without selecting a checkpoint.
-            qauc=np.trapz(np.array([b]+values),[0,10,20,30,40,50,60],axis=0)/60
+            qauc=_trapezoid(np.array([b]+values),[0,10,20,30,40,50,60],axis=0)/60
             if not np.isclose(np.mean(values[-1]),r['final_test']['accuracy']):raise ValueError('Final curve/result mismatch')
             runs.append(dict(seed=seed,result=r,curve=curves,accounted_gpu_hours=2*(r['initialization_seconds']+r['initial_test']['seconds']+r['training_seconds']+r['final_test']['seconds'])/3600))
             scores.append([v['score'] for v in final]);aucs.append(qauc)

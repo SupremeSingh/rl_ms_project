@@ -94,3 +94,21 @@ def test_failed_curve_evaluation_restores_training_counters(tmp_path):
     t.config=SimpleNamespace(trainer=SimpleNamespace(test_freq=10))
     with pytest.raises(RuntimeError,match='evaluation failed'):t._validate()
     assert t.global_steps==10 and t.completed_updates==0 and t._curve_active
+
+
+@pytest.mark.parametrize('modern', [False, True])
+def test_auc_works_with_legacy_and_modern_numpy(monkeypatch, modern):
+    import numpy as np
+    integrate = np.trapezoid if hasattr(np, 'trapezoid') else np.trapz
+    if modern:
+        monkeypatch.setattr(np, 'trapezoid', integrate, raising=False)
+        monkeypatch.delattr(np, 'trapz', raising=False)
+    else:
+        monkeypatch.setattr(np, 'trapz', integrate, raising=False)
+        monkeypatch.delattr(np, 'trapezoid', raising=False)
+    m = module('online_transfer')
+    # Pilot scalar AUC and report per-question AUC use the same trapezoidal rule.
+    assert m._trapezoid([0., .5, 1.], [0, 10, 20]) / 20 == pytest.approx(.5)
+    curves = np.array([[0., 1.], [.5, .5], [1., 0.]])
+    np.testing.assert_allclose(m._trapezoid(curves, [0, 10, 20], axis=0) / 20,
+                               [.5, .5])
