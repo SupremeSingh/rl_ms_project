@@ -91,6 +91,19 @@ Sparsity still uses dense kernels, and chunking still requires full encoder atte
 The older two-fold/token system diagrams are historical; the flow above is the
 current implementation. Historical results below do not measure v3 chunking.
 
+## Next experiment: token versus chunk learning
+
+The six-method chunked GPU integration smoke passed. The next controlled study
+uses **four Ridge arms × five new actor seeds**, with **120 updates × 64 answers**
+and the same 2,000 Numina test questions: SLICE/token, SLICE/chunk, raw layer/token,
+and raw layer/chunk. Frozen features, one head, epsilon .01 and GAE .95 are fixed.
+The two primary comparisons ask whether chunk-level learning improves final actor
+accuracy within each representation; reports include paired adjusted intervals,
+per-seed results, GPU-hours, generated tokens and fitted-state counts.
+
+[Protocol, limitations and submission commands](docs/CHUNK_COMPARISON.md).
+No accuracy conclusion about chunking is available yet.
+
 ## Recorded Numina results
 
 The original comparison and the completed production replay each used five actor seeds, six methods,
