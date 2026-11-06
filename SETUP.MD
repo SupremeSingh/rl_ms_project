@@ -76,7 +76,7 @@ cat outputs/slice-prod-smoke-v1/verification.json
 ```
 
 This runs two actor updates each for Ridge and LSTD(0.9), checking frozen features,
-finite 769-dimensional heads, two question folds and accumulated statistics.
+finite 769-dimensional heads, one shared head and accumulated chunk statistics.
 It is not an accuracy benchmark. The full six-method study has a separate smoke
 gate before its array of actor runs.
 
@@ -91,3 +91,6 @@ python scripts/check_slice_release.py --out outputs/slice-local-release-v1
 
 CPU development skips checks requiring the pinned VERL runtime. GitHub CI tests
 installed wheels and the supported CPU pipeline; GPU acceptance stays on Duke.
+
+For the full v3 chunked six-method integration check, use
+[the chunking guide](docs/CHUNKING.md); it includes the mandatory new GPU smoke.

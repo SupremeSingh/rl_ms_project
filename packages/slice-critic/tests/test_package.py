@@ -67,7 +67,7 @@ def fixture(tmp_path, method='ridge'):
                               for i in range(1, 41)))
     config = TrainingConfig(dataset=str(data), max_questions=40, responses_per_question=2,
                             max_new_tokens=4, num_slices=3, compression_width=4,
-                            epochs=2, batch_size=32, method=method)
+                            epochs=2, batch_size=32, method=method, chunking='token')
     return config, ToyBackend(tmp_path/'model')
 
 
@@ -216,3 +216,33 @@ def test_package_has_no_project_imports():
         for node in ast.walk(ast.parse(path.read_text())):
             names = [node.module] if isinstance(node,ast.ImportFrom) else [a.name for a in node.names] if isinstance(node,ast.Import) else []
             assert all(not name or not name.startswith(('math_rl','verl','jlens')) for name in names), path
+
+
+def test_chunked_offline_training_uses_boundary_states_and_records_policy(tmp_path):
+    from dataclasses import replace
+    from slice_critic.chunks import character_boundaries
+    config, backend = fixture(tmp_path)
+    config = replace(config, chunking='math', max_new_tokens=96)
+    class CharTokenizer:
+        is_fast=True
+        eos_token_id=0
+        def decode(self, ids, **kwargs): return ''.join(chr(i) for i in ids)
+        def __call__(self, text, **kwargs):
+            return dict(input_ids=list(map(ord,text)),offset_mapping=[(i,i+1) for i in range(len(text))])
+    backend.tokenizer=CharTokenizer()
+    def generate(prompt,count,max_tokens,seed):
+        rows=[]
+        for i in range(count):
+            text=f'First compute the result. Then report the final answer: {i%2}'
+            rows.append(dict(token_ids=list(map(ord,text))+[0],response=text,capped=False))
+        return rows
+    backend.generate=generate
+    artifact=train_critic(config,tmp_path/'chunked',device='cpu',backend=backend,grader=grader)
+    manifest,_,_=read_artifact(artifact)
+    report=read_json(artifact/'evaluation.json')
+    assert manifest['chunking']['mode']=='math'
+    assert report['head_fit']['state_unit']=='chunk'
+    # Both sentences are represented once, not all their token positions.
+    assert report['head_fit']['transitions']==report['head_fit']['answers']*2
+    predictions=read_json(artifact.parent/'test-predictions.json')
+    assert set(predictions['position'])=={0,25}

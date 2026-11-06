@@ -19,8 +19,9 @@ def manifest():
 
 
 @pytest.mark.parametrize('name', study.METHODS)
-def test_exact_final_command_contract_and_main_validation(tmp_path,name):
-    m=manifest()
+@pytest.mark.parametrize('chunking', ['token','math','gsm8k'])
+def test_exact_final_command_contract_and_main_validation(tmp_path,name,chunking):
+    m=manifest();m.update(chunking=chunking,critic_folds=1)
     cmd=study.command(tmp_path,m,name,301,120,profile='higher_lr')
     assert cmd[1:3] == ['-m','math_rl.main']
     assert 'trainer.total_training_steps=120' in cmd and 'experiment.replay_capacity=0' in cmd

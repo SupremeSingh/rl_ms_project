@@ -22,4 +22,4 @@ def export_filter(artifact, output):
     save_tensor(output, record)
     return dict(path=str(output), sha256=sha256(output),
                 layers=features['layers_zero_based'], rms_eps=features['rms_eps'],
-                scope='Features only. PPO fits fresh cross-fitted value heads; exclude these training/selection families.')
+                scope='Features only. PPO fits fresh value heads; exclude these training/selection families.')

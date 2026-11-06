@@ -17,7 +17,7 @@ Qwen2.5-Math-1.5B and numeric final-answer tasks, not arbitrary architectures.
 | `load_ppo_features(path, checksum, layers=..., eps=..., model_path=...)` | Checks checkpoint and supplied identities; returns frozen compressor, CPU mean and scale. Pass all compatibility arguments. |
 | `encode_hidden_rollout_features(encoder, ids, masks, response_width, layer)` | Frozen raw-layer control readout; same causal alignment, no compressor. |
 | `encode_rollout_features(encoder, ids, masks, response_width, fitted, layers, eps)` | Per-answer detached arrays for every pre-action response state. Consumer supplies the matching encoder, tokenizer and completion prompt. |
-| `CumulativeCritic(question_ids, seed=..., epsilon=.01, trace_lambda=.99, method=...)` | Persistent question-fold matrix fitting. Explicitly specify `method` and `trace_lambda`; the compatibility constructor's trace default is zero. |
+| `CumulativeCritic(question_ids, seed=..., epsilon=.01, trace_lambda=.99, method=...)` | One shared cumulative head by default; `folds=2` preserves legacy cross-fitting. Explicitly specify `method` and `trace_lambda`; the compatibility constructor's trace default is zero. |
 
 ## Online fitting is separate from offline prediction
 
@@ -31,16 +31,17 @@ for step, batch in enumerate(fresh_rollouts, start=1):
         batch.features, batch.terminal_rewards, batch.response_mask,
         batch.question_ids, step=step,
     )
-    # The consuming RL project computes GAE and performs PPO actor updates.
+    # The consumer broadcasts chunk advantages, or uses GAE in legacy token mode.
 ```
 
-Features are a list of `[answer_tokens, width]` arrays. Rewards/masks are padded
-`[answers, max_answer_tokens]` tensors with contiguous nonempty masks. Gamma is
+Features are a list of `[answer_states, width]` arrays (chunk starts in v3; tokens in legacy mode). Rewards/masks are padded
+`[answers, max_answer_states]` tensors with contiguous nonempty masks. Gamma is
 fixed to 1; only binary rewards at the final response token are supported.
 Termination uses a zero successor, including its intercept. Consumers must define
 truncation semantics for other tasks; our math project defines a capped task.
 
-Two question folds persist: values for one fold use the other fold's matrices.
+One shared head fits all questions by default (`folds=1`). With explicit legacy
+`folds=2`, values for one question fold use the other fold's matrices.
 Ridge accumulates `phi.T @ phi` and `phi.T @ observed_return`; LSTD accumulates
 trace-weighted TD products. Sums are never divided by data count. Epsilon is added
 once at solve time, including on the intercept. Traces reset between trajectories.
@@ -66,3 +67,10 @@ causal backend and does not establish real-model accuracy or throughput. Scoring
 currently processes states individually; serialize calls on one instance because
 extraction uses temporary hooks. There is no remote registry, service, access
 control or padded inference optimization.
+
+## v3 chunk training
+
+`TrainingConfig.chunking` defaults to `math`; `gsm8k` and legacy `token` are
+explicit alternatives. Compressor samples and head transitions use pre-chunk
+prefixes. Online extraction accepts optional per-answer `positions` to retain
+only selected causal states. See [chunk protocol](../../docs/CHUNKING.md).

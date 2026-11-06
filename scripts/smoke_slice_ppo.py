@@ -36,10 +36,10 @@ def select_questions(rows, manifest, train_count=64, val_count=16):
     return selected
 
 
-def command(out, method, exported):
+def command(out, method, exported, gae_lambda=.95):
     return runner.command(out, method, 42, 2, feature_mode='frozen',
         evaluation_split='val') + [
-        'experiment.critic_statistics=cumulative', 'experiment.cumulative_epsilon=0.01',
+        f'algorithm.lam={gae_lambda}', 'experiment.critic_statistics=cumulative', 'experiment.cumulative_epsilon=0.01',
         'experiment.critic_lambda=0.9', 'actor_rollout_ref.model.critic_encoder_precision=fp32',
         'actor_rollout_ref.model.critic_feature_layer=bottleneck',
         f'actor_rollout_ref.model.critic_bottleneck_path={exported["path"]}',
@@ -59,20 +59,23 @@ def verify_run(case, method):
         raise ValueError('Wrong cumulative fitting settings')
     if sum(s['answers'] for s in stats['stats']) != 128:
         raise ValueError('Statistics did not retain both updates')
+    expected_folds = 1 if result.get('chunking', 'token') != 'token' else stats.get('folds', 2)
+    if len(stats['stats']) != expected_folds:
+        raise ValueError('Unexpected critic head count')
     for s in stats['stats']:
         if (s['a'].shape != (769, 769) or s['b'].shape != (769,) or not s['answers']
                 or not torch.isfinite(s['a']).all() or not torch.isfinite(s['b']).all()):
-            raise ValueError('Invalid cross-fitted matrices')
+            raise ValueError('Invalid cumulative matrices')
     metrics = [json.loads(row) for row in (case / 'linear-critic' / 'metrics.jsonl').read_text().splitlines()]
     if len(metrics) != 2 or metrics[1]['reset'] or any(m['feature_epoch'] != 0 for m in metrics):
         raise ValueError('Feature basis or matrices unexpectedly reset')
     for step in (1, 2):
         record = torch.load(case / 'linear-critic' / f'{step}.pt', map_location='cpu', weights_only=True)
-        if len(record['heads']) != 2 or any(h['weights'].shape != (769,)
+        if len(record['heads']) != expected_folds or any(h['weights'].shape != (769,)
                 or not torch.isfinite(h['weights']).all() for h in record['heads']):
-            raise ValueError('Invalid fresh cross-fitted heads')
+            raise ValueError('Invalid fresh value heads')
     return dict(passed=True, updates=2, answers=128, matrix_dimension=769,
-                folds=2, statistics_answers=[s['answers'] for s in stats['stats']],
+                folds=expected_folds, chunking=result.get("chunking", "token"), statistics_answers=[s['answers'] for s in stats['stats']],
                 training_gpu_hours=result['training_gpu_hours'])
 
 
@@ -122,12 +125,12 @@ def run(args):
             with tempfile.TemporaryDirectory(prefix='sp-', dir='/tmp') as ray_tmp:
                 env['RAY_TMPDIR'] = ray_tmp
                 with (out / f'{method}.log').open('w') as log:
-                    subprocess.run(command(out, method, exported), cwd=ROOT, env=env,
+                    subprocess.run(command(out, method, exported, getattr(args, 'gae_lambda', .95)), cwd=ROOT, env=env,
                                    stdout=log, stderr=subprocess.STDOUT, check=True)
             checks[method] = verify_run(out / f'{method}-seed42', method)
         write_json(out / 'verification.json', dict(passed=True, methods=checks,
             offline_value_head_loaded=False, frozen_encoder=True, frozen_compressor=True,
-            buffer_capacity=0, gamma=1, lstd_lambda=.9, gae_lambda=.95,
+            buffer_capacity=0, gamma=1, lstd_lambda=.9, gae_lambda=getattr(args, "gae_lambda", .95), chunking="math",
             scope='Two real PPO updates per method; integration check, not an accuracy ranking'))
         write_json(out / 'status.json', dict(state='complete'))
     except BaseException as exc:

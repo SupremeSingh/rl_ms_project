@@ -21,3 +21,6 @@ slice-critic = "slice_critic.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+slice_critic = ["_vendor/VINEPPO_LICENSE"]

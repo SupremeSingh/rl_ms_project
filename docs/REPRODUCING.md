@@ -128,3 +128,10 @@ reused only when their method, seed, budget, split and PPO profile match.
 Data, filters, model and active code are checked before each stage. Do not edit
 those inputs while jobs are running. CPU unit tests and a two-update smoke do not
 prove long-run stability; the final multi-seed study remains the scientific test.
+
+## v3 granularity change
+
+New artifact-based preparation uses reasoning chunks and one shared head. The
+`import-study` route remains the historical token/two-head protocol; its results
+must not be relabeled as chunked. See [v3 chunking](CHUNKING.md) for exact upstream
+attribution, offline training settings and the mandatory six-method GPU smoke.

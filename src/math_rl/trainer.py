@@ -1,6 +1,6 @@
 """PPO/GRPO comparison using the pinned VERL loop, losses, GAE and checkpoints.
 
-For linear critics only, the scoped advantage hook supplies cross-fitted values
+For linear critics only, the scoped advantage hook supplies learned values
 where VERL normally reads transformer-critic values. No transformer critic is
 allocated or updated in those runs. The pinned loop remains otherwise unchanged.
 """
@@ -44,23 +44,43 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
             questions = [str(row['extra_info']['prompt_id']) for row in rows]
             cumulative = CumulativeCritic(questions, self.config.data.seed,
                 self.config.experiment.cumulative_epsilon, self.config.experiment.critic_lambda,
-                method=self.config.experiment.method)
+                method=self.config.experiment.method, folds=self.config.experiment.get("critic_folds", 2))
+
+        chunk_mode = self.config.experiment.get('chunking', 'token')
 
         def advantages(data, *args, **kwargs):
+            mask = data.batch['response_mask']
+            plans = None
+            if chunk_mode != 'token' and self.method != 'grpo':
+                from math_rl.chunked import plans_for_batch, compress_rewards, chunk_credit
+                plans = plans_for_batch(self.tokenizer, data.batch['responses'], mask, chunk_mode)
             if self.linear:
                 device = data.batch['token_level_rewards'].device
                 features = data.non_tensor_batch.pop('pretoken_features')
                 questions = [str(info['prompt_id']) for info in data.non_tensor_batch['extra_info']]
+                fit_rewards, fit_mask = data.batch['token_level_rewards'], mask
+                if plans is not None:
+                    if any(len(f) != len(p.starts) for f, p in zip(features, plans, strict=True)):
+                        raise ValueError('Expected one frozen feature vector per chunk start')
+                    fit_rewards, fit_mask = compress_rewards(fit_rewards, plans)
                 if cumulative is not None:
                     epoch = 0
                     versions = data.non_tensor_batch.pop('critic_encoder_epoch')
                     if any(int(v) != epoch for v in versions):
                         raise RuntimeError('Workers returned features from a different encoder epoch')
                     values, heads, metrics = cumulative.update(features,
-                        data.batch['token_level_rewards'], data.batch['response_mask'],
+                        fit_rewards, fit_mask,
                         questions, self.global_steps, epoch)
                 metrics['feature_mode'] = feature_mode
-                data.batch['values'] = values.to(device)
+                if plans is None:
+                    data.batch['values'] = values.to(device)
+                else:
+                    expanded = data.batch['token_level_rewards'].new_zeros(mask.shape)
+                    for i, plan in enumerate(plans):
+                        expanded[i, :plan.tokens] = plan.expand(values[i, :len(plan.starts)]).to(device)
+                    data.batch['values'] = expanded
+                metrics.update(chunking=chunk_mode, response_tokens=int(mask.sum()),
+                               state_unit='chunk' if plans is not None else 'token')
                 folder = self.output / 'linear-critic'
                 folder.mkdir(exist_ok=True)
                 torch.save(dict(heads=heads, step=self.global_steps, method=self.method,
@@ -73,13 +93,27 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
                     temporary.replace(folder / 'statistics.pt')
                 with (folder / 'metrics.jsonl').open('a') as handle:
                     handle.write(json.dumps(dict(metrics, step=self.global_steps)) + '\n')
-            result = original(data, *args, **kwargs)
+            if plans is not None:
+                from verl.utils.torch_functional import masked_whiten
+                adv, returns, boundaries, values = chunk_credit(data.batch['values'],
+                    data.batch['token_level_rewards'], mask, plans, gae_lambda=self.config.algorithm.lam)
+                data.batch['advantages'] = masked_whiten(adv, mask) * mask
+                data.batch['returns'] = returns
+                data.batch['values'] = values
+                data.batch['chunk_start_mask'] = boundaries
+                result = data
+                with (self.output / 'chunk-metrics.jsonl').open('a') as handle:
+                    handle.write(json.dumps(dict(step=self.global_steps, chunking=chunk_mode,
+                        chunks=sum(len(p.starts) for p in plans), response_tokens=int(mask.sum()),
+                        advantage='chunk_gae', gae_lambda=float(self.config.algorithm.lam))) + '\n')
+            else:
+                result = original(data, *args, **kwargs)
             if not all(torch.isfinite(result.batch[k]).all() for k in ('advantages', 'returns')):
                 raise RuntimeError('Nonfinite advantages or returns')
             return result
 
         # A single trainer runs in its own Ray driver process. Restore the module
-        # function even on failure; never patch GAE or the PPO update equations.
+        # function even on failure; chunked credit bypasses token GAE; PPO policy loss is unchanged.
         ray_trainer.compute_advantage = advantages
         try:
             super().fit()

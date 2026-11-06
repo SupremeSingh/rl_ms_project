@@ -24,9 +24,14 @@ def validate(config):
     expected = 'grpo' if config.experiment.method == 'grpo' else 'gae'
     if config.algorithm.adv_estimator != expected:
         raise ValueError('Method/advantage estimator mismatch')
-    if (config.algorithm.gamma != 1 or config.algorithm.lam != .95
+    chunking = config.experiment.get('chunking', 'token')
+    if chunking not in ('token', 'math', 'gsm8k'):
+        raise ValueError('Unknown reasoning chunking mode')
+    if config.experiment.get('critic_folds', 2) not in (1, 2):
+        raise ValueError('Use one shared head or two legacy folds')
+    if (config.algorithm.gamma != 1 or not 0 <= config.algorithm.lam <= 1
             or config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss):
-        raise ValueError('Comparison uses gamma=1, actor GAE lambda=.95, no KL shaping')
+        raise ValueError('Use gamma=1, GAE lambda in [0,1], no KL shaping')
     linear = config.experiment.method in ('ridge', 'lstd')
     if linear:
         import math
@@ -68,6 +73,11 @@ def validate(config):
             raise ValueError('Bottleneck requires immutable FP32 cumulative features and a hashed checkpoint')
         if sha256(model.critic_bottleneck_path) != model.critic_bottleneck_sha256:
             raise ValueError('Bottleneck checkpoint changed')
+    if (config.actor_rollout_ref.model.get('critic_chunking', chunking) != chunking
+            or config.critic.get('chunking', chunking) != chunking):
+        raise ValueError('Driver and workers must use the same chunking')
+    if chunking != 'token' and (config.critic.use_dynamic_bsz or config.critic.ppo_micro_batch_size_per_gpu != 1):
+        raise ValueError('Chunked transformer critic requires fixed microbatch=1')
     if config.experiment.replay_capacity:
         raise ValueError('The final pipeline does not use a buffer')
     if mode == 'frozen' and not config.actor_rollout_ref.actor.fsdp_config.param_offload:
@@ -139,6 +149,10 @@ def run(config):
         initialization_seconds=init_seconds, training_seconds=training_seconds,
         training_gpu_hours=training_seconds * config.trainer.n_gpus_per_node / 3600,
         scope='Training time includes validation, checkpointing, feature transport and critic fitting; excludes setup and test evaluation')
+    result['chunking'] = config.experiment.get('chunking', 'token')
+    result['critic_folds'] = config.experiment.get('critic_folds', 2)
+    result['gae_lambda'] = float(config.algorithm.lam)
+    result['advantage'] = 'chunk_gae' if result['chunking'] != 'token' and config.experiment.method != 'grpo' else config.algorithm.adv_estimator
     result['ppo_profile'] = config.experiment.ppo_profile
     result['evaluation_split'] = config.experiment.evaluation_split
     if calibration:

@@ -1,4 +1,4 @@
-"""Raw-sum LSTD with a fixed feature basis and stable question cross-fitting.
+"""Raw-sum Ridge/LSTD with a fixed feature basis and one shared head by default.
 
 Old-policy transitions are retained as sufficient statistics, not an on-policy
 estimator. No answer buffer, mean normalization, adaptive ridge or pseudoinverse.
@@ -34,14 +34,17 @@ def trajectory_statistics(states, outcome, trace_lambda=0.):
 
 
 class CumulativeCritic:
-    def __init__(self, question_ids, seed=42, epsilon=.01, trace_lambda=0., reset_interval=0, method="lstd"):
+    def __init__(self, question_ids, seed=42, epsilon=.01, trace_lambda=0., reset_interval=0, method="lstd", folds=1):
         if not np.isfinite(epsilon) or epsilon <= 0 or not 0 <= trace_lambda <= 1 or reset_interval < 0:
             raise ValueError('Invalid cumulative LSTD settings')
         if method not in ('lstd', 'ridge'):
             raise ValueError('Unknown cumulative method')
+        if folds not in (1, 2):
+            raise ValueError('Use one shared head or two legacy cross-fitted heads')
+        self.folds = folds
         self.method = method
         ids = sorted(set(question_ids))
-        self.assignment = dict(zip(ids, question_folds(ids, seed).tolist()))
+        self.assignment = dict(zip(ids, question_folds(ids, seed).tolist())) if folds == 2 else dict.fromkeys(ids, 0)
         self.epsilon, self.trace_lambda, self.reset_interval = epsilon, trace_lambda, reset_interval
         self.step, self.epoch = 0, -1
         self.stats = None
@@ -70,11 +73,11 @@ class CumulativeCritic:
         if any(len(f) != int(n) or f.shape[1] != k for f, n in zip(states, lengths)):
             raise ValueError('Feature count/dimension differs from actions')
         if any(q not in self.assignment for q in questions):
-            raise ValueError('Question outside the sealed training fold assignment')
+            raise ValueError('Question outside the sealed training question assignment')
         reset = epoch != self.epoch
         if reset:
             self.stats = [dict(a=torch.zeros(k, k, dtype=torch.float64), b=torch.zeros(k, dtype=torch.float64),
-                               transitions=0, answers=0) for _ in range(2)]
+                               transitions=0, answers=0) for _ in range(self.folds)]
         elif self.stats[0]['b'].numel() != k:
             raise ValueError('Feature dimension changed without a reset')
         for phi, outcome, q in zip(states, outcomes.tolist(), questions):
@@ -91,8 +94,8 @@ class CumulativeCritic:
             stats['answers'] += 1
         values = torch.zeros_like(rewards, dtype=torch.float32)
         heads, checks = [], []
-        for fold in range(2):
-            stats = self.stats[1 - fold]  # No current OR historical labels from predicted questions.
+        for fold in range(self.folds):
+            stats = self.stats[1 - fold if self.folds == 2 else 0]
             system = stats['a'] + self.epsilon * torch.eye(k, dtype=torch.float64)
             weights = torch.linalg.solve(system, stats['b'])
             residual = torch.linalg.vector_norm(system @ weights - stats['b'])
@@ -117,10 +120,10 @@ class CumulativeCritic:
             feature_epoch=feature_epoch, statistics_epoch=epoch, reset=reset, epsilon=self.epsilon,
             intercept_penalized=True, critic_lambda=self.trace_lambda, folds=checks,
             fit_seconds=time.perf_counter()-started, transitions=int(lengths.sum()), answers=len(states),
-            out_of_fold_brier=float((valid-target).square().mean()),
+            prediction_brier=float((valid-target).square().mean()), cross_fitted=self.folds == 2,
             outside_unit_interval=float(((valid < 0) | (valid > 1)).float().mean()),
             scope='Uncorrected mixture of behavior policies within each statistics epoch')
 
     def state_dict(self):
-        return dict(method=self.method, step=self.step, epoch=self.epoch, stats=self.stats, assignment=self.assignment,
+        return dict(method=self.method, folds=self.folds, step=self.step, epoch=self.epoch, stats=self.stats, assignment=self.assignment,
                     epsilon=self.epsilon, trace_lambda=self.trace_lambda, reset_interval=self.reset_interval)

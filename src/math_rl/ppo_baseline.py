@@ -24,7 +24,7 @@ def zero_value_head(model):
 
 
 def critic_diagnostics(before, after, returns, mask):
-    """Equal-answer MSE on the SAME detached raw GAE targets, not whitened advantages."""
+    """Equal-answer MSE on the SAME detached value targets, not whitened advantages."""
     before, after, returns, mask = [x.detach().cpu().float() for x in (before, after, returns, mask)]
     if not (before.shape == after.shape == returns.shape == mask.shape):
         raise ValueError('Critic diagnostic shape mismatch')

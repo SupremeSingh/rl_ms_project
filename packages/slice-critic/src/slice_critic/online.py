@@ -7,17 +7,18 @@ from .features import rms_coordinates
 
 
 @torch.inference_mode()
-def bottleneck_prefixes(encoder, ids, masks, response_width, fitted, layers, eps):
+def bottleneck_prefixes(encoder, ids, masks, response_width, fitted, layers, eps, positions=None):
     model, mean, scale = fitted
     device = next(encoder.parameters()).device
     model.to(device)
     result = []
     try:
-        for row, mask in zip(ids, masks, strict=True):
+        for i, (row, mask) in enumerate(zip(ids, masks, strict=True)):
             prompt = int(mask[:-response_width].sum())
             response = int(mask[-response_width:].sum())
             tokens = row[mask.bool()].unsqueeze(0).to(device)
-            blocks = sampled_block_states(encoder, tokens, prompt, response, list(range(response)), layers)
+            sampled = list(range(response)) if positions is None else list(positions[i])
+            blocks = sampled_block_states(encoder, tokens, prompt, response, sampled, layers)
             x = torch.cat([rms_coordinates(blocks[l].float(), eps) for l in layers], 1)
             if x.shape[1] != mean.numel():
                 raise ValueError('Offline/online feature dimensions differ')
@@ -31,11 +32,11 @@ def bottleneck_prefixes(encoder, ids, masks, response_width, fitted, layers, eps
 
 
 @torch.inference_mode()
-def frozen_prefixes(encoder, input_ids, attention_mask, response_width, layer="final"):
+def frozen_prefixes(encoder, input_ids, attention_mask, response_width, layer="final", positions=None):
     """One causal encoder pass per unpadded answer, retaining pre-action states."""
     device = next(encoder.parameters()).device
     features = []
-    for ids, mask in zip(input_ids, attention_mask, strict=True):
+    for i, (ids, mask) in enumerate(zip(input_ids, attention_mask, strict=True)):
         prompt = int(mask[:-response_width].sum())
         response = int(mask[-response_width:].sum())
         if prompt < 1 or response < 1:
@@ -61,5 +62,7 @@ def frozen_prefixes(encoder, input_ids, attention_mask, response_width, layer="f
         states = hidden[0, prompt-1:prompt+response-1].float().cpu().numpy().copy()
         if len(states) != response or not np.isfinite(states).all():
             raise ValueError('Invalid frozen features')
+        if positions is not None:
+            states = states[list(positions[i])]
         features.append(states)
     return features

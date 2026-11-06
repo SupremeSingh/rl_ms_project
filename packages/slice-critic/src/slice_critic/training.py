@@ -92,6 +92,11 @@ def _answers(out,q):
             yield i,row
 
 
+def _state_positions(config, backend, row):
+    from .chunks import token_chunks
+    return list(token_chunks(getattr(backend, 'tokenizer', None), row['token_ids'], config.chunking).starts)
+
+
 def _sampled(out, questions, config, backend, layers, split):
     xs=[];ys=[];groups=[];positions=[]
     for q in questions:
@@ -105,8 +110,9 @@ def _sampled(out, questions, config, backend, layers, split):
             else:
                 seed=int(hashlib.sha256(f'{config.seed}:prefix:{q["id"]}:{i}'.encode()).hexdigest()[:8],16)
                 generator=torch.Generator().manual_seed(seed)
-                # Uniform random pre-action lengths L in {0,...,T-1}, without replacement.
-                sampled=torch.randperm(len(row['token_ids']),generator=generator)[:config.prefixes_per_answer].sort().values.tolist()
+                available = _state_positions(config, backend, row)
+                indices = torch.randperm(len(available), generator=generator)[:config.prefixes_per_answer].sort().values.tolist()
+                sampled = [available[i] for i in indices]
                 x=backend.trajectory_features(q['prompt_token_ids'],row['token_ids'],sampled,layers).float().cpu()
                 if x.shape!=(len(sampled),len(layers)*backend.hidden_size) or not torch.isfinite(x).all():
                     raise ValueError('Invalid sampled frozen features')
@@ -170,7 +176,8 @@ def _fit_head(out, questions, config, backend, layers, fitted):
             if key in state['processed']:
                 if state['processed'][key]!=source_hash: raise ValueError('Changed accumulated trajectory')
                 continue
-            x=backend.trajectory_features(q['prompt_token_ids'],row['token_ids'],list(range(len(row['token_ids']))),layers)
+            positions = _state_positions(config, backend, row)
+            x=backend.trajectory_features(q['prompt_token_ids'],row['token_ids'],positions,layers)
             z=encode(model,x,fitted['mean'],fitted['scale'],'cpu')
             if config.method=='ridge':
                 phi=raw_design(z);a=phi.T@phi;b=phi.sum(0)*row['score']
@@ -183,7 +190,8 @@ def _fit_head(out, questions, config, backend, layers, fitted):
     weights,residual=fit_system(state['a'],state['b'],config.epsilon)
     return weights,dict(answers=state['answers'],transitions=state['transitions'],relative_residual=residual,
                         method=config.method,critic_lambda=config.critic_lambda,gamma=1,epsilon=config.epsilon,
-                        scope='All retained complete training trajectories; raw sums, penalized intercept')
+                        chunking=config.chunking, state_unit='token' if config.chunking == 'token' else 'chunk',
+                        scope='All retained training states; raw sums, penalized intercept')
 
 
 def _run(config, out, device, backend, grader):
@@ -253,7 +261,8 @@ def _run(config, out, device, backend, grader):
     manifest=dict(version=out.name,package_version=__version__,model=model,prompt_instruction=INSTRUCTION,
                   generation=dict(engine='transformers',temperature=1.,top_p=1.,top_k=0,do_sample=True,
                                   terminal='EOS or configured response cap'),
-                  prefix_sampling='Uniform without replacement from 0,...,T-1; at most configured prefixes_per_answer',
+                  prefix_sampling='Uniform without replacement among pre-action state starts; at most prefixes_per_answer',
+                  chunking=dict(mode=config.chunking, upstream_commit='9f716e68bb934e71da86c226c1699c36b5553faf'),
                   features=dict(layers_zero_based=layers,blocks_one_based=[i+1 for i in layers],
                                 rms_eps=backend.rms_eps,width=config.compression_width,
                                 input_dimension=len(layers)*backend.hidden_size,compression=config.compression,

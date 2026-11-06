@@ -53,6 +53,9 @@ def command(out,m,name,seed,steps,profile='more_fitting',calibration=False,case=
     cmd=runner.command(out,method,seed,steps,feature_mode='frozen',
         ppo_profile=profile if method=='ppo' else 'not_applicable',
         evaluation_split='val' if calibration else 'test',case_name=case or f'{name}-seed{seed}')
+    mode = m.get('chunking', 'token')
+    cmd += [f'actor_rollout_ref.model.critic_chunking={mode}', f'critic.chunking={mode}', f'experiment.chunking={mode}', f'experiment.critic_folds={m.get("critic_folds", 2)}',
+            f'algorithm.lam={m.get("actor_lambda", .95)}']
     if method in ('ridge','lstd'):
         cmd += ['experiment.critic_statistics=cumulative','experiment.cumulative_epsilon=0.01',
                 f'experiment.critic_lambda={m.get("critic_lambda", .99)}','actor_rollout_ref.model.critic_encoder_precision=fp32',
@@ -158,6 +161,8 @@ def report(out,m):
             for seed in m['seeds']:
                 case=out/f'{name}-seed{seed}';r=read(case/'result.json')
                 if r['updates']!=m['steps'] or r['answers']!=m['steps']*64: raise ValueError('Unequal budgets')
+                if r.get('chunking','token') != m.get('chunking','token') or r.get('critic_folds',2) != m.get('critic_folds',2):
+                    raise ValueError('Run and manifest disagree on state granularity or head count')
                 base=runner.read_answers(case/'base-test.jsonl');rows=runner.read_answers(case/'final-test.jsonl')
                 for batch in (base,rows):
                     if [(v['id'],v['ground_truth']) for v in batch]!=expected: raise ValueError('Unpaired test set')
@@ -203,6 +208,7 @@ def report(out,m):
                     descriptive_95_interval_pp=np.quantile(-draws,[.025,.975]).tolist(),
                     bonferroni_primary_interval_pp=np.quantile(-draws,[tail,1-tail]).tolist())
     summary=dict(methods=results,paired=paired,primary_comparisons=m['primary_comparisons'],
+        chunking=m.get('chunking','token'),critic_folds=m.get('critic_folds',2),
         base_accuracy=float(np.mean(base_ref)),ppo_health=health,selection=read(out/'selection.json'),
         filter_pretraining=m.get('filter_pretraining'),
         scope=m['scope'],limitations=f'{len(m["seeds"])} actor seeds, one selected filter per arm. Approximate seed/question bootstrap; '
@@ -211,7 +217,8 @@ def report(out,m):
     write_json(out/'summary.json',summary)
     lines=['Numina online: fixed 768 bottlenecks and frozen single-layer controls; no buffer.',
         f'{m["steps"]} updates x 64 answers; {len(m["seeds"])} seeds; final greedy evaluation.',
-        f'LSTD critic lambda: {m.get("critic_lambda", .99)}; GAE lambda: 0.95; gamma: 1.',
+        f'LSTD critic lambda: {m.get("critic_lambda", .99)}; advantage lambda: {m.get("actor_lambda", .95)}; gamma: 1.',
+        f'Chunking: {m.get("chunking", "token")}; cumulative heads: {m.get("critic_folds", 2)}.',
         'method                   accuracy    training GPUh   accounted GPUh']
     lines += [f'{name:25} {r["accuracy_mean"]:.4f}      {r["training_gpu_hours_mean"]:.3f}          {r["accounted_gpu_hours_mean"]:.3f}' for name,r in results.items()]
     lines += [f'{k}: {paired[k]}' for k in m['primary_comparisons']]

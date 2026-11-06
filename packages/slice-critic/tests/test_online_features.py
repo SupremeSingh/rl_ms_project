@@ -41,3 +41,15 @@ def test_raw_controls_keep_pre_action_index_norm_and_causality(layer):
     changed=ids.clone();changed[0,3]=9
     other=encode_hidden_rollout_features(encoder,changed,mask,3,layer)[0]
     torch.testing.assert_close(torch.from_numpy(features[:2]),torch.from_numpy(other[:2]))
+
+
+@pytest.mark.parametrize('layer',['two_thirds','final'])
+def test_chunk_features_are_selected_pre_action_states_not_chunk_averages(layer):
+    encoder=Encoder().eval().requires_grad_(False)
+    ids=torch.tensor([[1,2,3,4,5]]);mask=torch.ones_like(ids)
+    full=encode_hidden_rollout_features(encoder,ids,mask,3,layer)[0]
+    selected=encode_hidden_rollout_features(encoder,ids,mask,3,layer,positions=[(0,2)])[0]
+    torch.testing.assert_close(torch.from_numpy(selected),torch.from_numpy(full[[0,2]]))
+    changed=ids.clone();changed[0,2:]=torch.tensor([7,8,9])
+    later=encode_hidden_rollout_features(encoder,changed,mask,3,layer,positions=[(0,2)])[0]
+    torch.testing.assert_close(torch.from_numpy(selected[:1]),torch.from_numpy(later[:1]))

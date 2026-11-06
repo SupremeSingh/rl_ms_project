@@ -64,13 +64,16 @@ head = CumulativeCritic(all_question_ids, method="ridge", epsilon=.01)
 values, weights, diagnostics = head.update(
     features_per_answer, terminal_rewards, response_masks, question_ids, step=1,
 )
-# The consuming project computes GAE and updates its actor.
+# The consumer broadcasts chunk-level credit and updates its actor.
 ```
 
 For LSTD, specify `method="lstd", trace_lambda=.9` (or the desired tested trace).
-Gamma is 1. Statistics accumulate in two persistent question folds; no head fits
-its predicted question's rewards. Features stay frozen. Historical-policy data
-are uncorrected. LSTD requires consecutive states, not isolated random prefixes.
+Gamma is 1. Statistics accumulate in one shared head by default; explicit
+`folds=2` supports historical cross-fitting. Features stay frozen. Historical-policy
+data are uncorrected. LSTD requires consecutive states, not isolated random prefixes.
+In v3 training, states are pre-chunk prefixes: supply compressed chunk masks and
+chunk rewards to this API, then broadcast the resulting credit to original tokens.
+See [chunk protocol](../../docs/CHUNKING.md) for offline/online defaults and GPU checks.
 
 Export only features to PPO; the offline value head is not an online baseline.
 Exclude representation-training and selection families before collecting RL data.

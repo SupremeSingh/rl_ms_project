@@ -65,7 +65,7 @@ def test_public_ppo_exports_are_existing_implementations():
 @pytest.mark.parametrize('method', ['ridge', 'lstd'])
 def test_cumulative_public_api_matches_explicit_raw_sums_and_cross_fitting(method):
     from slice_critic.cumulative import trajectory_statistics, raw_design
-    critic = CumulativeCritic(['a', 'b', 'c', 'd'], seed=42, epsilon=.01, trace_lambda=.99, method=method)
+    critic = CumulativeCritic(['a', 'b', 'c', 'd'], seed=42, epsilon=.01, trace_lambda=.99, method=method, folds=2)
     ids = [next(q for q, fold in critic.assignment.items() if fold == f) for f in (0, 1)]
     features = [torch.tensor([[.1, .2], [.3, .4]]), torch.tensor([[.2, .7], [.5, .8]])]
     rewards = torch.tensor([[0., 1.], [0., 0.]])

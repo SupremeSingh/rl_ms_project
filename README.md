@@ -27,8 +27,9 @@ comparison pipeline for numeric math questions.
 A model answering “9 avocados, 3 per serving” chooses one token at a time. At
 “Divide 9 by…”, the critic estimates the eventual reward from continuing that
 partial answer. Math-Verify gives the completed answer a reward of 1 or 0.
-Generalized advantage estimation (GAE) combines these rewards with the critic's
-values; PPO uses the resulting advantages to adjust the model's token choices.
+In v3, GAE combines reasoning-chunk value differences to assign credit; PPO
+uses the broadcast advantages to adjust the model's token choices. Earlier
+experiments used token-level generalized advantage estimation (GAE).
 
 ![SLICE: combine selected frozen transformer layers, compress to 768 features and predict the final outcome.](docs/figures/overview.png)
 
@@ -43,69 +44,52 @@ The diagram's correctness score is an outcome estimate, not a proof of the
 reasoning. Online Ridge/LSTD values are unbounded linear predictions; standalone
 package scoring also provides a separately calibrated probability.
 
-## The final learning algorithm
+## v3: reasoning chunks, one cumulative head
 
-During PPO, **only the actor is updated by gradients** in the SLICE arms. Its
-critic uses the frozen base encoder and frozen compressor, with fresh linear
-weights fitted from accumulated statistics. Ridge fits each prefix to its
-observed final reward. LSTD fits trace-weighted temporal-difference equations.
-
-Every training question belongs permanently to one of two groups, or *folds*.
-Each fold's rewards fit one head, which predicts values for the opposite fold.
-This keeps a question's own current and historical rewards out of the head used
-to calculate its advantages.
-
-Here, `x = [768 compressed features; 1]` includes an intercept, so each `A` is
-**769 × 769** and each `b` and `w` has 769 entries. The final Numina settings are
-`gamma = 1`, `critic_lambda = 0.9`, `GAE_lambda = 0.95` and `epsilon = 0.01`.
-Critic lambda and GAE lambda control different calculations.
+**New implementation; no chunked accuracy results yet.** We now adopt
+[VinePPO's](https://github.com/McGill-NLP/VinePPO) LaTeX-aware MATH segmentation
+and its rule of giving all tokens in a reasoning chunk the same advantage.
+We retain learned SLICE/Ridge/LSTD values; auxiliary Monte Carlo rollouts are
+not implemented. GSM8K's newline splitting is also available explicitly.
 
 ```text
-Freeze the base encoder, learned bottleneck and feature normalization.
-Assign each training question to a fixed fold: 0 or 1.
-Initialize A[fold] = 0 and b[fold] = 0 for both folds.
-
-For each PPO update:
-    Generate fresh answers with the current actor; score their final outcomes.
-    Extract frozen features for every pre-action prefix; append intercept 1.
-
-    For each answer:
-        f = its question's fixed fold
-
-        If using Ridge:
-            For each prefix x:
-                A[f] += outer(x, x)
-                b[f] += x * final_reward
-
-        If using LSTD:
-            Reset eligibility trace z = 0 at the start of this answer.
-            For each transition (x, reward, x_next):
-                # reward is zero except at the last action.
-                # At termination, x_next is all zero, including its intercept.
-                z = gamma * critic_lambda * z + x
-                A[f] += outer(z, x - gamma * x_next)
-                b[f] += z * reward
-
-    For each fold f:
-        w[f] = solve(A[f] + epsilon * I, b[f])
-
-    Predict each question's token values with the opposite fold's weights:
-        value(x) = dot(w[1 - f], x)
-    Compute GAE using these values, fresh rewards and terminal value zero.
-    Update the actor with PPO on fresh answers only.
-
-    Keep A and b for the next update; do not divide them by the sample count.
-    Keep the encoder, bottleneck and normalization frozen.
+Fresh answers → reasoning chunks → causal features at chunk starts
+    → one cumulative Ridge/LSTD head → GAE across chunks
+    → broadcast each advantage to its tokens → PPO actor update
 ```
 
-The small matrix statistics persist; generated answers are not kept in a buffer.
-Regularization is added when solving, including on the intercept. Past policies
-remain represented in `A` and `b` without off-policy correction: question
-cross-fitting limits reward leakage, but does not make old experience on-policy.
+The base encoder, compressor and normalization stay frozen. Each answer updates
+one shared `A,b`; SLICE's system remains 769×769 including its intercept.
 
-![PPO system architecture: fresh answers, frozen SLICE features, cumulative opposite-fold linear critics, GAE and actor updates.](docs/figures/final-architecture.png)
+```text
+Initialize A = 0, b = 0; freeze encoder, compressor and normalization.
+For each PPO update:
+    Generate fresh answers; verify terminal correctness.
+    Split answers into chunks; extract x at each pre-chunk prefix.
+    For each answer:
+        Ridge: add outer(x,x) to A and x*final_reward to b, once per chunk.
+        LSTD: reset z=0; for each chunk transition:
+            z = critic_lambda*z + x
+            A += outer(z, x - x_next); b += z*chunk_reward
+            # terminal x_next is all zero, including intercept
+    w = solve(A + 0.01*I, b)
+    V(chunk) = dot(w,x); terminal V=0
+    delta(chunk) = chunk_reward + V(next_chunk) - V(chunk)
+    Backward over chunks: advantage = delta + 0.95 * next_advantage
+    Broadcast to tokens; normalize advantages; update actor with PPO.
+    Retain raw A,b. Do not replay old answers or change the frozen feature basis.
+```
 
-[Open the scalable architecture diagram](docs/figures/final-architecture.svg).
+Gamma is 1 and GAE lambda stays **0.95**, now operating across chunks.
+`algorithm.lam=0` is an explicit comparison matching VinePPO's one-step
+value-difference formula. LSTD trace lambda remains a separate parameter.
+Conventional PPO fits its critic only at chunk starts; GRPO remains an answer-level
+baseline. Historical policies remain in accumulated statistics without correction.
+Sparsity still uses dense kernels, and chunking still requires full encoder attention.
+
+[Exact upstream mapping, differences, legacy reproduction and GPU smoke commands](docs/CHUNKING.md).
+The older two-fold/token system diagrams are historical; the flow above is the
+current implementation. Historical results below do not measure v3 chunking.
 
 ## Recorded Numina results
 

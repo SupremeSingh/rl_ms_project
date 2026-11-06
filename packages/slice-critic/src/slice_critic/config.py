@@ -49,6 +49,7 @@ class TrainingConfig:
     compression_width: int = 768
     compression: str = 'sparse'
     method: str = 'ridge'
+    chunking: str = 'math'
     critic_lambda: float = .99
     epsilon: float = .01
     prefixes_per_answer: int = 8
@@ -69,6 +70,8 @@ class TrainingConfig:
         if self.model_path and self.model_revision is not None and not immutable_revision(self.model_revision):
             raise ValueError('Local model_revision, when supplied, must be an immutable commit SHA')
         if self.model_id!=MODEL_ID: raise ValueError('Version 1 supports the fixed Qwen2.5-Math-1.5B encoder')
+        if self.chunking not in ('token', 'math', 'gsm8k'):
+            raise ValueError('Unsupported chunking mode')
         if self.compression not in ('plain','sparse') or self.method not in ('ridge','lstd'):
             raise ValueError('Unsupported compression or head method')
         if not 0<=self.critic_lambda<=1 or not math.isfinite(self.epsilon) or self.epsilon<=0:
@@ -89,4 +92,5 @@ class TrainingConfig:
                     maximum_generated_tokens=self.max_questions*self.responses_per_question*self.max_new_tokens,
                     split_rule='60/20/20 question families, deterministic seeded ordering',
                     generation='frozen model, sampling temperature=1, top_p=1',
-                    fitting='compressor on sampled pre-action prefixes; head on all retained training transitions')
+                    fitting='compressor on sampled pre-action states; head on all retained states',
+                    state_unit='token' if self.chunking == 'token' else 'reasoning chunk')

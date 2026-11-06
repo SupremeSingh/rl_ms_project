@@ -37,6 +37,12 @@ class FeatureActorWorker(ActorRolloutRefWorker):
             self._critic_encoder = AutoModel.from_pretrained(
                 self.config.model.path, torch_dtype=torch.float32 if fp32 else torch.bfloat16,
                 attn_implementation='eager' if fp32 else 'sdpa', trust_remote_code=False).eval().requires_grad_(False)
+        chunk_mode = self.config.model.get('critic_chunking', 'token')
+        positions = None
+        if chunk_mode != 'token':
+            from slice_critic.chunks import token_chunks
+            positions = [token_chunks(self.tokenizer, row[-width:][mask[-width:].bool()].tolist(), chunk_mode).starts
+                         for row, mask in zip(ids, masks, strict=True)]
         epoch = 0
         refresh_seconds = 0.
         self._critic_encoder_epoch = epoch
@@ -52,9 +58,9 @@ class FeatureActorWorker(ActorRolloutRefWorker):
                         model_path=self.config.model.path)
                 features = bottleneck_prefixes(self._critic_encoder, ids, masks, width,
                     self._critic_filter, list(self.config.model.critic_bottleneck_layers),
-                    self.config.model.critic_bottleneck_rms_eps)
+                    self.config.model.critic_bottleneck_rms_eps, positions=positions)
             else:
-                features = frozen_prefixes(self._critic_encoder, ids, masks, width, layer=layer)
+                features = frozen_prefixes(self._critic_encoder, ids, masks, width, layer=layer, positions=positions)
         finally:
             self._critic_encoder.cpu()
             torch.cuda.empty_cache()
