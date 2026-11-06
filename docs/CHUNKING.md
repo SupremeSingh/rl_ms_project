@@ -33,9 +33,14 @@ chunk; zero-token chunks are omitted. This makes transitions executable on the
 **original sampled token IDs**, without rewriting actions. All tokens count,
 including EOS and the last token of a capped response.
 
-Fast tokenizer offsets are required. Response decoding must re-encode to the
-same IDs; mismatches raise a clear error rather than changing generated actions
-or their PPO probabilities. This strict alignment must be exercised by GPU smoke.
+A fast tokenizer is required. Qwen's ByteLevel BPE is aligned directly from the
+original sampled token bytes to decoded characters: alternative tokenizations
+of the same text remain valid. Split Unicode characters and incomplete/invalid
+UTF-8 at the response cap follow the tokenizer's replacement-character decoding.
+The reconstructed text is checked against the tokenizer decoder; sampled IDs
+and their PPO probabilities are never changed. Other decoder types use offsets
+only when re-encoding preserves IDs, otherwise they fail clearly. This alignment
+must still be exercised by GPU smoke.
 
 ## Our adaptation: learned values, not Monte Carlo VinePPO
 
