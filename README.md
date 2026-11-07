@@ -52,7 +52,7 @@ and its rule of giving all tokens in a reasoning chunk the same advantage.
 We retain learned SLICE/Ridge/LSTD values; auxiliary Monte Carlo rollouts are
 not implemented. GSM8K's newline splitting is also available explicitly.
 If MATH segmentation fails, we retain every sampled token and use fixed groups
-of at most 64 tokens instead; `experiment.chunk_fallback_tokens` adjusts that
+of at most 32 tokens instead; `experiment.chunk_fallback_tokens` adjusts that
 fallback size. Normal heuristic chunks are unchanged, and fallback rates are logged.
 
 ```text

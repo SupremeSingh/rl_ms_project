@@ -34,7 +34,7 @@ class AuditedCriticWorker(CriticWorker):
             from verl.trainer.ppo import core_algos
             from math_rl.chunked_critic import boundary_loss
             with boundary_loss(self.critic, self.tokenizer, mode, core_algos,
-                               self.config.get('chunk_fallback_tokens', 64)):
+                               self.config.get('chunk_fallback_tokens', 32)):
                 result = super().update_critic(data)
             mask = data.batch['chunk_start_mask'].detach().cpu().clone()
         # Extra forward included in measured training cost, also in final runs.
@@ -43,7 +43,7 @@ class AuditedCriticWorker(CriticWorker):
         audit_seconds = time.perf_counter() - started
         row = critic_diagnostics(before, after, targets, mask)
         row['chunking'] = mode
-        row['chunk_fallback_tokens'] = self.config.get('chunk_fallback_tokens', 64)
+        row['chunk_fallback_tokens'] = self.config.get('chunk_fallback_tokens', 32)
         row['audit_seconds'] = audit_seconds
         metrics = result.meta_info['metrics']
         gradients = torch.as_tensor(metrics['critic/grad_norm']).float()

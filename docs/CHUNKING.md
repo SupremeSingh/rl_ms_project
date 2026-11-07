@@ -27,9 +27,9 @@ We borrow the segmentation and broadcast rules; default GAE .95 deliberately
 differs from upstream's one-step advantages. The MATH algorithm is vendored with its MIT notice in the installed package.
 Only its md5 dependency is replaced by the identical local helper. If upstream MATH segmentation raises an assertion or produces an invalid
 partition, our wrapper divides that response into consecutive groups of at most
-**64 original tokens** by default. The final group may be shorter; EOS counts as
-a token and remains in the final group. For 150 tokens and a size of 64, groups
-cover `[0:64]`, `[64:128]`, `[128:150]`. This is a fallback, not a new limit on
+**32 original tokens** by default. The final group may be shorter; EOS counts as
+a token and remains in the final group. For 75 tokens and a size of 32, groups
+cover `[0:32]`, `[32:64]`, `[64:75]`. This is a fallback, not a new limit on
 normal heuristic chunks. It records the failure reason; unrelated programming
 errors still stop the run. No answer, reward or action token is dropped. Online
 chunk metrics record the configured size, fallback count and reasons; the
@@ -79,10 +79,14 @@ step-specific information for it.
 
 The new default is `experiment.chunking=math`, `experiment.critic_folds=1`,
 `algorithm.lam=0.95`. **Chunking and advantage estimation are separate choices.**
-Set `experiment.chunk_fallback_tokens=32` (or any positive integer) before a new
+Set `experiment.chunk_fallback_tokens=64` (or any positive integer) before a new
 run to change only the failure fallback size. Driver and worker settings share
 this value through configuration interpolation and are checked for agreement.
-The default 64 is a practical convention, not a validation-selected optimum.
+The default 32 is informed by saved Numina training-answer diagnostics: 512
+re-tokenized responses yielded normal chunks with mean 18.2, median 16, p75 25,
+and p95 40 tokens. It is a granularity heuristic, not a validated PPO optimum.
+Those saved convenience samples had no detected splitter failures; they exclude
+the failed update that was never dumped and do not establish a corpus failure rate.
 For chunk j, gamma=1:
 
 ```text
@@ -104,7 +108,7 @@ in chunk units. SLICE compression and Ridge/LSTD equations are unchanged.
 Same epsilon with fewer state updates also changes its effective relative strength.
 This is a new training recipe, not an algebraically equivalent optimization.
 
-Offline package training defaults to `TrainingConfig(chunking='math', chunk_fallback_tokens=64)`: sample
+Offline package training defaults to `TrainingConfig(chunking='math', chunk_fallback_tokens=32)`: sample
 up to eight chunk-start states for compressor fitting/evaluation and fit the
 linear head on every retained training chunk. `gsm8k` and `token` are explicit
 alternatives. Manifests record state units, fallback policy/size, splitter commit, and positions.

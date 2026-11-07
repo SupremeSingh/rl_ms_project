@@ -17,4 +17,4 @@ artifact="${1:?Usage: sbatch scripts/submit_chunked_smoke.sh ARTIFACT NEW_OUTPUT
 out="${2:?Pass a new output directory}"
 srun bash scripts/container_exec.sh env -u TORCH_ALLOW_TF32_CUBLAS_OVERRIDE \
   "$PWD/.venv/bin/python" scripts/smoke_chunked_pipeline.py "$artifact" --out "$out" \
-  --source "${3:-data/numina/online/questions.json}" --chunk-fallback-tokens "${4:-64}"
+  --source "${3:-data/numina/online/questions.json}" --chunk-fallback-tokens "${4:-32}"

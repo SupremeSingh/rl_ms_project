@@ -36,7 +36,7 @@ def select_questions(rows, manifest, train_count=64, val_count=16):
     return selected
 
 
-def command(out, method, exported, gae_lambda=.95, fallback_tokens=64):
+def command(out, method, exported, gae_lambda=.95, fallback_tokens=32):
     return runner.command(out, method, 42, 2, feature_mode='frozen',
         evaluation_split='val') + [
         f'experiment.chunk_fallback_tokens={fallback_tokens}',
@@ -81,7 +81,7 @@ def verify_run(case, method):
 
 
 def run(args):
-    fallback_tokens = getattr(args, 'chunk_fallback_tokens', 64)
+    fallback_tokens = getattr(args, 'chunk_fallback_tokens', 32)
     if type(fallback_tokens) is not int or fallback_tokens < 1:
         raise ValueError('chunk_fallback_tokens must be a positive integer')
     from datasets import Dataset
@@ -131,13 +131,13 @@ def run(args):
                 env['RAY_TMPDIR'] = ray_tmp
                 with (out / f'{method}.log').open('w') as log:
                     subprocess.run(command(out, method, exported, getattr(args, 'gae_lambda', .95),
-                                           getattr(args, 'chunk_fallback_tokens', 64)), cwd=ROOT, env=env,
+                                           getattr(args, 'chunk_fallback_tokens', 32)), cwd=ROOT, env=env,
                                    stdout=log, stderr=subprocess.STDOUT, check=True)
             checks[method] = verify_run(out / f'{method}-seed42', method)
         write_json(out / 'verification.json', dict(passed=True, methods=checks,
             offline_value_head_loaded=False, frozen_encoder=True, frozen_compressor=True,
             buffer_capacity=0, gamma=1, lstd_lambda=.9, gae_lambda=getattr(args, "gae_lambda", .95), chunking="math",
-            chunk_fallback_tokens=getattr(args, 'chunk_fallback_tokens', 64),
+            chunk_fallback_tokens=getattr(args, 'chunk_fallback_tokens', 32),
             scope='Two real PPO updates per method; integration check, not an accuracy ranking'))
         write_json(out / 'status.json', dict(state='complete'))
     except BaseException as exc:
@@ -150,5 +150,5 @@ if __name__ == '__main__':
     p.add_argument('artifact', type=Path)
     p.add_argument('--source', type=Path, default=Path('data/numina/online/questions.json'))
     p.add_argument('--out', type=Path, required=True)
-    p.add_argument('--chunk-fallback-tokens', type=int, default=64)
+    p.add_argument('--chunk-fallback-tokens', type=int, default=32)
     run(p.parse_args())

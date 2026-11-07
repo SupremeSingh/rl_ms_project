@@ -30,7 +30,7 @@ config = TrainingConfig(
     max_questions=1000, responses_per_question=4, max_new_tokens=1024,
     layer_base=2, num_slices=5, compression_width=768,
     compression="sparse", method="ridge",
-    chunking="math", chunk_fallback_tokens=64,
+    chunking="math", chunk_fallback_tokens=32,
 )
 artifact = train_critic(config, output_dir="critics/math-v001")
 ```

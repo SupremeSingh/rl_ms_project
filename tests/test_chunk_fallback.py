@@ -19,7 +19,7 @@ def test_long_repeated_latex_reproduces_upstream_bug_but_preserves_actions():
     text='$a$'*12
     with pytest.raises(AssertionError,match='Last index'):vineppo_math.split_solution_inplace(text)
     assert character_boundaries(text,'math')==[0,len(text)]
-    plan=token_chunks(Characters(),list(map(ord,text))+[0],'math')
+    plan=token_chunks(Characters(),list(map(ord,text))+[0],'math',fallback_tokens=64)
     assert plan.fallback_reason=='upstream_assertion'
     assert plan.starts==(0,) and plan.ends==(len(text)+1,)
     mask=torch.ones(1,plan.tokens);rewards=torch.zeros_like(mask);rewards[0,-1]=1
@@ -38,14 +38,14 @@ def test_normal_segmentation_matches_upstream_without_fallback():
     assert token_chunks(Characters(),tokens,'math',fallback_tokens=1)==plan
 
 
-@pytest.mark.parametrize('size', [1, 8, 16, 64, 128])
+@pytest.mark.parametrize('size', [1, 8, 16, 32, 64, 128])
 @pytest.mark.parametrize('eos', [False, True])
 def test_configurable_fallback_preserves_actions_reward_and_causal_starts(size,eos):
     text='$a$'*50
     tokens=list(map(ord,text))+([0] if eos else [])
     original=tokens.copy()
     plan=token_chunks(Characters(),tokens,'math',fallback_tokens=size)
-    if size==64:
+    if size==32:
         assert plan==token_chunks(Characters(),tokens,'math')
     assert plan.fallback_reason=='upstream_assertion'
     assert plan.starts==tuple(range(0,len(tokens),size))

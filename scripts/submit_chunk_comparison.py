@@ -33,7 +33,7 @@ def submit(out,mode,source=None,concurrency=6,fallback_tokens=None):
         if dependency:args+=[f'--dependency=afterok:{dependency}','--kill-on-invalid-dep=yes']
         if array:args+=[f'--array={array}']
         args+=['scripts/run_chunk_comparison.sh',stage,str(out),'1' if gpu else '0',str(source.absolute()) if source else '']
-        if stage=='prepare':args.append(str(fallback_tokens if fallback_tokens is not None else 64))
+        if stage=='prepare':args.append(str(fallback_tokens if fallback_tokens is not None else 32))
         # Record intent first: a timed-out sbatch may already have accepted the job.
         sidecar=ledger/f'{stage}-submission.json';sidecar.write_text(json.dumps(dict(state='submitting',command=args),indent=2)+'\n')
         r=subprocess.run(args,cwd=ROOT,text=True,capture_output=True)
@@ -55,6 +55,6 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--mode',required=True,choices=['smoke','train'])
     p.add_argument('--out',type=Path,required=True);p.add_argument('--source',type=Path)
     p.add_argument('--concurrency',type=int,default=6)
-    p.add_argument('--chunk-fallback-tokens',type=int,help='Smoke preparation only: fallback size (default: 64)')
+    p.add_argument('--chunk-fallback-tokens',type=int,help='Smoke preparation only: fallback size (default: 32)')
     a=p.parse_args()
     submit(a.out,a.mode,a.source,a.concurrency,a.chunk_fallback_tokens)

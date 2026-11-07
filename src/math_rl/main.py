@@ -27,7 +27,7 @@ def validate(config):
     chunking = config.experiment.get('chunking', 'token')
     if chunking not in ('token', 'math', 'gsm8k'):
         raise ValueError('Unknown reasoning chunking mode')
-    fallback_tokens = config.experiment.get('chunk_fallback_tokens', 64)
+    fallback_tokens = config.experiment.get('chunk_fallback_tokens', 32)
     if type(fallback_tokens) is not int or fallback_tokens < 1:
         raise ValueError('chunk_fallback_tokens must be a positive integer')
     if config.experiment.get('critic_folds', 2) not in (1, 2):
@@ -156,7 +156,7 @@ def run(config):
         training_gpu_hours=training_seconds * config.trainer.n_gpus_per_node / 3600,
         scope='Training time includes validation, checkpointing, feature transport and critic fitting; excludes setup and test evaluation')
     result['chunking'] = config.experiment.get('chunking', 'token')
-    result['chunk_fallback_tokens'] = config.experiment.get('chunk_fallback_tokens', 64)
+    result['chunk_fallback_tokens'] = config.experiment.get('chunk_fallback_tokens', 32)
     result['critic_folds'] = config.experiment.get('critic_folds', 2)
     result['gae_lambda'] = float(config.algorithm.lam)
     result['advantage'] = 'chunk_gae' if result['chunking'] != 'token' and config.experiment.method != 'grpo' else config.algorithm.adv_estimator

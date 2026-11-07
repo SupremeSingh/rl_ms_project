@@ -167,7 +167,7 @@ def main():
     p.add_argument('--model', type=Path, default=Path('models/qwen-math'))
     p.add_argument('--max-answers', type=int, default=256, help='Per study; latest training dumps only')
     p.add_argument('--examples', type=int, default=3)
-    p.add_argument('--fallback-tokens', type=int, help='Inspection only; default is the first study manifest setting or 64')
+    p.add_argument('--fallback-tokens', type=int, help='Inspection only; default is the first study manifest setting or 32')
     p.add_argument('--status-only', action='store_true', help='No tokenizer or sample analysis')
     a = p.parse_args()
     if min(a.max_answers, a.examples) < 1 or (a.fallback_tokens is not None and a.fallback_tokens < 1):
@@ -180,7 +180,7 @@ def main():
         return
     from transformers import AutoTokenizer
     tokenizer = AutoTokenizer.from_pretrained(a.model, local_files_only=True)
-    size = a.fallback_tokens if a.fallback_tokens is not None else manifests[0].get('chunk_fallback_tokens', 64)
+    size = a.fallback_tokens if a.fallback_tokens is not None else manifests[0].get('chunk_fallback_tokens', 32)
     inspect(a.study, tokenizer, a.max_answers, a.examples, size)
 
 

@@ -82,5 +82,5 @@ if __name__=='__main__':
     parser.add_argument('--source',type=Path,required=True)
     parser.add_argument('--out',type=Path,required=True)
     parser.add_argument('--gae-lambda',type=float,default=.95)
-    parser.add_argument('--chunk-fallback-tokens',type=int,default=64)
+    parser.add_argument('--chunk-fallback-tokens',type=int,default=32)
     run(parser.parse_args())

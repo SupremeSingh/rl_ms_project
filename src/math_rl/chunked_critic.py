@@ -9,7 +9,7 @@ from math_rl.chunked import plans_for_batch
 
 
 @contextmanager
-def boundary_loss(critic, tokenizer, mode, core_algos, fallback_tokens=64):
+def boundary_loss(critic, tokenizer, mode, core_algos, fallback_tokens=32):
     original_forward = critic._forward_micro_batch
     original_loss = core_algos.compute_value_loss
     had_override = '_forward_micro_batch' in critic.__dict__

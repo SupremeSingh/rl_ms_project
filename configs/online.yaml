@@ -11,7 +11,7 @@ hydra:
 experiment:
   method: ppo
   chunking: math
-  chunk_fallback_tokens: 64
+  chunk_fallback_tokens: 32
   critic_folds: 1
   ppo_profile: not_applicable
   evaluation_split: test

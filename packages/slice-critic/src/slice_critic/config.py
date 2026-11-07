@@ -50,7 +50,7 @@ class TrainingConfig:
     compression: str = 'sparse'
     method: str = 'ridge'
     chunking: str = 'math'
-    chunk_fallback_tokens: int = 64
+    chunk_fallback_tokens: int = 32
     critic_lambda: float = .99
     epsilon: float = .01
     prefixes_per_answer: int = 8

@@ -47,7 +47,7 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
                 method=self.config.experiment.method, folds=self.config.experiment.get("critic_folds", 2))
 
         chunk_mode = self.config.experiment.get('chunking', 'token')
-        fallback_tokens = self.config.experiment.get('chunk_fallback_tokens', 64)
+        fallback_tokens = self.config.experiment.get('chunk_fallback_tokens', 32)
 
         def advantages(data, *args, **kwargs):
             mask = data.batch['response_mask']

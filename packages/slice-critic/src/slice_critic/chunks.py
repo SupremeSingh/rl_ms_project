@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import json
 
 MODES = ('token', 'math', 'gsm8k')
-DEFAULT_FALLBACK_TOKENS = 64
+DEFAULT_FALLBACK_TOKENS = 32
 UPSTREAM_COMMIT = '9f716e68bb934e71da86c226c1699c36b5553faf'
 
 

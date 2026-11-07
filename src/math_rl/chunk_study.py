@@ -30,7 +30,7 @@ SEEDS=[901,902,903,904,905]
 def read(path): return json.loads(Path(path).read_text())
 
 
-def prepare(source,out,fallback_tokens=64):
+def prepare(source,out,fallback_tokens=32):
     from datasets import Dataset
     if type(fallback_tokens) is not int or fallback_tokens < 1:
         raise ValueError('chunk_fallback_tokens must be a positive integer')
@@ -254,7 +254,7 @@ def report(out,m):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--stage',required=True,choices=['prepare','smoke','gate','run','report'])
     p.add_argument('--out',type=Path,required=True);p.add_argument('--source',type=Path);p.add_argument('--task',type=int,default=0)
-    p.add_argument('--chunk-fallback-tokens',type=int,default=64,help='Prepare only: token group size when MATH segmentation fails')
+    p.add_argument('--chunk-fallback-tokens',type=int,default=32,help='Prepare only: token group size when MATH segmentation fails')
     a=p.parse_args();out=a.out.absolute();torch.set_num_threads(8)
     if a.stage=='prepare':
         if a.source is None:p.error('prepare requires --source')
