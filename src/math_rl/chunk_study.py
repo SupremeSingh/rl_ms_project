@@ -30,8 +30,10 @@ SEEDS=[901,902,903,904,905]
 def read(path): return json.loads(Path(path).read_text())
 
 
-def prepare(source,out):
+def prepare(source,out,fallback_tokens=64):
     from datasets import Dataset
+    if type(fallback_tokens) is not int or fallback_tokens < 1:
+        raise ValueError('chunk_fallback_tokens must be a positive integer')
     source=source.absolute();out=out.absolute();old=read(source/'manifest.json')
     if out==source or source in out.parents: raise ValueError('Output must be separate from source')
     for name,h in old['data_hashes'].items():
@@ -64,6 +66,7 @@ def prepare(source,out):
             raise ValueError('Parquet question identities/references differ from JSON')
         dataset.select(range(min(n,len(dataset)))).to_parquet(str(out/f'smoke-data/{split}.parquet'))
     manifest=dict(protocol='slice-chunk-ablation-v1',arms=ARMS,seeds=SEEDS,steps=120,
+        chunk_fallback='fixed_tokens',chunk_fallback_tokens=fallback_tokens,
         answers_per_update=64,gamma=1,gae_lambda=.95,epsilon=.01,critic_folds=1,
         primary=['slice-chunk_minus_slice-token','layer-chunk_minus_layer-token'],
         counts=dict(counts),layers=layers,rms_eps=eps,model_hashes=hashes,
@@ -80,6 +83,9 @@ def validate(out):
     m=read(out/'manifest.json')
     if m['protocol']!='slice-chunk-ablation-v1' or m['arms']!=ARMS or m['seeds']!=SEEDS or m['steps']!=120:
         raise ValueError('Study protocol changed')
+    if (m.get('chunk_fallback')!='fixed_tokens' or type(m.get('chunk_fallback_tokens')) is not int
+            or m['chunk_fallback_tokens'] < 1):
+        raise ValueError('Prepare a new study with an explicit fixed-token fallback')
     if snapshot(ROOT)['files']!=m['runtime']: raise ValueError('Code changed: prepare a new study')
     for name,h in m['data_hashes'].items():
         if sha256(out/name)!=h: raise ValueError('Study data changed')
@@ -93,6 +99,9 @@ def command(out,m,arm,seed,smoke=False):
     cmd=runner.command(out,'ridge',seed,2 if smoke else m['steps'],feature_mode='frozen',
         evaluation_split='val' if smoke else 'test',case_name=case)
     cmd += [f'experiment.chunking={setting["mode"]}',f'actor_rollout_ref.model.critic_chunking={setting["mode"]}',
+        f'experiment.chunk_fallback_tokens={m["chunk_fallback_tokens"]}',
+        f'actor_rollout_ref.model.critic_chunk_fallback_tokens={m["chunk_fallback_tokens"]}',
+        f'critic.chunk_fallback_tokens={m["chunk_fallback_tokens"]}',
         f'critic.chunking={setting["mode"]}','experiment.critic_folds=1','algorithm.lam=0.95',
         'experiment.critic_statistics=cumulative','experiment.cumulative_epsilon=0.01',
         'actor_rollout_ref.model.critic_encoder_precision=fp32',
@@ -114,21 +123,28 @@ def audit(out,m,arm,seed,smoke=False):
     if not np.isclose(r['training_gpu_hours'],2*r['training_seconds']/3600):
         raise ValueError('Training GPU-hour accounting mismatch')
     if (r['updates']!=n or r['answers']!=64*n or r['seed']!=seed or r['method']!='ridge'
-        or r['chunking']!=setting['mode'] or r['critic_folds']!=1 or r['gae_lambda']!=.95
+        or r['chunking']!=setting['mode'] or r['chunk_fallback_tokens']!=m['chunk_fallback_tokens']
+        or r['critic_folds']!=1 or r['gae_lambda']!=.95
         or r['evaluation_split']!=('val' if smoke else 'test')): raise ValueError('Unequal run protocol')
     cfg=read(case/'run.json')['config'];model=cfg['actor_rollout_ref']['model']
     if (model['critic_feature_layer']!=setting['layer'] or model['critic_feature_mode']!='frozen'
-        or model['critic_encoder_precision']!='fp32' or cfg['experiment']['cumulative_epsilon']!=.01):
+        or model['critic_encoder_precision']!='fp32' or cfg['experiment']['cumulative_epsilon']!=.01
+        or any(v!=m['chunk_fallback_tokens'] for v in (model['critic_chunk_fallback_tokens'],
+            cfg['experiment']['chunk_fallback_tokens'],cfg['critic']['chunk_fallback_tokens']))):
         raise ValueError('Feature/regularization settings differ')
     rows=[json.loads(v) for v in (case/'linear-critic/metrics.jsonl').read_text().splitlines()]
     if ([v['step'] for v in rows]!=list(range(1,n+1)) or any(v['reset']!=(i==0) or v['feature_epoch']!=0 for i,v in enumerate(rows))):
         raise ValueError('Missing/reset cumulative statistics')
     units=sum(v['transitions'] for v in rows);tokens=sum(v['response_tokens'] for v in rows)
     if units>tokens or (setting['mode']=='token' and units!=tokens): raise ValueError('Invalid state counts')
+    fallback_answers=0
     if setting['mode']=='math':
         chunk=[json.loads(v) for v in (case/'chunk-metrics.jsonl').read_text().splitlines()]
         if ([v['step'] for v in chunk]!=list(range(1,n+1)) or sum(v['chunks'] for v in chunk)!=units
-            or any(v['gae_lambda']!=.95 for v in chunk)): raise ValueError('Chunk and fit accounting differ')
+            or any(v['gae_lambda']!=.95 or v['chunk_fallback_tokens']!=m['chunk_fallback_tokens'] for v in chunk)):
+            raise ValueError('Chunk and fit accounting differ')
+        fallback_answers=sum(v['segmentation_fallback_answers'] for v in chunk)
+        if not 0 <= fallback_answers <= 64*n: raise ValueError('Invalid segmentation fallback count')
     checkpoint=torch.load(case/'linear-critic/statistics.pt',map_location='cpu',weights_only=True)
     k=769 if setting['layer']=='bottleneck' else 1537
     if checkpoint['method']!='ridge' or checkpoint['step']!=n or checkpoint['epsilon']!=.01 or checkpoint['folds']!=1 or len(checkpoint['stats'])!=1:
@@ -142,7 +158,7 @@ def audit(out,m,arm,seed,smoke=False):
     system=state['a'].double()+.01*torch.eye(k,dtype=torch.float64);b=state['b'].double()
     residual=torch.linalg.vector_norm(system@weights-b)/(torch.linalg.matrix_norm(system)*weights.norm()+b.norm()).clamp_min(1e-30)
     if not torch.isfinite(weights).all() or residual>1e-8: raise ValueError('Bad head solve')
-    return dict(result=r,states=units,response_tokens=tokens,fit_seconds=sum(v['fit_seconds'] for v in rows),
+    return dict(result=r,states=units,response_tokens=tokens,segmentation_fallback_answers=fallback_answers,fit_seconds=sum(v['fit_seconds'] for v in rows),
         accounted_gpu_hours=2*(r['initialization_seconds']+r['training_seconds']+
             r['initial_validation' if smoke else 'initial_test']['seconds']+r['final_validation' if smoke else 'final_test']['seconds'])/3600)
 
@@ -203,7 +219,8 @@ def report(out,m):
             accounted_gpu_hours_mean=float(np.mean([v['accounted_gpu_hours'] for v in runs])),
             response_tokens_mean=float(np.mean([v['response_tokens'] for v in runs])),
             fitted_states_mean=float(np.mean([v['states'] for v in runs])),
-            critic_fit_seconds_mean=float(np.mean([v['fit_seconds'] for v in runs])),runs=runs)
+            critic_fit_seconds_mean=float(np.mean([v['fit_seconds'] for v in runs])),
+            segmentation_fallback_fraction=float(sum(v['segmentation_fallback_answers'] for v in runs)/(len(runs)*m['steps']*64)),runs=runs)
     primary={}
     for rep in ('slice','layer'):
         d=arrays[rep+'-chunk']-arrays[rep+'-token']
@@ -222,6 +239,7 @@ def report(out,m):
         'Same frozen features, one head, epsilon .01, gamma 1, GAE .95 (per token or per chunk).',
         'arm                 actor accuracy   training GPUh   accounted GPUh   fitted states',
         *[f'{a:20} {v["accuracy_mean"]*100:6.2f}%          {v["training_gpu_hours_mean"]:.3f}          {v["accounted_gpu_hours_mean"]:.3f}          {v["fitted_states_mean"]:.0f}' for a,v in results.items()],
+        *[f'{a}: segmentation fallback {v["segmentation_fallback_fraction"]:.2%} of training answers (fixed groups of at most {m["chunk_fallback_tokens"]} original tokens)' for a,v in results.items()],
         'Primary differences: chunk minus token; units are percentage points.',
         *[f'{rep}: {v}' for rep,v in primary.items()],f'Exploratory interaction: {summary["interaction_exploratory"]}',
         f'Additional smoke accounted GPUh: {smoke_cost:.3f}',summary['limitations']]
@@ -236,10 +254,11 @@ def report(out,m):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--stage',required=True,choices=['prepare','smoke','gate','run','report'])
     p.add_argument('--out',type=Path,required=True);p.add_argument('--source',type=Path);p.add_argument('--task',type=int,default=0)
+    p.add_argument('--chunk-fallback-tokens',type=int,default=64,help='Prepare only: token group size when MATH segmentation fails')
     a=p.parse_args();out=a.out.absolute();torch.set_num_threads(8)
     if a.stage=='prepare':
         if a.source is None:p.error('prepare requires --source')
-        prepare(a.source,out);return
+        prepare(a.source,out,a.chunk_fallback_tokens);return
     m=validate(out);status=out/f'{a.stage}-{a.task}-status.json';start=time.perf_counter()
     write_json(status,dict(state='running'))
     try:

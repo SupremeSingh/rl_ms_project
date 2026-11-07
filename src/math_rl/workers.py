@@ -41,7 +41,8 @@ class FeatureActorWorker(ActorRolloutRefWorker):
         positions = None
         if chunk_mode != 'token':
             from slice_critic.chunks import token_chunks
-            positions = [token_chunks(self.tokenizer, row[-width:][mask[-width:].bool()].tolist(), chunk_mode).starts
+            positions = [token_chunks(self.tokenizer, row[-width:][mask[-width:].bool()].tolist(), chunk_mode,
+                                      self.config.model.get('critic_chunk_fallback_tokens', 64)).starts
                          for row, mask in zip(ids, masks, strict=True)]
         epoch = 0
         refresh_seconds = 0.

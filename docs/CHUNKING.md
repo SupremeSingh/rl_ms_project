@@ -25,10 +25,15 @@ Source: [McGill-NLP/VinePPO](https://github.com/McGill-NLP/VinePPO), pinned comm
 
 We borrow the segmentation and broadcast rules; default GAE .95 deliberately
 differs from upstream's one-step advantages. The MATH algorithm is vendored with its MIT notice in the installed package.
-Only its md5 dependency is replaced by the identical local helper. Our wrapper
-keeps a single chunk for short/blank outputs where the upstream splitter raises
-an assertion; other segmentation failures stop the run rather than dropping
-answers. Character boundaries inside a token belong to that token's starting
+Only its md5 dependency is replaced by the identical local helper. If upstream MATH segmentation raises an assertion or produces an invalid
+partition, our wrapper divides that response into consecutive groups of at most
+**64 original tokens** by default. The final group may be shorter; EOS counts as
+a token and remains in the final group. For 150 tokens and a size of 64, groups
+cover `[0:64]`, `[64:128]`, `[128:150]`. This is a fallback, not a new limit on
+normal heuristic chunks. It records the failure reason; unrelated programming
+errors still stop the run. No answer, reward or action token is dropped. Online
+chunk metrics record the configured size, fallback count and reasons; the
+comparison report displays the fraction. Character boundaries inside a token belong to that token's starting
 chunk; zero-token chunks are omitted. This makes transitions executable on the
 **original sampled token IDs**, without rewriting actions. All tokens count,
 including EOS and the last token of a capped response.
@@ -74,6 +79,10 @@ step-specific information for it.
 
 The new default is `experiment.chunking=math`, `experiment.critic_folds=1`,
 `algorithm.lam=0.95`. **Chunking and advantage estimation are separate choices.**
+Set `experiment.chunk_fallback_tokens=32` (or any positive integer) before a new
+run to change only the failure fallback size. Driver and worker settings share
+this value through configuration interpolation and are checked for agreement.
+The default 64 is a practical convention, not a validation-selected optimum.
 For chunk j, gamma=1:
 
 ```text
@@ -95,10 +104,10 @@ in chunk units. SLICE compression and Ridge/LSTD equations are unchanged.
 Same epsilon with fewer state updates also changes its effective relative strength.
 This is a new training recipe, not an algebraically equivalent optimization.
 
-Offline package training defaults to `TrainingConfig(chunking='math')`: sample
+Offline package training defaults to `TrainingConfig(chunking='math', chunk_fallback_tokens=64)`: sample
 up to eight chunk-start states for compressor fitting/evaluation and fit the
 linear head on every retained training chunk. `gsm8k` and `token` are explicit
-alternatives. Manifests record state units, splitter commit, and positions.
+alternatives. Manifests record state units, fallback policy/size, splitter commit, and positions.
 Standalone scoring can still score an arbitrary exact prefix. Old artifacts can
 supply frozen features to the new PPO path; their offline head is never loaded.
 

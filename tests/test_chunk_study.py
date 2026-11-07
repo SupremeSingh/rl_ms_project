@@ -16,7 +16,8 @@ def controller():
 
 
 def manifest():
-    return dict(arms=study.ARMS,seeds=study.SEEDS,steps=120,filter_sha256='fixed',layers=[27,26,24,20,12],rms_eps=1e-6)
+    return dict(arms=study.ARMS,seeds=study.SEEDS,steps=120,filter_sha256='fixed',layers=[27,26,24,20,12],rms_eps=1e-6,
+                chunk_fallback='fixed_tokens',chunk_fallback_tokens=32)
 
 
 def test_matched_commands_change_only_representation_and_time_scale(tmp_path):
@@ -26,6 +27,8 @@ def test_matched_commands_change_only_representation_and_time_scale(tmp_path):
         for expected in ['experiment.method=ridge','experiment.critic_folds=1','experiment.cumulative_epsilon=0.01',
             'algorithm.lam=0.95','trainer.total_training_steps=120','trainer.test_freq=30','experiment.evaluation_split=test']:
             assert expected in cmd
+        for key in ('experiment.chunk_fallback_tokens','actor_rollout_ref.model.critic_chunk_fallback_tokens','critic.chunk_fallback_tokens'):
+            assert f'{key}=32' in cmd
         assert f'experiment.chunking={setting["mode"]}' in cmd
         assert case==f'{arm}-seed901'
         smoke,_=study.command(tmp_path,m,arm,19,True)
@@ -40,10 +43,21 @@ def test_matched_commands_change_only_representation_and_time_scale(tmp_path):
 def test_four_smokes_have_afterok_gate_and_cpu_prepare(tmp_path):
     m=controller();calls=[]
     def run(args,**kw):calls.append(args);return SimpleNamespace(returncode=0,stdout=str(100+len(calls)),stderr='')
-    with patch.object(m.subprocess,'run',run):m.submit(tmp_path/'out','smoke',tmp_path/'source',6)
+    with patch.object(m.subprocess,'run',run):m.submit(tmp_path/'out','smoke',tmp_path/'source',6,fallback_tokens=32)
     assert len(calls)==3 and '--array=0-3%4' in calls[1]
     assert '--dependency=afterok:101' in calls[1] and '--dependency=afterok:102' in calls[2]
     assert '--gres=gpu:a5000:2' in calls[1] and not any('--gres' in a for a in calls[0]+calls[2])
+    assert calls[0][-1]=='32'
+
+
+def test_fallback_changes_cannot_silently_override_locked_study(tmp_path):
+    m=controller()
+    with patch.object(m.subprocess,'run') as run:
+        with pytest.raises(ValueError,match='sealed manifest'):
+            m.submit(tmp_path/'out','train',fallback_tokens=32)
+        with pytest.raises(ValueError,match='positive integer'):
+            m.submit(tmp_path/'out','smoke',tmp_path/'source',fallback_tokens=0)
+        run.assert_not_called()
 
 
 def test_failed_submission_stops_and_retains_marker(tmp_path):
@@ -77,7 +91,7 @@ def test_report_outputs_primary_intervals_costs_and_readable_csv(tmp_path,monkey
     monkeypatch.setattr(study,'require_gate',lambda *a:None)
     def audit(out,m,arm,seed,smoke=False):
         return dict(result=dict(seed=seed,final_test=dict(accuracy=.5),training_gpu_hours=2.),
-            accounted_gpu_hours=2.2,response_tokens=1000,states=100 if arm.endswith('chunk') else 1000,fit_seconds=1.)
+            accounted_gpu_hours=2.2,segmentation_fallback_answers=0,response_tokens=1000,states=100 if arm.endswith('chunk') else 1000,fit_seconds=1.)
     monkeypatch.setattr(study,'audit',audit)
     def answers(path):
         return [dict(id=str(i),ground_truth='1',score=i%2,verifier_status='correct' if i%2 else 'incorrect',capped=False) for i in range(4)]
@@ -109,10 +123,11 @@ def test_prepare_reuses_sealed_full_data_and_filter_without_old_actors(tmp_path,
     (source/'manifest.json').write_text(json.dumps(original))
     monkeypatch.setattr(study,'model_identity',lambda *a:{'config.json':'fixed'})
     seen=[];monkeypatch.setattr(study,'load_filter',lambda *a,**k:seen.append((a,k)))
-    out=tmp_path/'new';study.prepare(source,out)
+    out=tmp_path/'new';study.prepare(source,out,fallback_tokens=32)
     locked=json.loads((out/'manifest.json').read_text())
     assert locked['counts']=={'train':2000,'val':100,'test':2000}
     assert locked['seeds']==study.SEEDS and len(seen)==1
+    assert locked['chunk_fallback_tokens']==32 and locked['chunk_fallback']=='fixed_tokens'
     assert sha256(out/'filters/sparse.pt')==sha256(filter)
     assert not (out/'ridge-seed301').exists()
     assert study.validate(out)['steps']==120

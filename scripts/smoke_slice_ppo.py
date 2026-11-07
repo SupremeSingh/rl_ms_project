@@ -36,9 +36,10 @@ def select_questions(rows, manifest, train_count=64, val_count=16):
     return selected
 
 
-def command(out, method, exported, gae_lambda=.95):
+def command(out, method, exported, gae_lambda=.95, fallback_tokens=64):
     return runner.command(out, method, 42, 2, feature_mode='frozen',
         evaluation_split='val') + [
+        f'experiment.chunk_fallback_tokens={fallback_tokens}',
         f'algorithm.lam={gae_lambda}', 'experiment.critic_statistics=cumulative', 'experiment.cumulative_epsilon=0.01',
         'experiment.critic_lambda=0.9', 'actor_rollout_ref.model.critic_encoder_precision=fp32',
         'actor_rollout_ref.model.critic_feature_layer=bottleneck',
@@ -80,6 +81,9 @@ def verify_run(case, method):
 
 
 def run(args):
+    fallback_tokens = getattr(args, 'chunk_fallback_tokens', 64)
+    if type(fallback_tokens) is not int or fallback_tokens < 1:
+        raise ValueError('chunk_fallback_tokens must be a positive integer')
     from datasets import Dataset
     from transformers import AutoTokenizer
     from math_rl.prompts import make_prompt, encode_completion, AUDIT_INSTRUCTION
@@ -112,6 +116,7 @@ def run(args):
                     extra_info=dict(index=i, prompt_id=q['id'], split=split, level=q.get('level', 0))))
             Dataset.from_list(records).to_parquet(str(out / 'data' / f'{split}.parquet'))
         write_json(out / 'manifest.json', dict(artifact=str(artifact),
+            chunk_fallback='fixed_tokens', chunk_fallback_tokens=fallback_tokens,
             artifact_sha256=sha256(artifact / 'manifest.json'), source=str(source),
             source_sha256=sha256(source), selected_questions=questions, feature_export=exported,
             data_hashes={p.name: sha256(p) for p in (out / 'data').glob('*.parquet')},
@@ -125,12 +130,14 @@ def run(args):
             with tempfile.TemporaryDirectory(prefix='sp-', dir='/tmp') as ray_tmp:
                 env['RAY_TMPDIR'] = ray_tmp
                 with (out / f'{method}.log').open('w') as log:
-                    subprocess.run(command(out, method, exported, getattr(args, 'gae_lambda', .95)), cwd=ROOT, env=env,
+                    subprocess.run(command(out, method, exported, getattr(args, 'gae_lambda', .95),
+                                           getattr(args, 'chunk_fallback_tokens', 64)), cwd=ROOT, env=env,
                                    stdout=log, stderr=subprocess.STDOUT, check=True)
             checks[method] = verify_run(out / f'{method}-seed42', method)
         write_json(out / 'verification.json', dict(passed=True, methods=checks,
             offline_value_head_loaded=False, frozen_encoder=True, frozen_compressor=True,
             buffer_capacity=0, gamma=1, lstd_lambda=.9, gae_lambda=getattr(args, "gae_lambda", .95), chunking="math",
+            chunk_fallback_tokens=getattr(args, 'chunk_fallback_tokens', 64),
             scope='Two real PPO updates per method; integration check, not an accuracy ranking'))
         write_json(out / 'status.json', dict(state='complete'))
     except BaseException as exc:
@@ -143,4 +150,5 @@ if __name__ == '__main__':
     p.add_argument('artifact', type=Path)
     p.add_argument('--source', type=Path, default=Path('data/numina/online/questions.json'))
     p.add_argument('--out', type=Path, required=True)
+    p.add_argument('--chunk-fallback-tokens', type=int, default=64)
     run(p.parse_args())

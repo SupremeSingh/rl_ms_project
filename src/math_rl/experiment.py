@@ -54,7 +54,11 @@ def command(out,m,name,seed,steps,profile='more_fitting',calibration=False,case=
         ppo_profile=profile if method=='ppo' else 'not_applicable',
         evaluation_split='val' if calibration else 'test',case_name=case or f'{name}-seed{seed}')
     mode = m.get('chunking', 'token')
+    fallback_tokens = m.get('chunk_fallback_tokens', 64)
     cmd += [f'actor_rollout_ref.model.critic_chunking={mode}', f'critic.chunking={mode}', f'experiment.chunking={mode}', f'experiment.critic_folds={m.get("critic_folds", 2)}',
+            f'experiment.chunk_fallback_tokens={fallback_tokens}',
+            f'actor_rollout_ref.model.critic_chunk_fallback_tokens={fallback_tokens}',
+            f'critic.chunk_fallback_tokens={fallback_tokens}',
             f'algorithm.lam={m.get("actor_lambda", .95)}']
     if method in ('ridge','lstd'):
         cmd += ['experiment.critic_statistics=cumulative','experiment.cumulative_epsilon=0.01',

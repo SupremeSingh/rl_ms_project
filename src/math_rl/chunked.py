@@ -4,17 +4,17 @@ No auxiliary rollouts: this is NOT the VinePPO Monte Carlo estimator. gamma=1,
 GAE runs over reasoning chunks, then expands to token actions before PPO whitening.
 """
 import torch
-from slice_critic.chunks import token_chunks
+from slice_critic.chunks import DEFAULT_FALLBACK_TOKENS, token_chunks
 
 
-def plans_for_batch(tokenizer, responses, mask, mode):
+def plans_for_batch(tokenizer, responses, mask, mode, fallback_tokens=DEFAULT_FALLBACK_TOKENS):
     if responses.shape != mask.shape:
         raise ValueError('Response/mask shape mismatch')
     lengths = mask.sum(-1).long()
     expected = torch.arange(mask.shape[1], device=mask.device)[None] < lengths[:, None]
     if (lengths < 1).any() or not torch.equal(mask.bool(), expected):
         raise ValueError('Chunking requires nonempty right-padded responses')
-    return [token_chunks(tokenizer, row[:int(n)].detach().cpu().tolist(), mode)
+    return [token_chunks(tokenizer, row[:int(n)].detach().cpu().tolist(), mode, fallback_tokens)
             for row, n in zip(responses, lengths, strict=True)]
 
 

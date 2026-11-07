@@ -27,6 +27,9 @@ def validate(config):
     chunking = config.experiment.get('chunking', 'token')
     if chunking not in ('token', 'math', 'gsm8k'):
         raise ValueError('Unknown reasoning chunking mode')
+    fallback_tokens = config.experiment.get('chunk_fallback_tokens', 64)
+    if type(fallback_tokens) is not int or fallback_tokens < 1:
+        raise ValueError('chunk_fallback_tokens must be a positive integer')
     if config.experiment.get('critic_folds', 2) not in (1, 2):
         raise ValueError('Use one shared head or two legacy folds')
     if (config.algorithm.gamma != 1 or not 0 <= config.algorithm.lam <= 1
@@ -76,6 +79,9 @@ def validate(config):
     if (config.actor_rollout_ref.model.get('critic_chunking', chunking) != chunking
             or config.critic.get('chunking', chunking) != chunking):
         raise ValueError('Driver and workers must use the same chunking')
+    if (config.actor_rollout_ref.model.get('critic_chunk_fallback_tokens', fallback_tokens) != fallback_tokens
+            or config.critic.get('chunk_fallback_tokens', fallback_tokens) != fallback_tokens):
+        raise ValueError('Driver and workers must use the same chunk fallback size')
     if chunking != 'token' and (config.critic.use_dynamic_bsz or config.critic.ppo_micro_batch_size_per_gpu != 1):
         raise ValueError('Chunked transformer critic requires fixed microbatch=1')
     if config.experiment.replay_capacity:
@@ -150,6 +156,7 @@ def run(config):
         training_gpu_hours=training_seconds * config.trainer.n_gpus_per_node / 3600,
         scope='Training time includes validation, checkpointing, feature transport and critic fitting; excludes setup and test evaluation')
     result['chunking'] = config.experiment.get('chunking', 'token')
+    result['chunk_fallback_tokens'] = config.experiment.get('chunk_fallback_tokens', 64)
     result['critic_folds'] = config.experiment.get('critic_folds', 2)
     result['gae_lambda'] = float(config.algorithm.lam)
     result['advantage'] = 'chunk_gae' if result['chunking'] != 'token' and config.experiment.method != 'grpo' else config.algorithm.adv_estimator

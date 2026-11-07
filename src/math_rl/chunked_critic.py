@@ -9,7 +9,7 @@ from math_rl.chunked import plans_for_batch
 
 
 @contextmanager
-def boundary_loss(critic, tokenizer, mode, core_algos):
+def boundary_loss(critic, tokenizer, mode, core_algos, fallback_tokens=64):
     original_forward = critic._forward_micro_batch
     original_loss = core_algos.compute_value_loss
     had_override = '_forward_micro_batch' in critic.__dict__
@@ -19,7 +19,7 @@ def boundary_loss(critic, tokenizer, mode, core_algos):
     def forward(batch):
         nonlocal current
         mask = batch['attention_mask'][:, -batch['responses'].shape[1]:]
-        plans = plans_for_batch(tokenizer, batch['responses'], mask, mode)
+        plans = plans_for_batch(tokenizer, batch['responses'], mask, mode, fallback_tokens)
         current = mask.new_zeros(mask.shape)
         for i, p in enumerate(plans):
             current[i, list(p.starts)] = 1

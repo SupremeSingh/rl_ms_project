@@ -47,13 +47,14 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
                 method=self.config.experiment.method, folds=self.config.experiment.get("critic_folds", 2))
 
         chunk_mode = self.config.experiment.get('chunking', 'token')
+        fallback_tokens = self.config.experiment.get('chunk_fallback_tokens', 64)
 
         def advantages(data, *args, **kwargs):
             mask = data.batch['response_mask']
             plans = None
             if chunk_mode != 'token' and self.method != 'grpo':
                 from math_rl.chunked import plans_for_batch, compress_rewards, chunk_credit
-                plans = plans_for_batch(self.tokenizer, data.batch['responses'], mask, chunk_mode)
+                plans = plans_for_batch(self.tokenizer, data.batch['responses'], mask, chunk_mode, fallback_tokens)
             if self.linear:
                 device = data.batch['token_level_rewards'].device
                 features = data.non_tensor_batch.pop('pretoken_features')
@@ -104,7 +105,11 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
                 result = data
                 with (self.output / 'chunk-metrics.jsonl').open('a') as handle:
                     handle.write(json.dumps(dict(step=self.global_steps, chunking=chunk_mode,
+                        chunk_fallback_tokens=fallback_tokens,
                         chunks=sum(len(p.starts) for p in plans), response_tokens=int(mask.sum()),
+                        segmentation_fallback_answers=sum(p.fallback_reason is not None for p in plans),
+                        segmentation_fallback_reasons={reason:sum(p.fallback_reason == reason for p in plans)
+                            for reason in sorted({p.fallback_reason for p in plans if p.fallback_reason})},
                         advantage='chunk_gae', gae_lambda=float(self.config.algorithm.lam))) + '\n')
             else:
                 result = original(data, *args, **kwargs)

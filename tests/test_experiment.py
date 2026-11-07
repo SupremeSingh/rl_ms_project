@@ -21,7 +21,7 @@ def manifest():
 @pytest.mark.parametrize('name', study.METHODS)
 @pytest.mark.parametrize('chunking', ['token','math','gsm8k'])
 def test_exact_final_command_contract_and_main_validation(tmp_path,name,chunking):
-    m=manifest();m.update(chunking=chunking,critic_folds=1)
+    m=manifest();m.update(chunking=chunking,critic_folds=1,chunk_fallback_tokens=32)
     cmd=study.command(tmp_path,m,name,301,120,profile='higher_lr')
     assert cmd[1:3] == ['-m','math_rl.main']
     assert 'trainer.total_training_steps=120' in cmd and 'experiment.replay_capacity=0' in cmd
@@ -59,6 +59,15 @@ def test_exact_final_command_contract_and_main_validation(tmp_path,name,chunking
         VERL_COMMIT='8d9e350ea58c7ad4b50dd14d9dcb50577242c55f',json=json,sha256=lambda p:'digest')
     exec(compile(ast.Module(body=[function],type_ignores=[]),'validator','exec'),scope)
     scope['validate'](node(config))
+    if name=='ridge-sparse' and chunking=='math':
+        for section,key in [(config['actor_rollout_ref']['model'],'critic_chunk_fallback_tokens'),
+                            (config['critic'],'chunk_fallback_tokens')]:
+            section[key]=64
+            with pytest.raises(ValueError,match='same chunk fallback size'):scope['validate'](node(config))
+            section[key]=32
+        config['experiment']['chunk_fallback_tokens']=0
+        with pytest.raises(ValueError,match='positive integer'):scope['validate'](node(config))
+        config['experiment']['chunk_fallback_tokens']=32
     if name.startswith(('ridge','lstd')):
         config['experiment']['replay_capacity']=256
         with pytest.raises(ValueError):scope['validate'](node(config))

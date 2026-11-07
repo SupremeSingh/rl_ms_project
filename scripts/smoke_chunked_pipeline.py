@@ -30,6 +30,7 @@ def run(args):
                 ppo_profile='higher_lr' if method=='ppo' else 'not_applicable',
                 evaluation_split='val',case_name=name)
             cmd+=['experiment.chunking=math','experiment.critic_folds=1',f'algorithm.lam={args.gae_lambda}']
+            cmd+=[f'experiment.chunk_fallback_tokens={args.chunk_fallback_tokens}']
             if method in ('ridge','lstd'):
                 cmd+=['experiment.critic_statistics=cumulative','experiment.cumulative_epsilon=0.01',
                     'experiment.critic_lambda=0.9','actor_rollout_ref.model.critic_feature_layer=two_thirds',
@@ -67,6 +68,7 @@ def run(args):
                         raise ValueError('Matrices did not count exactly one transition per chunk')
             checks[name]=record
         write_json(out/'pipeline-verification.json',dict(passed=True,chunking='math',critic_folds=1,
+            chunk_fallback_tokens=args.chunk_fallback_tokens,
             epsilon=.01,gae_lambda=args.gae_lambda,actor_advantage='chunk GAE broadcast to tokens',methods=checks,
             scope='Real two-update GPU integration; not a ranking or verifier accuracy audit'))
         write_json(out/'status.json',dict(state='complete'))
@@ -80,4 +82,5 @@ if __name__=='__main__':
     parser.add_argument('--source',type=Path,required=True)
     parser.add_argument('--out',type=Path,required=True)
     parser.add_argument('--gae-lambda',type=float,default=.95)
+    parser.add_argument('--chunk-fallback-tokens',type=int,default=64)
     run(parser.parse_args())

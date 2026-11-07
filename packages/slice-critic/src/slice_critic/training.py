@@ -94,7 +94,8 @@ def _answers(out,q):
 
 def _state_positions(config, backend, row):
     from .chunks import token_chunks
-    return list(token_chunks(getattr(backend, 'tokenizer', None), row['token_ids'], config.chunking).starts)
+    return list(token_chunks(getattr(backend, 'tokenizer', None), row['token_ids'], config.chunking,
+                             config.chunk_fallback_tokens).starts)
 
 
 def _sampled(out, questions, config, backend, layers, split):
@@ -190,7 +191,8 @@ def _fit_head(out, questions, config, backend, layers, fitted):
     weights,residual=fit_system(state['a'],state['b'],config.epsilon)
     return weights,dict(answers=state['answers'],transitions=state['transitions'],relative_residual=residual,
                         method=config.method,critic_lambda=config.critic_lambda,gamma=1,epsilon=config.epsilon,
-                        chunking=config.chunking, state_unit='token' if config.chunking == 'token' else 'chunk',
+                        chunking=config.chunking, chunk_fallback_tokens=config.chunk_fallback_tokens,
+                        state_unit='token' if config.chunking == 'token' else 'chunk',
                         scope='All retained training states; raw sums, penalized intercept')
 
 
@@ -262,7 +264,8 @@ def _run(config, out, device, backend, grader):
                   generation=dict(engine='transformers',temperature=1.,top_p=1.,top_k=0,do_sample=True,
                                   terminal='EOS or configured response cap'),
                   prefix_sampling='Uniform without replacement among pre-action state starts; at most prefixes_per_answer',
-                  chunking=dict(mode=config.chunking, upstream_commit='9f716e68bb934e71da86c226c1699c36b5553faf'),
+                  chunking=dict(mode=config.chunking, fallback='fixed_tokens', fallback_tokens=config.chunk_fallback_tokens,
+                                upstream_commit='9f716e68bb934e71da86c226c1699c36b5553faf'),
                   features=dict(layers_zero_based=layers,blocks_one_based=[i+1 for i in layers],
                                 rms_eps=backend.rms_eps,width=config.compression_width,
                                 input_dimension=len(layers)*backend.hidden_size,compression=config.compression,

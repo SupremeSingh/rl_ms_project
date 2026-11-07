@@ -50,6 +50,7 @@ class TrainingConfig:
     compression: str = 'sparse'
     method: str = 'ridge'
     chunking: str = 'math'
+    chunk_fallback_tokens: int = 64
     critic_lambda: float = .99
     epsilon: float = .01
     prefixes_per_answer: int = 8
@@ -64,7 +65,7 @@ class TrainingConfig:
         for field in ('question_column','reference_column','dataset_split'):
             if not isinstance(getattr(self,field),str) or not getattr(self,field).strip(): raise ValueError(f'{field} is required')
         for name in ('max_questions','responses_per_question','max_new_tokens','max_prompt_tokens',
-                     'num_slices','compression_width','prefixes_per_answer','epochs','batch_size'):
+                     'num_slices','compression_width','prefixes_per_answer','epochs','batch_size','chunk_fallback_tokens'):
             if type(getattr(self,name)) is not int or getattr(self,name)<1: raise ValueError(f'{name} must be a positive integer')
         if self.max_questions<20: raise ValueError('Use at least 20 question families for train/validation/test splits')
         if self.model_path and self.model_revision is not None and not immutable_revision(self.model_revision):

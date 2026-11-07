@@ -9,19 +9,14 @@ from dataclasses import dataclass
 import json
 
 MODES = ('token', 'math', 'gsm8k')
+DEFAULT_FALLBACK_TOKENS = 64
 UPSTREAM_COMMIT = '9f716e68bb934e71da86c226c1699c36b5553faf'
 
 
-def character_boundaries(text, mode):
+def _upstream_boundaries(text, mode):
     if mode == 'math':
         from ._vendor.vineppo_math import split_solution_inplace
-        try:
-            points = split_solution_inplace(text) if text else [0]
-        except AssertionError as exc:
-            # Upstream can remove its only part on short/blank responses.
-            if len(text) < 20 or not text.strip():
-                return [0, len(text)] if text else [0]
-            raise ValueError('VinePPO MATH segmentation failed') from exc
+        points = split_solution_inplace(text) if text else [0]
     elif mode == 'gsm8k':
         prefix = '\n#### '
         parts = text.split(prefix)
@@ -44,11 +39,35 @@ def character_boundaries(text, mode):
     return points
 
 
+def _boundaries_with_status(text, mode):
+    if mode not in ('math', 'gsm8k'):
+        raise ValueError('Character splitting requires math or gsm8k')
+    try:
+        return _upstream_boundaries(text, mode), None
+    except (AssertionError, ValueError) as exc:
+        if mode != 'math':
+            raise
+        # Upstream's placeholder reconstruction can lose the final boundary even
+        # on long responses. Return a coverage marker and reason; token_chunks
+        # partitions the ORIGINAL actions into fixed-size groups on this path.
+        reason = 'upstream_assertion' if isinstance(exc, AssertionError) else 'invalid_partition'
+        return ([0, len(text)] if text else [0]), reason
+
+
+def character_boundaries(text, mode):
+    """Text boundaries; a failed MATH split returns a whole-text coverage marker.
+
+    Fixed-token fallback boundaries are constructed by token_chunks, not here.
+    """
+    return _boundaries_with_status(text, mode)[0]
+
+
 @dataclass(frozen=True)
 class ChunkPlan:
     starts: tuple[int, ...]
     ends: tuple[int, ...]
     tokens: int
+    fallback_reason: str | None = None
 
     def __post_init__(self):
         if (self.tokens < 1 or not self.starts or self.starts[0] != 0
@@ -143,7 +162,14 @@ def token_character_starts(tokenizer, tokens):
     return text, [a for a, _ in offsets]
 
 
-def token_chunks(tokenizer, tokens, mode='math'):
+def token_chunks(tokenizer, tokens, mode='math', fallback_tokens=DEFAULT_FALLBACK_TOKENS):
+    """Partition sampled actions, using fixed-token groups only on MATH failure.
+
+    Fallback counts all original response tokens, including terminal EOS. The
+    final group may be shorter. No token is decoded/re-encoded into a new action.
+    """
+    if type(fallback_tokens) is not int or fallback_tokens < 1:
+        raise ValueError('fallback_tokens must be a positive integer')
     tokens = list(tokens)
     if not tokens or mode not in MODES:
         raise ValueError('Nonempty tokens and a supported chunk mode required')
@@ -156,7 +182,10 @@ def token_chunks(tokenizer, tokens, mode='math'):
     if not body:
         return ChunkPlan((0,), (len(tokens),), len(tokens))
     text, character_starts = token_character_starts(tokenizer, body)
-    points = character_boundaries(text, mode)
+    points, fallback_reason = _boundaries_with_status(text, mode)
+    if fallback_reason is not None:
+        starts = list(range(0, len(tokens), fallback_tokens))
+        return ChunkPlan(tuple(starts), tuple(starts[1:] + [len(tokens)]), len(tokens), fallback_reason)
     groups = [bisect_right(points, a)-1 for a in character_starts]
     starts = [0] + [i for i in range(1, len(body)) if groups[i] != groups[i-1]]
-    return ChunkPlan(tuple(starts), tuple(starts[1:]+[len(tokens)]), len(tokens))
+    return ChunkPlan(tuple(starts), tuple(starts[1:]+[len(tokens)]), len(tokens), fallback_reason)

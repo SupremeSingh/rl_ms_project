@@ -56,6 +56,15 @@ remain uncorrected in both modes.
 
 ## Cost and interpretation
 
+The MATH heuristic can fail on malformed/repeated LaTeX. Such answers use fixed
+groups of at most **64 original tokens**, with unchanged rewards and every sampled
+token retained. The final group can be shorter; EOS counts as a token. Normal
+heuristic chunks are unchanged. Per-arm fallback
+fractions appear in the report and per-update counts in `chunk-metrics.jsonl`.
+A high fallback rate limits interpretation as reasoning-step credit assignment.
+The size is declared before preparing the study, saved in its manifest, and held
+fixed in both chunk arms. It is a practical default, not a tuned optimum.
+
 Per arm report training and accounted GPU-hours, actual generated training
 response tokens, fitted state counts, and critic-fitting seconds. Training includes
 validation and checkpointing; accounted hours also include worker initialization,
@@ -96,7 +105,8 @@ source scripts/cluster_env.sh
 mkdir -p logs
 python3 scripts/submit_chunk_comparison.py --mode smoke \
   --source outputs/numina-prod-replay-v1 \
-  --out outputs/numina-chunk-comparison-v1 --concurrency 6
+  --out outputs/numina-chunk-comparison-v3 --concurrency 6 \
+  --chunk-fallback-tokens 64
 ```
 
 CPU prepare → four parallel two-update GPU smokes → CPU gate. Each smoke uses
@@ -105,15 +115,15 @@ compressor. Never use a tiny smoke-trained compressor for the main accuracy stud
 Logs and IDs live beside the output in `<OUT>-submission/`.
 
 ```bash
-cat outputs/numina-chunk-comparison-v1-submission/jobs.tsv
-cat outputs/numina-chunk-comparison-v1/smoke.json
+cat outputs/numina-chunk-comparison-v3-submission/jobs.tsv
+cat outputs/numina-chunk-comparison-v3/smoke.json
 ```
 
 After `passed: true`:
 
 ```bash
 python3 scripts/submit_chunk_comparison.py --mode train \
-  --out outputs/numina-chunk-comparison-v1 --concurrency 6
+  --out outputs/numina-chunk-comparison-v3 --concurrency 6
 ```
 
 This submits all 20 runs (up to six at a time, **12 GPUs**) and a dependent CPU
@@ -124,9 +134,9 @@ wall-clock duration. Arm order rotates across seeds to reduce scheduling-order
 confounding; node types are not perfectly matched pairs.
 
 ```bash
-cat outputs/numina-chunk-comparison-v1-submission/jobs.tsv
-cat outputs/numina-chunk-comparison-v1/report-0-status.json
-cat outputs/numina-chunk-comparison-v1/report.txt
+cat outputs/numina-chunk-comparison-v3-submission/jobs.tsv
+cat outputs/numina-chunk-comparison-v3/report-0-status.json
+cat outputs/numina-chunk-comparison-v3/report.txt
 ```
 
 Outputs: `summary.json` (complete protocol, per-seed results, intervals, costs,
@@ -137,7 +147,7 @@ Optional plots, with no fitting or new evaluation:
 
 ```bash
 bash scripts/container_exec.sh "$PWD/.venv-critic/bin/python" \
-  scripts/plot_chunk_comparison.py --study outputs/numina-chunk-comparison-v1
+  scripts/plot_chunk_comparison.py --study outputs/numina-chunk-comparison-v3
 ```
 
 Produces `figures/chunk-comparison.png` and `.pdf`: per-seed accuracy, adjusted
@@ -148,3 +158,39 @@ Prepared studies seal code/data/filter hashes. Do not pull changes while they
 are active. Failed/partial actors are preserved and cannot silently resume;
 submission markers stop duplicate chains. If sbatch times out, inspect Slurm and
 sidecar JSON before retrying—timeout does not prove submission failed.
+
+Preserve earlier studies, including the failed v1 and any v2 prepared with the
+whole-answer fallback. Prepare a fresh `outputs/numina-chunk-comparison-v3` with
+the commands above. To choose a different fallback size (e.g. 32 or 128), change
+`--chunk-fallback-tokens` in the **smoke** command only; training uses that sealed
+setting. The code hash intentionally prevents relabeling old smoke results as
+checks of the new fallback policy; rerun all four matched smokes.
+
+## Inspect existing runs without training
+
+```bash
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" \
+  tools/diagnostics/peek_chunk_study.py \
+  --study outputs/numina-chunk-comparison-v1 \
+  --study outputs/chunked-pipeline-smoke-v2 \
+  --fallback-tokens 64 --max-answers 256 --examples 3
+```
+
+Use only paths that exist. This CPU-only tool shows completed updates, recorded
+fallback counts and any completed final accuracy, then reapplies MATH segmentation
+to a bounded sample from each case's latest saved **training** rollout. It prints
+normal chunk-length quantiles and example chunks; it never reads test answers
+for size selection. `--status-only` skips tokenizer loading and chunk inspection.
+It works with older v3 wrappers by inspecting the pinned upstream splitter directly.
+
+Most VERL dumps contain decoded text, not sampled token IDs: their re-tokenized
+lengths are approximate and omit unrecorded EOS. Exact recorded online fallback
+counts, when present, are shown separately. These are convenience samples, not
+a representative corpus estimate or evidence that one size improves PPO. Keep
+64 provisional until reviewing these training diagnostics; 32 is worth choosing
+before a new study if 64 is much coarser than the typical successful chunk.
+The diagnostic does not change defaults, saved studies, or running actors.
+
+Do not pull runtime changes into an active sealed study. To inspect one safely,
+copy only `tools/diagnostics/peek_chunk_study.py`; that tool is outside the sealed
+runtime paths. Otherwise synchronize normally before preparing the next study.

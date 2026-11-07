@@ -32,7 +32,8 @@ def validate_questions(questions, blocked=()):
 def base_manifest(out, model_hashes, layers, eps, **kwargs):
     return dict(protocol='slice-numina-online-v1', conditions=METHODS, method_subset='six_method',
         seeds=[301,302,303,304,305], steps=120, calibration_steps=60, answers_per_update=64,
-        critic_lambda=.9, actor_lambda=.95, epsilon=.01, chunking='math', critic_folds=1, primary_comparisons=list(PRIMARY),
+        critic_lambda=.9, actor_lambda=.95, epsilon=.01, chunking='math', chunk_fallback_tokens=64,
+        critic_folds=1, primary_comparisons=list(PRIMARY),
         layers=layers, rms_eps=eps, model_hashes=model_hashes,
         model_assets=read(ROOT/'configs/assets.json') if (ROOT/'configs/assets.json').exists() else None,
         data_hashes={p.name:sha256(p) for p in (out/'data').iterdir()}, provenance=snapshot(ROOT), **kwargs)

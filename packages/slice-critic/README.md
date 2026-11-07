@@ -30,6 +30,7 @@ config = TrainingConfig(
     max_questions=1000, responses_per_question=4, max_new_tokens=1024,
     layer_base=2, num_slices=5, compression_width=768,
     compression="sparse", method="ridge",
+    chunking="math", chunk_fallback_tokens=64,
 )
 artifact = train_critic(config, output_dir="critics/math-v001")
 ```
@@ -37,6 +38,9 @@ artifact = train_critic(config, output_dir="critics/math-v001")
 Preview the resource limits before training. Numeric reference/column validation,
 pinned dataset revisions, question-family splits, stage caches and checksums are
 part of the recipe. Both outcome classes are required in train/validation.
+`chunk_fallback_tokens` controls fixed-size groups used only if MATH segmentation
+fails. Normal splits are unchanged; groups preserve the original tokens, including
+EOS, with a shorter final group when needed. The saved configuration records the size.
 
 ## Load and score
 
