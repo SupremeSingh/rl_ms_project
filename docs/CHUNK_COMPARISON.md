@@ -204,3 +204,46 @@ failed actor. Existing legacy fallback counters include all recorded reasons.
 Do not pull runtime changes into an active sealed study. To inspect one safely,
 copy only `tools/diagnostics/peek_chunk_study.py`; that tool is outside the sealed
 runtime paths. Otherwise synchronize normally before preparing the next study.
+
+## Recover the two unmapped-ID failures without replacing successful seeds
+
+After the original array has fully stopped, push the unmapped-ID fix and the
+recovery tools, then pull on Duke. Do not edit the old manifest or delete failed
+actor directories. Use a new destination:
+
+```bash
+source scripts/cluster_env.sh
+python3 tools/diagnostics/recover_chunk_study.py --submit \
+  --source outputs/numina-chunk-comparison-32-v1 \
+  --out outputs/numina-chunk-comparison-32-recovery-v1 \
+  --concurrency 2
+```
+
+This submits CPU preparation → four new two-update smokes (two concurrent) →
+verification gate → only software-failed task IDs (8 and 13 for the current
+study, two concurrent) → replacement report. No new full runs for the 18 successes.
+The failed seeds start at update zero with fresh actors and matrices. Sources
+remain untouched; retained successful run directories are linked and their
+report-critical artifacts hashed. Recovery uses the same data/filter and
+hyperparameters. Preparation rejects changes outside `chunks.py`, `trainer.py`,
+and the reporting text in `chunk_study.py`; these are the reviewed runtime files
+for the fix. This is a file-level guard, not an automated proof of code equivalence.
+
+The new manifest records original and patched runtime hashes, source manifest,
+per-run origins, failed task IDs and failure-log hashes. Current GPU smokes and
+old successful-run audits must pass. The final report is explicitly **mixed-code
+recovery**, not a clean all-seeds replication under one runtime. Original smoke
+cost is reported separately, as is the new smoke cost; original failed allocation
+costs remain additional/unaccounted here and must not disappear from total-cost
+claims. All original outputs remain available for inspection.
+
+```bash
+cat outputs/numina-chunk-comparison-32-recovery-v1-submission/jobs.tsv
+cat outputs/numina-chunk-comparison-32-recovery-v1/smoke.json
+cat outputs/numina-chunk-comparison-32-recovery-v1/recovery-report-0-status.json
+cat outputs/numina-chunk-comparison-32-recovery-v1/report.txt
+```
+
+The old report job stays cancelled; this chain creates its replacement. If sbatch
+returns a timeout, inspect the sidecars and Slurm before retrying. Never blindly
+repeat a submission or modify runtime code while this recovery is queued/running.
