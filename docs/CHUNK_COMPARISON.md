@@ -194,6 +194,13 @@ a representative corpus estimate or evidence that one size improves PPO. The
 accuracy; it still needs the real GPU integration check and controlled comparison.
 The diagnostic does not change defaults, saved studies, or running actors.
 
+The later unmapped-ByteLevel-ID fix extends the fallback to IDs with no token
+string. It changes runtime hashes: do not pull it into an active study or rewrite
+its manifest. Preserve successful runs and failed artifacts; any recovery must
+record the changed code and run the failed seed afresh. Actor checkpoints are
+saved at the final update in this recipe, so saved A,b alone cannot resume a
+failed actor. Existing legacy fallback counters include all recorded reasons.
+
 Do not pull runtime changes into an active sealed study. To inspect one safely,
 copy only `tools/diagnostics/peek_chunk_study.py`; that tool is outside the sealed
 runtime paths. Otherwise synchronize normally before preparing the next study.

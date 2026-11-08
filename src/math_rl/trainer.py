@@ -108,6 +108,9 @@ class MathTrainer(ray_trainer.RayPPOTrainer):
                         chunk_fallback_tokens=fallback_tokens,
                         chunks=sum(len(p.starts) for p in plans), response_tokens=int(mask.sum()),
                         segmentation_fallback_answers=sum(p.fallback_reason is not None for p in plans),
+                        chunk_fallback_answers=sum(p.fallback_reason is not None for p in plans),
+                        alignment_fallback_answers=sum(p.fallback_reason == 'unmapped_token_id' for p in plans),
+                        unmapped_token_ids=sorted({i for p in plans for i in p.unmapped_token_ids}),
                         segmentation_fallback_reasons={reason:sum(p.fallback_reason == reason for p in plans)
                             for reason in sorted({p.fallback_reason for p in plans if p.fallback_reason})},
                         advantage='chunk_gae', gae_lambda=float(self.config.algorithm.lam))) + '\n')

@@ -38,8 +38,8 @@ artifact = train_critic(config, output_dir="critics/math-v001")
 Preview the resource limits before training. Numeric reference/column validation,
 pinned dataset revisions, question-family splits, stage caches and checksums are
 part of the recipe. Both outcome classes are required in train/validation.
-`chunk_fallback_tokens` controls fixed-size groups used only if MATH segmentation
-fails. Normal splits are unchanged; groups preserve the original tokens, including
+`chunk_fallback_tokens` controls fixed-size groups used if MATH segmentation
+fails or a ByteLevel action ID has no text mapping. Normal splits are unchanged; groups preserve the original tokens, including
 EOS, with a shorter final group when needed. The saved configuration records the size.
 
 ## Load and score

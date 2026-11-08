@@ -68,6 +68,7 @@ class ChunkPlan:
     ends: tuple[int, ...]
     tokens: int
     fallback_reason: str | None = None
+    unmapped_token_ids: tuple[int, ...] = ()
 
     def __post_init__(self):
         if (self.tokens < 1 or not self.starts or self.starts[0] != 0
@@ -97,6 +98,13 @@ def _bytelevel_alphabet():
 
 
 _BYTE_DECODER = _bytelevel_alphabet()
+
+
+class UnmappedTokenError(ValueError):
+    """Sampled IDs have no nonempty ByteLevel token string; actions stay intact."""
+    def __init__(self, token_ids):
+        self.token_ids = tuple(sorted(set(token_ids)))
+        super().__init__(f'Empty or unknown sampled ByteLevel token IDs: {self.token_ids}')
 
 
 def _utf8_owners(raw):
@@ -137,9 +145,12 @@ def token_character_starts(tokenizer, tokens):
     state = json.loads(decoder.__getstate__()) if decoder is not None else {}
     if state.get('type') == 'ByteLevel':
         raw, byte_starts = bytearray(), []
-        for token in tokenizer.convert_ids_to_tokens(tokens):
-            if not isinstance(token, str) or not token:
-                raise ValueError('Empty or unknown sampled ByteLevel token')
+        pieces = tokenizer.convert_ids_to_tokens(tokens)
+        missing = [i for i, token in zip(tokens, pieces, strict=True)
+                   if not isinstance(token, str) or not token]
+        if missing:
+            raise UnmappedTokenError(missing)
+        for token in pieces:
             byte_starts.append(len(raw))
             for char in token:
                 if char in _BYTE_DECODER:
@@ -162,8 +173,13 @@ def token_character_starts(tokenizer, tokens):
     return text, [a for a, _ in offsets]
 
 
+def _fixed_token_plan(tokens, size, reason, unmapped_ids=()):
+    starts = list(range(0, len(tokens), size))
+    return ChunkPlan(tuple(starts), tuple(starts[1:] + [len(tokens)]), len(tokens), reason, unmapped_ids)
+
+
 def token_chunks(tokenizer, tokens, mode='math', fallback_tokens=DEFAULT_FALLBACK_TOKENS):
-    """Partition sampled actions, using fixed-token groups only on MATH failure.
+    """Use fixed-token groups on MATH failure or unmapped ByteLevel action IDs.
 
     Fallback counts all original response tokens, including terminal EOS. The
     final group may be shorter. No token is decoded/re-encoded into a new action.
@@ -181,11 +197,16 @@ def token_chunks(tokenizer, tokens, mode='math', fallback_tokens=DEFAULT_FALLBAC
     body = tokens[:-1] if has_eos else tokens
     if not body:
         return ChunkPlan((0,), (len(tokens),), len(tokens))
-    text, character_starts = token_character_starts(tokenizer, body)
+    try:
+        text, character_starts = token_character_starts(tokenizer, body)
+    except UnmappedTokenError as exc:
+        # Qwen's model output vocabulary can exceed its tokenizer vocabulary.
+        # There is no character boundary for these IDs; never drop or replace
+        # them. Fixed groups need only original action indices, including EOS.
+        return _fixed_token_plan(tokens, fallback_tokens, 'unmapped_token_id', exc.token_ids)
     points, fallback_reason = _boundaries_with_status(text, mode)
     if fallback_reason is not None:
-        starts = list(range(0, len(tokens), fallback_tokens))
-        return ChunkPlan(tuple(starts), tuple(starts[1:] + [len(tokens)]), len(tokens), fallback_reason)
+        return _fixed_token_plan(tokens, fallback_tokens, fallback_reason)
     groups = [bisect_right(points, a)-1 for a in character_starts]
     starts = [0] + [i for i in range(1, len(body)) if groups[i] != groups[i-1]]
     return ChunkPlan(tuple(starts), tuple(starts[1:]+[len(tokens)]), len(tokens), fallback_reason)

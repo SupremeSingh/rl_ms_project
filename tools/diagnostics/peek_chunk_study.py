@@ -109,7 +109,14 @@ def inspection_plan(tokenizer, tokens, fallback_tokens):
     reason = None
     starts = [0]
     if body:
-        text, owners = token_character_starts(tokenizer, body)
+        try:
+            text, owners = token_character_starts(tokenizer, body)
+        except ValueError as exc:
+            # Narrow compatibility with both old and new unmapped-token errors.
+            if not str(exc).startswith('Empty or unknown sampled ByteLevel token'):
+                raise
+            starts = list(range(0, len(tokens), fallback_tokens))
+            return SimpleNamespace(starts=starts, ends=starts[1:]+[len(tokens)], fallback_reason='unmapped_token_id')
         try:
             points = sorted(set(split_solution_inplace(text) if text else [0]))
             if not points or points[0] != 0 or points[-1] != len(text):

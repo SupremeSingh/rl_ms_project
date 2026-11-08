@@ -63,3 +63,25 @@ def test_special_tokens_and_eos_remain_original_actions(tokenizer):
     text,starts=token_character_starts(tokenizer,[ord('a'),258,ord('b')])
     assert text=='a<|endoftext|>b' and starts==[0,1,14]
     assert token_chunks(tokenizer,[258]).ends==(1,)
+
+
+@pytest.mark.parametrize('mode', ['math','gsm8k'])
+def test_unmapped_model_output_id_uses_fixed_chunks_without_rewriting_actions(tokenizer,mode):
+    import torch
+    from slice_critic.chunks import UnmappedTokenError
+    # Mimics padded Qwen output IDs that decode to empty text, despite being
+    # valid model output coordinates. The tokenizer cannot assign characters.
+    tokens=list(b'First line.\n')+[999,999]+list(b'Final answer.')+[258]
+    original=tokens.copy()
+    assert tokenizer.convert_ids_to_tokens(999) is None
+    assert tokenizer.decode([999])==''
+    with pytest.raises(UnmappedTokenError) as caught:
+        token_character_starts(tokenizer,tokens[:-1])
+    assert caught.value.token_ids==(999,)
+    plan=token_chunks(tokenizer,tokens,mode,fallback_tokens=8)
+    assert plan.fallback_reason=='unmapped_token_id' and plan.unmapped_token_ids==(999,)
+    assert plan.starts==tuple(range(0,len(tokens),8)) and plan.ends[-1]==len(tokens)
+    assert [t for a,b in zip(plan.starts,plan.ends) for t in tokens[a:b]]==original
+    assert tokens==original and plan.expand(torch.ones(len(plan.starts))).sum()==len(tokens)
+    # Token mode is unaffected and retains these same sampled actions.
+    assert len(token_chunks(tokenizer,tokens,'token').starts)==len(tokens)

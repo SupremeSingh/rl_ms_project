@@ -38,6 +38,18 @@ chunk; zero-token chunks are omitted. This makes transitions executable on the
 **original sampled token IDs**, without rewriting actions. All tokens count,
 including EOS and the last token of a capped response.
 
+An unmapped ByteLevel token ID also triggers the same fixed-token fallback.
+The cluster's Qwen checkpoint has 151,936 output coordinates but its tokenizer
+maps 151,665 IDs; the remaining 271 decode to empty text. This explains a
+plausible alignment failure without implying a matrix-fitting error. We retain
+the sampled IDs, rewards and action probabilities, and group by token index
+instead of inventing characters. PPO metrics record `unmapped_token_ids`,
+`alignment_fallback_answers`, and reason `unmapped_token_id`. The legacy
+`segmentation_fallback_answers` counter includes all fallback reasons; the new
+`chunk_fallback_answers` is its explicitly named equivalent. Other alignment
+errors and unrelated exceptions still fail. Scoring the text alone cannot
+reconstruct an unmapped action that the tokenizer omits.
+
 A fast tokenizer is required. Qwen's ByteLevel BPE is aligned directly from the
 original sampled token bytes to decoded characters: alternative tokenizations
 of the same text remain valid. Split Unicode characters and incomplete/invalid

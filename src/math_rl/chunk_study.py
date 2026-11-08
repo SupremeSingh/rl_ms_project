@@ -239,7 +239,7 @@ def report(out,m):
         'Same frozen features, one head, epsilon .01, gamma 1, GAE .95 (per token or per chunk).',
         'arm                 actor accuracy   training GPUh   accounted GPUh   fitted states',
         *[f'{a:20} {v["accuracy_mean"]*100:6.2f}%          {v["training_gpu_hours_mean"]:.3f}          {v["accounted_gpu_hours_mean"]:.3f}          {v["fitted_states_mean"]:.0f}' for a,v in results.items()],
-        *[f'{a}: segmentation fallback {v["segmentation_fallback_fraction"]:.2%} of training answers (fixed groups of at most {m["chunk_fallback_tokens"]} original tokens)' for a,v in results.items()],
+        *[f'{a}: chunk fallback {v["segmentation_fallback_fraction"]:.2%} of training answers (fixed groups of at most {m["chunk_fallback_tokens"]} original tokens; includes unmapped-ID alignment failures)' for a,v in results.items()],
         'Primary differences: chunk minus token; units are percentage points.',
         *[f'{rep}: {v}' for rep,v in primary.items()],f'Exploratory interaction: {summary["interaction_exploratory"]}',
         f'Additional smoke accounted GPUh: {smoke_cost:.3f}',summary['limitations']]
