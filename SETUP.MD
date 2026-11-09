@@ -1,7 +1,8 @@
 # Setup and acceptance
 
-Use the `prod` checkout on Duke. Do not change its code or environments while
-jobs use it. Saved outputs are inputs to reproduction, not disposable caches.
+Use the branch selected for your study (currently `v3` for chunk experiments);
+the original production replay used `prod`. Do not change a checkout's code or
+environments while jobs use it. Saved outputs are inputs to reproduction, not disposable caches.
 See [README](README.md) for results and [reproduction](docs/REPRODUCING.md) for jobs.
 
 ## Existing installation

@@ -1,243 +1,180 @@
 # SLICE: a compact critic for PPO
 
-**A language model writes an answer. A small critic estimates whether it will
-finish correctly. PPO uses that estimate to help the model learn.**
+**A language model writes an answer. SLICE estimates whether a partial answer
+will finish correctly, helping PPO decide which actions to reinforce.**
 
-**Our aim: a cheaper critic with a stable feature basis.** LLM PPO often trains
-a separate transformer critic alongside the actor, adding backpropagation cost
-and another large optimization problem. SLICE keeps a copy of the base model and
-a learned compressor frozen, then fits a linear value head with regularized
-matrix solves. The actor changes; the critic's feature coordinates stay fixed,
-so its statistics can accumulate consistently across updates.
+Our aim is cheaper value learning with a fixed feature basis. SLICE freezes a
+copy of Qwen2.5-Math-1.5B and a learned sparse compressor. During PPO, a small
+Ridge or LSTD head learns from verified outcomes through cumulative matrices
+and regularized solves. The actor changes; the critic’s feature coordinates do not.
 
-This removes critic-transformer backpropagation, not the cost of its frozen
-forward pass. It simplifies critic fitting rather than proving that PPO is
-mathematically unstable or that SLICE eliminates training instability. Our
-experiment supports useful, lower-cost learning relative to the tested
-transformer-critic baseline; a general stability advantage remains unproven.
+**Our accuracy-focused baseline is token-level SLICE + cumulative Ridge, with
+one shared head and no output LayerNorm.** It reached **75.51% Numina actor
+accuracy** in the latest five-seed comparison. This is a tested recipe, not a
+universal accuracy, stability or total-cost guarantee.
 
-SLICE is the reusable package; this repository also contains the PPO/GRPO
-comparison pipeline for numeric math questions.
+![SLICE combines five frozen layer vectors into 768 features and predicts eventual correctness.](docs/figures/overview.png)
 
-**Current best validated PPO recipe: token-level SLICE + cumulative Ridge.**
-Our completed token/chunk comparison reached **75.51%** with token-level SLICE
-versus **73.54%** with chunks. Chunking reduced online training compute by 11.7%
-but lost accuracy; it remains an experimental option.
+Five selected blocks (28, 27, 25, 21, 13) supply **7,680 coordinates**, compressed
+to **768 features**; an intercept gives a **769×769** head system. Per-block RMS
+normalization and training-only centering/scalar scaling stay frozen. Sparse
+activations still use dense kernels, and frozen encoder forward passes still cost compute.
 
-[Setup](SETUP.MD) · [Package API](packages/slice-critic/API.md) ·
-[Reproduce the study](docs/REPRODUCING.md)
-
-## From a partial answer to a value
-
-A model answering “9 avocados, 3 per serving” chooses one token at a time. At
-“Divide 9 by…”, the critic estimates the eventual reward from continuing that
-partial answer. Math-Verify gives the completed answer a reward of 1 or 0.
-GAE combines rewards and value differences to assign credit; PPO uses those
-advantages to adjust the model's token choices. Our recommended recipe operates
-at token level. The v3 chunk option computes GAE across reasoning chunks and
-broadcasts each chunk's advantage to its tokens.
-
-![SLICE: combine selected frozen transformer layers, compress to 768 features and predict the final outcome.](docs/figures/overview.png)
-
-SLICE reads the last available token's hidden vector at blocks **28, 27, 25, 21,
-13** of Qwen2.5-Math-1.5B. It normalizes and combines five 1,536-dimensional
-vectors, then compresses **7,680 coordinates to 768 features** with a learned
-ReLU layer. The compressor is trained offline using correctness labels and an
-activation penalty. “Sparse” describes that penalty and the resulting zero
-activations; the implementation still uses dense operations.
-
-The diagram's correctness score is an outcome estimate, not a proof of the
-reasoning. Online Ridge/LSTD values are unbounded linear predictions; standalone
-package scoring also provides a separately calibrated probability.
-
-## One cumulative head; optional reasoning chunks
-
-The experimental chunk path adopts
-[VinePPO's](https://github.com/McGill-NLP/VinePPO) LaTeX-aware MATH segmentation
-and its rule of giving all tokens in a reasoning chunk the same advantage.
-We retain learned SLICE/Ridge/LSTD values; auxiliary Monte Carlo rollouts are
-not implemented. GSM8K's newline splitting is also available explicitly.
-If MATH segmentation fails or a ByteLevel token has no text mapping, we retain every sampled token and use fixed groups
-of at most 32 tokens instead; `experiment.chunk_fallback_tokens` adjusts that
-fallback size. Normal heuristic chunks are unchanged, and fallback rates are logged.
-
-```text
-Fresh answers → reasoning chunks → causal features at chunk starts
-    → one cumulative Ridge/LSTD head → GAE across chunks
-    → broadcast each advantage to its tokens → PPO actor update
+```mermaid
+flowchart TD
+    Q[Question] --> A[Trainable Qwen actor]
+    A --> R[Fresh answers]
+    R --> V[Math-Verify: final outcome 0 or 1]
+    R --> P[Causal prefixes: no future tokens]
+    P --> E[Frozen base model and normalization]
+    E --> S[Frozen SLICE: 768 features]
+    S --> H[One cumulative Ridge or LSTD head]
+    V --> H
+    H --> G[Values and fresh rewards: GAE]
+    V --> G
+    G --> U[PPO updates actor only]
+    U --> A
 ```
 
-The base encoder, compressor and normalization stay frozen. Each answer updates
-one shared `A,b`; SLICE's system remains 769×769 including its intercept.
+The head retains raw `A,b` sums across updates. The actor uses fresh answers only;
+there is no answer replay or critic-transformer backpropagation. Historical-policy
+statistics remain uncorrected. Values estimate eventual reward; they do not
+certify reasoning. [Algorithm and package boundaries](docs/ARCHITECTURE.md).
 
-```text
-Initialize A = 0, b = 0; freeze encoder, compressor and normalization.
-For each PPO update:
-    Generate fresh answers; verify terminal correctness.
-    Split answers into chunks; extract frozen features at each pre-chunk prefix.
-    Append intercept 1 to form x.
-    For each answer:
-        Ridge: add outer(x,x) to A and x*final_reward to b, once per chunk.
-        LSTD: reset z=0; for each chunk transition:
-            z = critic_lambda*z + x
-            A += outer(z, x - x_next); b += z*chunk_reward
-            # terminal x_next is all zero, including intercept
-    w = solve(A + 0.01*I, b)
-    V(chunk) = dot(w,x); terminal V=0
-    delta(chunk) = chunk_reward + V(next_chunk) - V(chunk)
-    Backward over chunks: advantage = delta + 0.95 * next_advantage
-    Broadcast to tokens; normalize advantages; update actor with PPO.
-    Retain raw A,b. Do not replay old answers or change the frozen feature basis.
-```
+## Main results
 
-Gamma is 1 and GAE lambda stays **0.95**, now operating across chunks.
-`algorithm.lam=0` is an explicit comparison matching VinePPO's one-step
-value-difference formula. LSTD trace lambda remains a separate parameter.
-Conventional PPO fits its critic only at chunk starts; GRPO remains an answer-level
-baseline. Historical policies remain in accumulated statistics without correction.
-Sparsity still uses dense kernels, and chunking still requires full encoder attention.
-
-[Exact upstream mapping, differences, legacy reproduction and GPU smoke commands](docs/CHUNKING.md).
-The flow above describes the chunk option. Token-level fitting uses every
-pre-action token prefix instead, with the same frozen basis and cumulative
-matrix equations. Older two-fold system diagrams are historical.
-
-The v3 runtime configuration still defaults to chunks. To use the recommended
-token-level PPO recipe, explicitly set `experiment.chunking=token`; worker
-settings follow it through configuration interpolation. Do not change a sealed
-study manifest or running study to switch modes.
-
-## Completed experiment: token versus chunk learning
-
-Four cumulative Ridge arms used **five paired actor seeds (901–905)**,
-**120 updates × 64 answers/run**, **2,000 greedy test questions**, a 2,048-token
-response cap and **two A5000 GPUs/run**. All used frozen features, one head,
-epsilon .01, gamma 1 and GAE lambda .95. The existing Numina data and compressor
-were reused. The layer control is the **raw** two-thirds layer, not the
-RMS-normalized control from earlier transfer experiments.
-
-| Representation / credit unit | Actor accuracy | Training GPUh/run | Accounted GPUh/run | Fitted states/run |
-|---|---:|---:|---:|---:|
-| **SLICE / token** | **75.51%** | 9.691 | 11.704 | 5,730,546 |
-| SLICE / chunk | 73.54% | 8.554 | 10.521 | 325,538 |
-| Raw layer / token | 73.25% | 7.785 | 9.669 | 5,787,715 |
-| Raw layer / chunk | 72.74% | 7.846 | 9.874 | 324,779 |
-
-All entries are means across five runs. **Chunk minus token** accuracy:
-
-- **SLICE: −1.97 percentage points**, adjusted interval **[−3.29, −0.56] pp**;
-  every seed lost accuracy. Online training compute fell **11.7%**.
-- **Raw layer: −0.51 pp**, adjusted interval **[−2.08, +1.01] pp**;
-  the accuracy difference is inconclusive, with no measured compute saving.
-
-Chunking fitted roughly **18× fewer states**, without proportional total savings.
-Generation, frozen encoder passes and actor optimization still require work.
-Fallbacks affected **0.79%** of SLICE/chunk and **0.73%** of layer/chunk training
-answers, using groups of at most 32 original tokens when needed.
-
-**Takeaway: retain token-level SLICE + Ridge as our accuracy-focused baseline.**
-This chunk recipe traded accuracy for a modest SLICE compute saving. It does not
-establish that chunking generally fails: .95 decays per chunk rather than per
-token, state weighting changes, and the same epsilon has different relative
-strength. We retain learned values, not VinePPO's Monte Carlo value estimator.
-Intervals use approximate paired seed/question bootstrap with Bonferroni nominal
-adjustment for two primary contrasts; reused questions make this a controlled
-follow-up, not an independent benchmark.
-
-**Recovery and costs:** 18 original runs were retained; SLICE/chunk seed 903 and
-layer/chunk seed 904 were restarted from update zero after fixing unmapped-token
-alignment. The report records both code versions. Accounted GPU-hours add
-initialization and base/final evaluation to training; they are not a complete
-allocation ledger. New and original smoke checks cost another **0.788** and
-**0.792 GPUh**, respectively. Failed attempts and prior offline feature learning
-are additional and excluded from the per-run means.
-
-[Protocol and recovery details](docs/CHUNK_COMPARISON.md) ·
-[Recorded results and per-seed differences](docs/results/numina-chunk-comparison.json).
-Cluster report: `outputs/numina-chunk-comparison-32-recovery-v1/report.txt`.
-
-## Recorded Numina results
-
-The original comparison and the completed production replay each used five actor seeds, six methods,
-**120 updates × 64 answers per run**, 2,000 test questions,
-fixed greedy evaluation and a 2,048-token response cap. Gamma is 1; GAE lambda is
-0.95; online LSTD lambda is 0.9; cumulative regularization is 0.01. Each run uses
-two A5000 GPUs. Offline feature learning and PPO validation calibration are
-additional costs.
-
-| Method | Original accuracy | Production replay accuracy | Replay training GPU hours, mean |
-|---|---:|---:|---:|
-| Sparse-768 Ridge PPO | **74.60%** | **74.22%** | **10.39** |
-| Two-thirds-layer Ridge PPO | 72.54% | 72.61% | 9.77 |
-| GRPO | 72.75% | 72.42% | 8.68 |
-| Two-thirds-layer LSTD(0.9) PPO | 72.40% | 72.40% | 9.77 |
-| Sparse-768 LSTD(0.9) PPO | 70.86% | 72.10% | 10.24 |
-| Conventional PPO | 73.52% | 69.93% | 12.17 |
-
-**The main result held up:** sparse Ridge had the highest mean accuracy in both
-runs. In the replay it improved from the base model's **66.70% to 74.22%**, and
-beat two-thirds Ridge in all five seeds: **+1.61 percentage points**, adjusted
-interval **[0.17, 3.19] pp**. The original gain was +2.06 pp, interval
-[0.59, 3.53] pp.
-
-Against GRPO, the replay gain was **+1.80 pp**, adjusted interval
-**[-0.16, 3.80] pp**. The original gain was +1.85 pp with an interval above zero;
-the replay does not establish superiority after adjustment. Against conventional
-PPO, the replay gain was **+4.29 pp**, interval **[-2.28, 12.60] pp**: also
-inconclusive. PPO varied from **61.95% to 75.80%** across replay seeds, despite
-passing all critic health checks. These checks test training-target fitting and
-functional behavior, not held-out value accuracy or policy improvement.
-
-Sparse Ridge used about **15% less online training compute** than conventional
-PPO in the replay (about 17% in the original). It cost more than GRPO. These costs
-exclude offline generation, feature extraction and compressor learning; historical
-PPO calibration cost another **19.59 GPU hours** and was reused for the replay.
-
-These are approximate seed/question bootstrap intervals with Bonferroni nominal
-coverage for eight primary comparisons. Five actor seeds share one selected
-compressor. Eligibility uses numeric-template separation, not semantic or
-pretraining decontamination. Verifier labels need audit. All replay PPO health
-checks passed; one original PPO seed failed the training-target-MSE improvement
-gate while passing its other functional checks. No seeds are discarded.
-
-The replay reused the same questions, actor seed IDs, frozen compressor and PPO
-profile, with fresh actors and empty online statistics. It validates the cleaned-up
-workflow and the main empirical pattern, not identical numerical outputs or an
-independent benchmark. Conventional PPO's mean accuracy was not closely reproduced.
-
-[Original results](docs/results/numina-six-method.json) ·
-[Production replay and per-seed data](docs/results/numina-prod-replay.json).
-Compression worked well here; sparsity itself has not been shown to speed up the
-implementation. Ridge is our practical default. LSTD remains a supported
-alternative, not an established winner for long horizons.
-
-## What lives where
-
-| Location | Responsibility |
+| Completed study | Main finding |
 |---|---|
-| `packages/slice-critic/` | Frozen features, compressor training, Ridge/LSTD, verification, artifacts and scoring; independent of VERL. |
-| `src/math_rl/` | Numina preparation, PPO/GRPO, GAE integration, validation and reporting. |
-| `scripts/` | Thin commands, environment setup, Slurm submission and smoke checks. |
-| `configs/` | The two active VERL configuration files. |
-| `tests/` | Tests for the supported production workflow; package tests live with the package. |
+| Token/chunk PPO, five seeds | Token SLICE **75.51%**, chunk SLICE **73.54%**. Chunking saved **11.7% online training GPUh** but lost **1.97 pp**, adjusted difference interval **[−3.29, −0.56] pp**. |
+| Seven-critic PPO, three seeds | Ridge **73.97%**, tested PPO **72.65%**; Ridge used **17.3% less online training GPUh**. Its adjusted accuracy interval against PPO crossed zero. |
+| Offline transfer, MATH with 100 target training questions | Transferred SLICE + refitted Ridge Brier **0.219051**, RMS-layer **0.228839**; difference interval **[−0.01490, −0.00445]**. |
 
-The package remains **internal**, installed from source or a checked wheel; there
-is no hosted API, registry or PyPI publication. Completed v1 artifacts remain
-supported. The cleaned-up version passed installed-wheel CPU acceptance on Duke,
-real Ridge/LSTD PPO integration checks, and the full **30-run production replay**
-with successful report generation. This validates the tested workflow; it does
-not guarantee fault-free behavior for every dataset or configuration.
+These are **separate studies**, not a combined leaderboard. Actor accuracy measures
+final problem-solving success; offline Brier measures prefix-prediction error
+(lower is better). GPUh means GPU-hours, not elapsed hours. Online compute excludes
+prior feature learning; total-cost and limited-data advantages remain task-dependent.
 
-## Reproduce or start fresh
+## Setup
 
-The [reproduction guide](docs/REPRODUCING.md) provides two routes: train fresh
-actors from the final locked data/filter/profile, or build a new SLICE artifact
-and family-disjoint Numina study from pinned data. Retraining the representation
-is a new experiment; it is not a promise to recover identical percentages.
-Older exploratory code is available in Git history, not in the active workflow.
-Saved outputs, model weights and environments are never deleted by setup.
+SLICE is an **internal Python package**, not a hosted API or PyPI release. The
+RL pipeline consumes its feature and cumulative-head interfaces.
 
-The first stage established a working, lower-cost linear-critic path for PPO on
-this task. Value-guided Lean search is a future application, not an implemented
-or validated capability of this repository.
+For an existing Duke installation, before submitting a new study:
 
+```bash
+source scripts/cluster_env.sh
+srun -p compsci --cpus-per-task=8 --mem=128G --time=00:45:00 --pty bash -i
+source scripts/cluster_env.sh
+bash scripts/container_exec.sh bash scripts/install_critic_package.sh
+bash scripts/container_exec.sh "$PWD/.venv/bin/python" \
+  scripts/check_slice_release.py --out outputs/slice-release-check-new
+exit
+```
+
+Require `passed: true`; choose a new output directory each time. Never change code
+or environments while queued/running studies use the checkout.
+[First installation and local development](SETUP.MD) ·
+[Package API](packages/slice-critic/API.md) ·
+[Historical replay and fresh training](docs/REPRODUCING.md).
+
+The v3 runtime still defaults to experimental chunk learning. For new online
+runs using the recommended token recipe, set `experiment.chunking=token` before
+sealing the study; worker settings follow it. Never edit an old manifest to change
+its recipe. [Chunk protocol and recovery](docs/CHUNK_COMPARISON.md).
+
+## Questions we tested
+
+Each linked experiment begins with a question and a qualified answer, followed by
+its setup, data and interpretation. **Offline prediction, online PPO and accounting
+are different kinds of evidence.** Historical two-fold studies are explicitly
+labeled. Smoke tests establish integration, not accuracy rankings. Older exploratory
+implementations live in Git history; raw cluster outputs are not bundled here.
+
+**Do multi-layer hidden states outperform J-lens and single-layer readouts?**
+In this offline study, normalized multi-layer Ridge had Brier 0.18917 versus 0.18976 for full J-lens, 0.19702 for the two-thirds layer and 0.21306 for the final layer. PCA compression to 768 features worsened normalized multi-layer Brier to 0.20216.
+[Experiment 01](experiments/01-representations-and-pca.MD).
+
+**Does a learned 768-feature bottleneck preserve useful correctness signals?**
+Yes: sparse 768 + Ridge reached Brier 0.18505 and 72.66% offline prediction accuracy, versus 0.20216 Brier for matched-width PCA. Plain and sparse compressors were close; sparsity did not establish a hardware speedup.
+[Experiment 02](experiments/02-sparse-bottleneck-768.MD).
+
+**Does a learned 1536-feature bottleneck preserve useful correctness signals?**
+Yes: sparse 1536 + Ridge reached Brier 0.18489 and 72.71% offline prediction accuracy, versus 0.19773 Brier for matched-width PCA. Plain and sparse compressors were close; sparsity did not establish a hardware speedup.
+[Experiment 03](experiments/03-sparse-bottleneck-1536.MD).
+
+**Can frozen compressed features support PPO with cumulative linear critics?**
+The short pilot supported the integration: sparse Ridge reached 70.95% actor accuracy versus 68.92% for the tested PPO baseline. With only three seeds and 60 updates, it did not settle method rankings.
+[Experiment 04](experiments/04-focused-ppo-pilot.MD).
+
+**Does sparse Ridge PPO compete with GRPO and a trainable transformer critic?**
+Sparse Ridge had the highest mean actor accuracy, 74.60%, with 10.346 training GPUh versus PPO’s 73.52% and 12.513 GPUh (17.3% less online training compute). Its adjusted +1.08 pp interval against PPO crossed zero, so superiority over PPO was not established.
+[Experiment 05](experiments/05-six-method-ppo.MD).
+
+**Does the cleaned-up pipeline reproduce the earlier six-method pattern?**
+Sparse Ridge again had the highest mean, 74.22%, versus 72.61% for two-thirds Ridge; the adjusted gain interval was [0.17, 3.19] pp. PPO’s mean changed to 69.93%, so the replay reproduced the main pattern rather than identical outcomes.
+[Experiment 06](experiments/06-production-replay.MD).
+
+**Does removing question-fold cross-fitting hurt our linear PPO critics?**
+In the reported five-seed comparison, one-head SLICE + Ridge reached 75.16%, up 0.94 pp over its two-fold replay comparator. LSTD changes were near zero; this motivated one shared cumulative head, without proving same-sample fitting is unbiased.
+[Experiment 07](experiments/07-one-head.MD).
+
+**Does poor matrix conditioning explain why LSTD trails Ridge?**
+Not by itself: at update 120, seed 301’s regularized SLICE Ridge matrix had condition number 3.06×10⁴, while LSTD’s was better conditioned at 2.70×10³. Better conditioning did not guarantee better actor learning.
+[Experiment 08](experiments/08-conditioning.MD).
+
+**Does adding LayerNorm after SLICE improve offline Ridge predictions?**
+It improved raw Brier slightly, from 0.18346 to 0.18302, with both accuracies rounding to 73.2%. The regularized condition number rose from 3.04×10⁴ to 5.23×10⁹ at epsilon .01; no PPO benefit was tested.
+[Experiment 09](experiments/09-feature-normalization.MD).
+
+**Does stronger Ridge regularization materially improve the LayerNorm variant?**
+Sweeping epsilon from .1 to 100 greatly improved SLICE + LayerNorm conditioning, but its displayed Brier stayed 0.18302 and accuracy stayed 73.2%. This was a conditioning improvement, not evidence of a meaningful prediction or PPO improvement.
+[Experiment 10](experiments/10-ridge-epsilon.MD).
+
+**Does an MLP readout improve offline predictions before extensive tuning?**
+The frozen-SLICE MLP reached Brier 0.181589 versus raw Ridge’s 0.183459, but clipped Ridge was already 0.181007. Joint SLICE + MLP was weaker at 0.183017 in this initial three-seed pilot.
+[Experiment 11](experiments/11-mlp-offline-pilot.MD).
+
+**Does validation-tuned joint SLICE–MLP training clearly beat frozen Ridge?**
+Joint training reached test Brier 0.180671 versus raw Ridge 0.183459 and clipped Ridge 0.181007. Its paired question-mean improvement over clipped Ridge had interval [−0.001019, +0.000453], so a clear gain beyond the bounded Ridge control was not established.
+[Experiment 12](experiments/12-mlp-offline-tuned.MD).
+
+**Do neural heads or low-lambda LSTD improve PPO over cumulative Ridge?**
+Ridge led the seven-arm means at 73.97%, versus 72.23% for frozen-SLICE MLP and 72.75% for joint SLICE–MLP. LSTD(.99) was close at 73.62%; LSTD(.05) fell to 70.22%, so neither a neural head nor low lambda improved this recipe.
+[Experiment 13](experiments/13-seven-critic-ppo.MD).
+
+**Does transferring a full critic beat refitting its head or combining multiple SLICEs?**
+On GSM8K, Numina SLICE + refitted Ridge improved question-mean Brier to 0.204976 from 0.216804 for the transferred full critic. Joint-data SLICE scored 0.206014 and the 768-feature combined system 0.223276; the RMS two-thirds control was best at 0.201330.
+[Experiment 14](experiments/14-transfer-and-ensembling.MD).
+
+**Does transferred SLICE help when target-domain labels are scarce?**
+The clearest gain was MATH with 100 training questions: transferred SLICE Brier 0.219051 versus RMS-layer 0.228839, difference interval [−0.01490, −0.00445]. At 2,000 questions it was essentially tied on MATH and worse on GSM8K, so the low-data benefit was task-dependent.
+[Experiment 15](experiments/15-transfer-learning-curves.MD).
+
+**Have we established an end-to-end cost advantage for transferred SLICE?**
+Not yet: the supplied transfer-study ledger recorded 53.870 allocated GPUh and 436.264 allocated CPUh across the included studies and failed/smoke attempts. It did not establish a per-method equal-quality saving or a break-even reuse count.
+[Experiment 16](experiments/16-cost-accounting.MD).
+
+**Did validation tuning favor stronger online Ridge regularization?**
+In a one-seed, 20-update pilot, validation selected epsilon 10,000 for transferred SLICE and 1,000 for the RMS layer. The SLICE choice was at the grid boundary, so this was limited recipe selection rather than an identified optimum.
+[Experiment 17](experiments/17-transfer-ppo-validation.MD).
+
+**Do transferred SLICE features improve PPO over a normalized single layer?**
+The five-seed means were close: transferred SLICE reached 74.01% actor accuracy versus 73.74% for the RMS layer, with adjusted difference interval [−4.35, 4.22] pp. SLICE used 6.227 versus 6.012 training GPUh, so this study established neither higher accuracy nor cheaper online training.
+[Experiment 18](experiments/18-transfer-ppo.MD).
+
+**Does reasoning-chunk learning improve cumulative Ridge PPO?**
+No for the tested SLICE recipe: chunking lowered actor accuracy from 75.51% to 73.54%, a −1.97 pp change with adjusted interval [−3.29, −0.56], while saving 11.7% online training compute. The raw-layer change was inconclusive at −0.51 pp, interval [−2.08, 1.01].
+[Experiment 19](experiments/19-token-versus-chunk.MD).
+
+## Conclusion and next directions
+
+We have a reusable frozen-feature critic package and a working PPO pipeline.
+Token-level SLICE + Ridge is our current accuracy-focused math baseline; transfer
+is useful, but higher accuracy and lower costs depend on the task and data budget.
+
+Next, we want to test a **bidirectional encoder critic** on identical prefixes,
+measuring prediction quality and repeated-prefix extraction cost before PPO.
+A separate **Lean-verified tactic-search** direction would score explicit proof
+states and measure success under fixed search budgets. Both remain proposed
+research, not implemented or validated capabilities. Changing the encoder or
+compressor requires fresh cumulative matrices.
