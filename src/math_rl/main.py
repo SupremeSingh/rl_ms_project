@@ -66,6 +66,10 @@ def validate(config):
     if layer not in ('final', 'two_thirds', 'bottleneck') or (layer != 'final' and mode != 'frozen'):
         raise ValueError('Intermediate features require a frozen encoder')
     precision = config.actor_rollout_ref.model.get('critic_encoder_precision', 'bf16')
+    normalization = config.actor_rollout_ref.model.get('critic_feature_normalization', 'none')
+    if normalization not in ('none', 'rms') or (normalization == 'rms' and
+            (not linear or layer != 'two_thirds' or mode != 'frozen' or precision != 'fp32')):
+        raise ValueError('RMS readout requires a frozen FP32 two-thirds linear critic')
     if precision not in ('bf16', 'fp32'):
         raise ValueError('Unknown frozen encoder precision')
     if layer == 'bottleneck':
@@ -156,6 +160,7 @@ def run(config):
         training_gpu_hours=training_seconds * config.trainer.n_gpus_per_node / 3600,
         scope='Training time includes validation, checkpointing, feature transport and critic fitting; excludes setup and test evaluation')
     result['chunking'] = config.experiment.get('chunking', 'token')
+    result['feature_normalization'] = config.actor_rollout_ref.model.get('critic_feature_normalization', 'none')
     result['chunk_fallback_tokens'] = config.experiment.get('chunk_fallback_tokens', 32)
     result['critic_folds'] = config.experiment.get('critic_folds', 2)
     result['gae_lambda'] = float(config.algorithm.lam)

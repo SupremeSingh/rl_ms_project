@@ -8,7 +8,7 @@ from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from verl.single_controller.base.decorator import Dispatch, register
 from verl.workers.fsdp_workers import CriticWorker
 
-from math_rl.ppo_baseline import critic_diagnostics, zero_value_head
+from math_rl.ppo_baseline import critic_diagnostics, zero_value_head, prepare_value_export
 
 
 class AuditedCriticWorker(CriticWorker):
@@ -19,6 +19,8 @@ class AuditedCriticWorker(CriticWorker):
         # Before the first optimizer step; retain pretrained transformer weights.
         with FSDP.summon_full_params(model, writeback=True, rank0_only=False):
             zero_value_head(model)
+            if 'hf_model' in self.config.checkpoint.save_contents:
+                prepare_value_export(model._fsdp_wrapped_module)
         return model, optimizer, scheduler
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)

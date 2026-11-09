@@ -62,6 +62,9 @@ class FeatureActorWorker(ActorRolloutRefWorker):
                     self.config.model.critic_bottleneck_rms_eps, positions=positions)
             else:
                 features = frozen_prefixes(self._critic_encoder, ids, masks, width, layer=layer, positions=positions)
+                from math_rl.value_features import normalize_readout
+                features = [normalize_readout(x, self.config.model.get('critic_feature_normalization', 'none'),
+                                              self._critic_encoder.config.rms_norm_eps) for x in features]
         finally:
             self._critic_encoder.cpu()
             torch.cuda.empty_cache()

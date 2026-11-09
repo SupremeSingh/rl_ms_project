@@ -166,6 +166,13 @@ The five-seed means were close: transferred SLICE reached 74.01% actor accuracy 
 No for the tested SLICE recipe: chunking lowered actor accuracy from 75.51% to 73.54%, a −1.97 pp change with adjusted interval [−3.29, −0.56], while saving 11.7% online training compute. The raw-layer change was inconclusive at −0.51 pp, interval [−2.08, 1.01].
 [Experiment 19](experiments/19-token-versus-chunk.MD).
 
+**How accurately do our critics estimate a partial answer's chance of success?**
+The next six-arm diagnostic will compare predictions with independent Monte Carlo
+continuations on shared prefixes. It has no results yet; GRPO is explicitly a
+question-level baseline, and each actor defines its own reference value.
+[Experiment 20](experiments/20-monte-carlo-value-audit.MD) ·
+[Protocol and run commands](docs/VALUE_AUDIT.md).
+
 ## Conclusion and next directions
 
 We have a reusable frozen-feature critic package and a working PPO pipeline.

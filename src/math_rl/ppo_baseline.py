@@ -12,6 +12,19 @@ PPO_PROFILES = {
 }
 
 
+def prepare_value_export(model):
+    """Tell VERL's HF exporter this is a token critic, not the source causal LM.
+
+    AutoModelForTokenClassification can retain the pretrained config's original
+    CausalLM architecture until save_pretrained. VERL chooses its export class
+    BEFORE that call, so explicitly record the actual class for opted-in exports.
+    """
+    name = type(model).__name__
+    if 'ForTokenClassification' not in name or model.config.num_labels != 1:
+        raise ValueError('HF value export requires a scalar token-classification model')
+    model.config.architectures = [name]
+
+
 def zero_value_head(model):
     heads = [m for name, m in model.named_modules()
              if name.split('.')[-1] == 'score' and isinstance(m, torch.nn.Linear) and m.out_features == 1]

@@ -40,6 +40,7 @@ actor_rollout_ref:
     critic_chunking: ${experiment.chunking}
     critic_chunk_fallback_tokens: ${experiment.chunk_fallback_tokens}
     critic_feature_layer: final
+    critic_feature_normalization: none
     critic_encoder_precision: bf16
     critic_bottleneck_path: null
     critic_bottleneck_sha256: null
