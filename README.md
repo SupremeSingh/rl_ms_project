@@ -19,6 +19,11 @@ transformer-critic baseline; a general stability advantage remains unproven.
 SLICE is the reusable package; this repository also contains the PPO/GRPO
 comparison pipeline for numeric math questions.
 
+**Current best validated PPO recipe: token-level SLICE + cumulative Ridge.**
+Our completed token/chunk comparison reached **75.51%** with token-level SLICE
+versus **73.54%** with chunks. Chunking reduced online training compute by 11.7%
+but lost accuracy; it remains an experimental option.
+
 [Setup](SETUP.MD) · [Package API](packages/slice-critic/API.md) ·
 [Reproduce the study](docs/REPRODUCING.md)
 
@@ -27,9 +32,10 @@ comparison pipeline for numeric math questions.
 A model answering “9 avocados, 3 per serving” chooses one token at a time. At
 “Divide 9 by…”, the critic estimates the eventual reward from continuing that
 partial answer. Math-Verify gives the completed answer a reward of 1 or 0.
-In v3, GAE combines reasoning-chunk value differences to assign credit; PPO
-uses the broadcast advantages to adjust the model's token choices. Earlier
-experiments used token-level generalized advantage estimation (GAE).
+GAE combines rewards and value differences to assign credit; PPO uses those
+advantages to adjust the model's token choices. Our recommended recipe operates
+at token level. The v3 chunk option computes GAE across reasoning chunks and
+broadcasts each chunk's advantage to its tokens.
 
 ![SLICE: combine selected frozen transformer layers, compress to 768 features and predict the final outcome.](docs/figures/overview.png)
 
@@ -44,9 +50,9 @@ The diagram's correctness score is an outcome estimate, not a proof of the
 reasoning. Online Ridge/LSTD values are unbounded linear predictions; standalone
 package scoring also provides a separately calibrated probability.
 
-## v3: reasoning chunks, one cumulative head
+## One cumulative head; optional reasoning chunks
 
-**New implementation; no chunked accuracy results yet.** We now adopt
+The experimental chunk path adopts
 [VinePPO's](https://github.com/McGill-NLP/VinePPO) LaTeX-aware MATH segmentation
 and its rule of giving all tokens in a reasoning chunk the same advantage.
 We retain learned SLICE/Ridge/LSTD values; auxiliary Monte Carlo rollouts are
@@ -68,7 +74,8 @@ one shared `A,b`; SLICE's system remains 769×769 including its intercept.
 Initialize A = 0, b = 0; freeze encoder, compressor and normalization.
 For each PPO update:
     Generate fresh answers; verify terminal correctness.
-    Split answers into chunks; extract x at each pre-chunk prefix.
+    Split answers into chunks; extract frozen features at each pre-chunk prefix.
+    Append intercept 1 to form x.
     For each answer:
         Ridge: add outer(x,x) to A and x*final_reward to b, once per chunk.
         LSTD: reset z=0; for each chunk transition:
@@ -91,21 +98,63 @@ baseline. Historical policies remain in accumulated statistics without correctio
 Sparsity still uses dense kernels, and chunking still requires full encoder attention.
 
 [Exact upstream mapping, differences, legacy reproduction and GPU smoke commands](docs/CHUNKING.md).
-The older two-fold/token system diagrams are historical; the flow above is the
-current implementation. Historical results below do not measure v3 chunking.
+The flow above describes the chunk option. Token-level fitting uses every
+pre-action token prefix instead, with the same frozen basis and cumulative
+matrix equations. Older two-fold system diagrams are historical.
 
-## Next experiment: token versus chunk learning
+The v3 runtime configuration still defaults to chunks. To use the recommended
+token-level PPO recipe, explicitly set `experiment.chunking=token`; worker
+settings follow it through configuration interpolation. Do not change a sealed
+study manifest or running study to switch modes.
 
-The six-method chunked GPU integration smoke passed. The next controlled study
-uses **four Ridge arms × five new actor seeds**, with **120 updates × 64 answers**
-and the same 2,000 Numina test questions: SLICE/token, SLICE/chunk, raw layer/token,
-and raw layer/chunk. Frozen features, one head, epsilon .01 and GAE .95 are fixed.
-The two primary comparisons ask whether chunk-level learning improves final actor
-accuracy within each representation; reports include paired adjusted intervals,
-per-seed results, GPU-hours, generated tokens and fitted-state counts.
+## Completed experiment: token versus chunk learning
 
-[Protocol, limitations and submission commands](docs/CHUNK_COMPARISON.md).
-No accuracy conclusion about chunking is available yet.
+Four cumulative Ridge arms used **five paired actor seeds (901–905)**,
+**120 updates × 64 answers/run**, **2,000 greedy test questions**, a 2,048-token
+response cap and **two A5000 GPUs/run**. All used frozen features, one head,
+epsilon .01, gamma 1 and GAE lambda .95. The existing Numina data and compressor
+were reused. The layer control is the **raw** two-thirds layer, not the
+RMS-normalized control from earlier transfer experiments.
+
+| Representation / credit unit | Actor accuracy | Training GPUh/run | Accounted GPUh/run | Fitted states/run |
+|---|---:|---:|---:|---:|
+| **SLICE / token** | **75.51%** | 9.691 | 11.704 | 5,730,546 |
+| SLICE / chunk | 73.54% | 8.554 | 10.521 | 325,538 |
+| Raw layer / token | 73.25% | 7.785 | 9.669 | 5,787,715 |
+| Raw layer / chunk | 72.74% | 7.846 | 9.874 | 324,779 |
+
+All entries are means across five runs. **Chunk minus token** accuracy:
+
+- **SLICE: −1.97 percentage points**, adjusted interval **[−3.29, −0.56] pp**;
+  every seed lost accuracy. Online training compute fell **11.7%**.
+- **Raw layer: −0.51 pp**, adjusted interval **[−2.08, +1.01] pp**;
+  the accuracy difference is inconclusive, with no measured compute saving.
+
+Chunking fitted roughly **18× fewer states**, without proportional total savings.
+Generation, frozen encoder passes and actor optimization still require work.
+Fallbacks affected **0.79%** of SLICE/chunk and **0.73%** of layer/chunk training
+answers, using groups of at most 32 original tokens when needed.
+
+**Takeaway: retain token-level SLICE + Ridge as our accuracy-focused baseline.**
+This chunk recipe traded accuracy for a modest SLICE compute saving. It does not
+establish that chunking generally fails: .95 decays per chunk rather than per
+token, state weighting changes, and the same epsilon has different relative
+strength. We retain learned values, not VinePPO's Monte Carlo value estimator.
+Intervals use approximate paired seed/question bootstrap with Bonferroni nominal
+adjustment for two primary contrasts; reused questions make this a controlled
+follow-up, not an independent benchmark.
+
+**Recovery and costs:** 18 original runs were retained; SLICE/chunk seed 903 and
+layer/chunk seed 904 were restarted from update zero after fixing unmapped-token
+alignment. The report records both code versions. Accounted GPU-hours add
+initialization and base/final evaluation to training; they are not a complete
+allocation ledger. New and original smoke checks cost another **0.788** and
+**0.792 GPUh**, respectively. Failed attempts and prior offline feature learning
+are additional and excluded from the per-run means.
+
+[Protocol and recovery details](docs/CHUNK_COMPARISON.md) ·
+[Recorded results and per-seed differences](docs/results/numina-chunk-comparison.json).
+Cluster report: `outputs/numina-chunk-comparison-32-recovery-v1/report.txt`.
 
 ## Recorded Numina results
 

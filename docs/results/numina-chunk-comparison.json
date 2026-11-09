@@ -1,0 +1,131 @@
+{
+  "source": {
+    "path": "outputs/numina-chunk-comparison-32-recovery-v1/report.txt",
+    "scope": "Transcribed from the cluster report supplied by the project owner; not the full generated summary.json. Table means retain the report rounding."
+  },
+  "protocol": {
+    "dataset": "Numina; reused inspected questions and frozen compressor",
+    "method": "cumulative Ridge PPO",
+    "actor_seeds": [
+      901,
+      902,
+      903,
+      904,
+      905
+    ],
+    "updates": 120,
+    "answers_per_update": 64,
+    "test_questions": 2000,
+    "evaluation": "final greedy",
+    "response_token_cap": 2048,
+    "gpus_per_run": 2,
+    "gpu_type": "NVIDIA A5000",
+    "critic_folds": 1,
+    "epsilon": 0.01,
+    "gamma": 1,
+    "gae_lambda": 0.95,
+    "fallback_tokens": 32,
+    "layer_control": "raw two-thirds layer; not RMS-normalized"
+  },
+  "methods": {
+    "slice-token": {
+      "actor_accuracy_percent": 75.51,
+      "training_gpu_hours_mean": 9.691,
+      "accounted_gpu_hours_mean": 11.704,
+      "fitted_states_mean_rounded": 5730546,
+      "training_answer_fallback_percent": 0.0
+    },
+    "slice-chunk": {
+      "actor_accuracy_percent": 73.54,
+      "training_gpu_hours_mean": 8.554,
+      "accounted_gpu_hours_mean": 10.521,
+      "fitted_states_mean_rounded": 325538,
+      "training_answer_fallback_percent": 0.79
+    },
+    "layer-token": {
+      "actor_accuracy_percent": 73.25,
+      "training_gpu_hours_mean": 7.785,
+      "accounted_gpu_hours_mean": 9.669,
+      "fitted_states_mean_rounded": 5787715,
+      "training_answer_fallback_percent": 0.0
+    },
+    "layer-chunk": {
+      "actor_accuracy_percent": 72.74,
+      "training_gpu_hours_mean": 7.846,
+      "accounted_gpu_hours_mean": 9.874,
+      "fitted_states_mean_rounded": 324779,
+      "training_answer_fallback_percent": 0.73
+    }
+  },
+  "primary_comparisons": {
+    "slice_chunk_minus_token": {
+      "mean_pp": -1.97,
+      "seed_differences_pp": [
+        -2.8,
+        -1.8,
+        -2.35,
+        -0.65,
+        -2.25
+      ],
+      "descriptive_95_interval_pp": [
+        -3.13,
+        -0.76
+      ],
+      "adjusted_interval_pp": [
+        -3.29,
+        -0.5598749999999972
+      ],
+      "training_gpu_hours_change_percent": -11.738517482837107
+    },
+    "layer_chunk_minus_token": {
+      "mean_pp": -0.51,
+      "seed_differences_pp": [
+        0.35,
+        -0.5,
+        -1.7,
+        0.75,
+        -1.45
+      ],
+      "descriptive_95_interval_pp": [
+        -1.86,
+        0.83
+      ],
+      "adjusted_interval_pp": [
+        -2.08,
+        1.01
+      ],
+      "training_gpu_hours_change_percent": 0.7863669189159372
+    }
+  },
+  "interaction_exploratory": {
+    "mean_pp": -1.46,
+    "interval_95_pp": [
+      -2.98025,
+      0.030250000000000908
+    ]
+  },
+  "interval_scope": "Approximate paired seed/question bootstrap; Bonferroni nominal adjustment for two primary contrasts. Exploratory interaction unadjusted.",
+  "recovery": {
+    "original_completed_runs": 18,
+    "restarted_from_update_zero": [
+      {
+        "task": 8,
+        "arm": "slice-chunk",
+        "seed": 903
+      },
+      {
+        "task": 13,
+        "arm": "layer-chunk",
+        "seed": 904
+      }
+    ],
+    "reason": "Unmapped ByteLevel token IDs; fixed-token fallback added without rewriting original actions.",
+    "scope": "Mixed-code recovery; successful original runs retained; no outcome-based replacements."
+  },
+  "additional_costs": {
+    "new_smoke_accounted_gpu_hours": 0.788,
+    "original_smoke_accounted_gpu_hours": 0.792,
+    "excluded": "Original failed allocation costs and prior offline feature learning are additional; failed allocation GPU-hours are not supplied in this report."
+  },
+  "interpretation": "Token-level SLICE + Ridge remains the accuracy-focused baseline. This chunk recipe reduces fitted states and SLICE online compute but loses actor accuracy; no universal conclusion about chunking or pure segmentation effect."
+}
