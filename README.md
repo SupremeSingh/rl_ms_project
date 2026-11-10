@@ -167,11 +167,20 @@ No for the tested SLICE recipe: chunking lowered actor accuracy from 75.51% to 7
 [Experiment 19](experiments/19-token-versus-chunk.MD).
 
 **How accurately do our critics estimate a partial answer's chance of success?**
-The next six-arm diagnostic will compare predictions with independent Monte Carlo
-continuations on shared prefixes. It has no results yet; GRPO is explicitly a
-question-level baseline, and each actor defines its own reference value.
+In the completed 10-question pilot, SLICE/token and SLICE/chunk had value MAE
+**0.244/0.245**, versus **0.303/0.301** for normalized-layer critics; PPO had
+**0.230** and GRPO's question baseline **0.225**. All methods saw the same prefixes,
+but each actor defined its own reference values, so this did not isolate critic
+architecture quality. The result motivated the fixed-policy follow-up below.
 [Experiment 20](experiments/20-monte-carlo-value-audit.MD) ·
 [Protocol and run commands](docs/VALUE_AUDIT.md).
+
+**How do critics compare when the policy, adaptation answers and reference values are shared?**
+The next controlled comparison freezes one actor and fits the critics to the same
+new answers. Every panel uses identical MC reference values; the transformer arm
+is supervised return regression, not a PPO actor run. There are no results yet.
+[Experiment 21](experiments/21-fixed-policy-critics.MD) ·
+[Protocol and commands](docs/FIXED_POLICY_CRITICS.md).
 
 ## Conclusion and next directions
 
