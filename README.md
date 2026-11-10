@@ -173,15 +173,23 @@ question-level baseline, and each actor defines its own reference value.
 [Experiment 20](experiments/20-monte-carlo-value-audit.MD) ·
 [Protocol and run commands](docs/VALUE_AUDIT.md).
 
+**Does an LLM2Vec-adapted Qwen encoder improve SLICE correctness predictions?**
+A separate offline Numina pipeline now tests causal, unadapted bidirectional and
+MNTP/contrastive-adapted backbones with raw/RMS/SLICE Ridge readouts and sampled
+token/chunk training states. Results are pending; it does not change the PPO actor.
+[Experiment 21](experiments/21-offline-encoder.MD) ·
+[Protocol and isolated cluster commands](docs/ENCODER_STUDY.md).
+
 ## Conclusion and next directions
 
 We have a reusable frozen-feature critic package and a working PPO pipeline.
 Token-level SLICE + Ridge is our current accuracy-focused math baseline; transfer
 is useful, but higher accuracy and lower costs depend on the task and data budget.
 
-Next, we want to test a **bidirectional encoder critic** on identical prefixes,
-measuring prediction quality and repeated-prefix extraction cost before PPO.
+The offline **bidirectional encoder critic** pipeline is implemented; its GPU
+validation and results are pending. We will measure prediction quality and
+repeated-prefix extraction cost before considering PPO.
 A separate **Lean-verified tactic-search** direction would score explicit proof
-states and measure success under fixed search budgets. Both remain proposed
-research, not implemented or validated capabilities. Changing the encoder or
+states and measure success under fixed search budgets. Encoder PPO and Lean
+search remain proposed, unvalidated capabilities. Changing the encoder or
 compressor requires fresh cumulative matrices.
