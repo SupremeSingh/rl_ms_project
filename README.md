@@ -176,11 +176,22 @@ architecture quality. The result motivated the fixed-policy follow-up below.
 [Protocol and run commands](docs/VALUE_AUDIT.md).
 
 **How do critics compare when the policy, adaptation answers and reference values are shared?**
-The next controlled comparison freezes one actor and fits the critics to the same
-new answers. Every panel uses identical MC reference values; the transformer arm
-is supervised return regression, not a PPO actor run. There are no results yet.
+On 50 questions with identical MC references, SLICE/token had learned-critic MAE
+**0.27451**, versus normalized-layer/token **0.28543**, but the paired interval
+crossed zero and the Ridge variants were close. The MC-trained transformer
+scored **0.34033** while still improving at its training limit; GRPO's question
+baseline scored **0.16363** using four additional verified answers per test
+question. This compares fixed-policy value regression, not PPO actor performance.
 [Experiment 21](experiments/21-fixed-policy-critics.MD) ·
 [Protocol and commands](docs/FIXED_POLICY_CRITICS.md).
+
+**Which estimator best tracks its own actor's value across more seeds and questions?**
+A planned repeat expands the original six-actor pilot to **three fresh seeds,
+50 questions and 128 MC continuations per state**. Conventional PPO retains its
+original GAE/value-loss training, and every method updates its own actor; MC is
+used only for evaluation. There are no results yet.
+[Experiment 22](experiments/22-multiseed-value-audit.MD) ·
+[Protocol and commands](docs/VALUE_REPEAT.md).
 
 ## Conclusion and next directions
 

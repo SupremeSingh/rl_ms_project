@@ -225,7 +225,7 @@ def check_models(out, m, arm, phase):
 def audit_questions(out, m, phase):
     questions = [q for q in read(out / 'data/questions.json')['questions'] if q['split'] == 'test']
     # Outcome-independent order and fixed balanced mixture; no cherry-picked trajectories.
-    questions.sort(key=lambda q: stable_seed(m['reference_seed'], 'questions', q['id']))
+    questions.sort(key=lambda q: stable_seed(m.get('question_seed',m['reference_seed']), 'questions', q['id']))
     budget = m['budgets'][phase]['questions']
     if len(questions) < budget:
         raise ValueError('Insufficient held-out audit questions')
@@ -374,7 +374,7 @@ def report(out, m, phase):
            'arm                     MAE       RMSE      outside [0,1]']
     lines += [f'{a:<23} {v["mae"]:.5f}   {v["rmse"]:.5f}   {100*v["outside_unit_interval"]:.2f}%' for a,v in metrics.items()]
     lines += [record['head_lag'],record['uncertainty'],m['scope'],
-              'Pilot/smoke are pipeline/cost diagnostics, not method rankings. Reference generation cost is additional.']
+              m.get('report_note','Pilot/smoke are pipeline/cost diagnostics, not method rankings. Reference generation cost is additional.')]
     (folder/'report.txt').write_text('\n'.join(lines)+'\n')
     files = ['bank.json','summary.json','report.txt','value-scatter.png','value-scatter.pdf','error-by-progress.png']
     files += [f'predictions-{arm}.json' for arm in ARMS]

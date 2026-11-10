@@ -1,0 +1,70 @@
+{
+  "source": "User-supplied completed fixed-policy-critics-v1 report, paired contrasts, neural history and bin counts; not a copy of the full cluster summary.json",
+  "cluster_output": "outputs/fixed-policy-critics-v1",
+  "manifest_sha256": "42e428cca431eeebc56d2a5f63cb1eed8c09790d0ebeb04302b0aa2afe8648da",
+  "verification_passed": true,
+  "protocol": {
+    "actor": "Frozen SLICE/token actor, seed 1001, update 120",
+    "train_questions": 500,
+    "validation_questions": 100,
+    "answers_per_train_validation_question": 4,
+    "test_questions": 50,
+    "test_states": 200,
+    "reference_samples_per_state": 128,
+    "shared_reference_completions": 25600,
+    "ridge_epsilon": 0.01,
+    "scope": "Offline fixed-policy regression; same new adaptation answers and same reference outcomes; one actor/transformer fit seed; inspected Numina data"
+  },
+  "reported_raw_metrics": {
+    "slice-token": {"mae": 0.27451, "rmse": 0.34716, "outside_percent": 8.50},
+    "rms-layer-token": {"mae": 0.28543, "rmse": 0.35103, "outside_percent": 8.00},
+    "slice-chunk": {"mae": 0.27574, "rmse": 0.35070, "outside_percent": 9.00},
+    "rms-layer-chunk": {"mae": 0.27693, "rmse": 0.34974, "outside_percent": 9.00},
+    "transformer": {"mae": 0.34033, "rmse": 0.38910, "outside_percent": 0.00},
+    "grpo": {"mae": 0.16363, "rmse": 0.25977, "outside_percent": 0.00}
+  },
+  "paired_mae": {
+    "grpo_minus_slice-token": {
+      "mean": -0.11087936072349101,
+      "question_bootstrap_95": [-0.1706885287240532, -0.05801474967718773]
+    },
+    "slice-chunk_minus_rms-layer-chunk": {
+      "mean": -0.0011898376583296898,
+      "question_bootstrap_95": [-0.02103893543708859, 0.01934960829732056]
+    },
+    "slice-chunk_minus_slice-token": {
+      "mean": 0.0012263610312468376,
+      "question_bootstrap_95": [-0.0069786163246215276, 0.009699833134942958]
+    },
+    "slice-token_minus_rms-layer-token": {
+      "mean": -0.010920311696503265,
+      "question_bootstrap_95": [-0.030122343513757904, 0.008549838366217675]
+    },
+    "transformer_minus_slice-token": {
+      "mean": 0.06581985802650897,
+      "question_bootstrap_95": [0.036361484145727326, 0.09571404929696116]
+    }
+  },
+  "paired_interval_scope": "Exploratory, unadjusted; conditional on shared MC references; one actor and one transformer fit seed",
+  "reported_secondary_clipped_metrics": {
+    "grpo": {"mae": 0.16363, "rmse": 0.25977},
+    "rms-layer-chunk": {"mae": 0.26830, "rmse": 0.34527},
+    "rms-layer-token": {"mae": 0.28011, "rmse": 0.34905},
+    "slice-chunk": {"mae": 0.26514, "rmse": 0.34702},
+    "slice-token": {"mae": 0.26761, "rmse": 0.34434},
+    "transformer": {"mae": 0.34033, "rmse": 0.38910}
+  },
+  "transformer_best_epoch": 2,
+  "transformer_history": [
+    {"epoch": 0, "validation_brier": 0.73},
+    {"epoch": 1, "training_pooled_token_brier": 0.20578953132038236, "validation_brier": 0.22890329539775847},
+    {"epoch": 2, "training_pooled_token_brier": 0.14452628713814797, "validation_brier": 0.1798623167630285}
+  ],
+  "progress_bins": {
+    "0": {"questions": 50, "states": 50},
+    "1": {"questions": 34, "states": 34},
+    "2": {"questions": 20, "states": 20},
+    "3": {"questions": 44, "states": 44},
+    "4": {"questions": 50, "states": 52}
+  }
+}
