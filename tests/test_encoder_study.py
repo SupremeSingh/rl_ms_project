@@ -62,3 +62,21 @@ def test_submission_has_array_and_fail_closed_dependencies(tmp_path,monkeypatch)
         assert '--gres=gpu:a5000:1' in cmd
         if i:assert '--dependency=afterok:'+str(i) in cmd
     with pytest.raises(FileExistsError):m.submit(tmp_path/'out','smoke',tmp_path/'src',tmp_path/'data',tmp_path/'sanity',tmp_path/'official')
+
+
+def test_native_amp_disables_optional_apex_without_upstream_edits(monkeypatch):
+    import sys
+    from types import ModuleType
+    wrapper=module('official_train')
+    transformers=ModuleType('transformers');transformers.__version__='4.44.2'
+    sentinel=object();transformers.Trainer=sentinel
+    utils=ModuleType('transformers.utils')
+    imports=SimpleNamespace(_apex_available=True)
+    imports.is_apex_available=lambda:imports._apex_available
+    utils.import_utils=imports
+    monkeypatch.setitem(sys.modules,'transformers',transformers)
+    monkeypatch.setitem(sys.modules,'transformers.utils',utils)
+    assert wrapper.native_amp() is sentinel
+    assert not imports._apex_available
+    transformers.__version__='other'
+    with pytest.raises(ValueError,match='scoped'):wrapper.native_amp()

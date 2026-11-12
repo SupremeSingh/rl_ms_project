@@ -23,12 +23,14 @@ def read(p):return json.loads(Path(p).read_text())
 
 
 def identity():
-    paths=[Path(__file__),ROOT/'src/math_rl/encoder_features.py']
+    paths=[Path(__file__),Path(__file__).with_name('official_train.py'),ROOT/'src/math_rl/encoder_features.py']
     paths+=list((ROOT/'packages/slice-critic/src').rglob('*.py'))
     return {str(p.relative_to(ROOT)):sha256(p) for p in sorted(paths)}
 
 
 def prepare(source,numina,sanity,out,official,smoke):
+    # Detect optional-container import collisions before reserving adaptation time.
+    subprocess.run([sys.executable,str(Path(__file__).with_name('official_train.py')),'--check'],check=True)
     gate=read(sanity/'report.json')
     if not gate.get('passed') or gate.get('execution')!='unpadded-prefix':
         raise ValueError('Passed unpadded encoder sanity required')
@@ -146,7 +148,8 @@ def adapt(out,m):
         write_json(out/f'{stage}.json',config)
         started=time.perf_counter()
         with (out/f'{stage}.log').open('w') as log:
-            subprocess.run([sys.executable,str(Path(m['official'])/'experiments'/script),str(out/f'{stage}.json')],
+            subprocess.run([sys.executable,str(Path(__file__).with_name('official_train.py')),
+                            str(Path(m['official'])/'experiments'/script),str(out/f'{stage}.json')],
                 cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
         adapter=out/stage if stage=='mntp' else out/stage/f'checkpoint-{m["adaptation_steps"]}'
         wrapper=LLM2Vec.from_pretrained(m['model'] if stage=='mntp' else str(out/'mntp-model'),

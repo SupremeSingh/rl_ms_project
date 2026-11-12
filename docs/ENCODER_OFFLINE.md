@@ -56,6 +56,15 @@ Subprocesses invoke its `experiments/run_mntp.py` and `run_simcse.py` unchanged;
 we supply model, data and hyperparameter JSONs. Installed LLM2Vec remains the
 official .2.3 package in the separate encoder environment.
 
+The encoder subprocess launcher disables Transformers 4.44.2's optional Apex
+availability flag **in that process only**, before importing Trainer. The
+container includes an Apex distribution lacking `apex.amp`, which otherwise
+breaks import even though our jobs use native PyTorch BF16. No Apex uninstall,
+model/loss modification or upstream source edit is made. The launcher rejects
+Apex/FP16 configurations, is included in study identity, and preparation runs
+its Trainer-import preflight. The first smoke failed at this import before any
+training; use a fresh output directory after pulling this fix.
+
 Training text is generated solely from the selected training questions and saved
 sampled answers, never validation/test text or reference answers. Convert to
 128-token windows whose decoded/stripped text re-tokenizes to exactly 128 tokens.
