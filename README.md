@@ -10,7 +10,7 @@ and regularized solves. The actor changes; the critic’s feature coordinates do
 
 **Our accuracy-focused baseline is token-level SLICE + cumulative Ridge, with
 one shared head and no output LayerNorm.** It reached **75.51% Numina actor
-accuracy** in the latest five-seed comparison. This is a tested recipe, not a
+test accuracy** in the five-seed token/chunk comparison. This is a tested recipe, not a
 universal accuracy, stability or total-cost guarantee.
 
 ![SLICE combines five frozen layer vectors into 768 features and predicts eventual correctness.](docs/figures/overview.png)
@@ -57,6 +57,14 @@ final problem-solving success; offline Brier measures prefix-prediction error,
 while the MC audit measures final critics' error against sampled continuation
 values (lower is better). GPUh means GPU-hours, not elapsed hours. Online compute excludes
 prior feature learning; total-cost and limited-data advantages remain task-dependent.
+
+**Data splits:** actors learn on training questions; validation monitors learning
+and has informed earlier recipe selection. The latest value audit evaluates
+critics on prefixes from **50 held-out test questions**, not final actor accuracy
+on the full 2,000-question test set. Its actor validation scores are omitted here.
+These test questions have been inspected in prior studies, so this is not a fresh
+independent benchmark. Each panel uses its own actor's MC target; GRPO's plotted
+question baseline additionally samples four verified answers per question.
 
 ## Setup
 
