@@ -1,0 +1,5 @@
+# Official package unchanged; separate from PPO and offline critic environments.
+llm2vec==0.2.3
+transformers==4.44.2
+peft==0.13.2
+numpy<2

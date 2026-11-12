@@ -219,7 +219,12 @@ advantage still needs a controlled same-node comparison.
 
 Next, we want to test a **bidirectional encoder critic** on identical prefixes,
 measuring prediction quality and repeated-prefix extraction cost before PPO.
+The v5 [LLM2Vec foundation and sanity checks](docs/ENCODER_CRITIC.md) use the
+official package without patches and preserve the planned one-head SLICE/chunk
+algorithm. Prefix-only extraction is implemented; encoder adaptation, new SLICE
+training and online integration remain pending. A backend must demonstrate real
+bidirectional attention before any training is launched.
 A separate **Lean-verified tactic-search** direction would score explicit proof
-states and measure success under fixed search budgets. Both remain proposed
-research, not implemented or validated capabilities. Changing the encoder or
+states and measure success under fixed search budgets. Encoder-driven PPO and
+Lean search are not yet validated capabilities. Changing the encoder or
 compressor requires fresh cumulative matrices.
