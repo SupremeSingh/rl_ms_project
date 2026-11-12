@@ -1,0 +1,131 @@
+{
+  "source": "User-supplied completed cluster report, per-seed previews, read-only timing probes and sacct node records; transcribed rounded values, not raw artifacts.",
+  "study": "outputs/numina-value-repeat-v1",
+  "seeds": [
+    1101,
+    1102,
+    1103
+  ],
+  "updates": 120,
+  "answers_per_update": 64,
+  "questions_per_seed": 50,
+  "states_per_seed": 200,
+  "mc_samples_per_state": 128,
+  "reference_completions": 460800,
+  "manifest_sha256": "8dc4ee4ef654c2009f017ca5742bd4ccbcdbd0ff7b709a314ec2f82ddb2bfa94",
+  "verification_passed": true,
+  "metrics": {
+    "slice-token": {
+      "mae_mean": 0.24496,
+      "mae_seed_sd": 0.01864,
+      "rmse_mean": 0.30396,
+      "training_gpu_hours_mean": 7.886
+    },
+    "rms-layer-token": {
+      "mae_mean": 0.25987,
+      "mae_seed_sd": 0.01332,
+      "rmse_mean": 0.31626,
+      "training_gpu_hours_mean": 7.021
+    },
+    "slice-chunk": {
+      "mae_mean": 0.23661,
+      "mae_seed_sd": 0.01603,
+      "rmse_mean": 0.29351,
+      "training_gpu_hours_mean": 8.458
+    },
+    "rms-layer-chunk": {
+      "mae_mean": 0.2411,
+      "mae_seed_sd": 0.00658,
+      "rmse_mean": 0.29784,
+      "training_gpu_hours_mean": 8.014
+    },
+    "ppo": {
+      "mae_mean": 0.24499,
+      "mae_seed_sd": 0.03862,
+      "rmse_mean": 0.30928,
+      "training_gpu_hours_mean": 9.765
+    },
+    "grpo": {
+      "mae_mean": 0.20707,
+      "mae_seed_sd": 0.0332,
+      "rmse_mean": 0.30292,
+      "training_gpu_hours_mean": 6.07
+    }
+  },
+  "primary_mae_contrasts": {
+    "slice-token_minus_ppo": {
+      "mean": -3.149456117308325e-05,
+      "adjusted_interval": [
+        -0.03509332776570864,
+        0.03133541411208546
+      ]
+    },
+    "rms-layer-token_minus_ppo": {
+      "mean": 0.014871561673156052,
+      "adjusted_interval": [
+        -0.02366157539008891,
+        0.054374156060365345
+      ]
+    }
+  },
+  "slice_mae_by_seed": {
+    "token": [
+      0.24649,
+      0.2256,
+      0.26279
+    ],
+    "chunk": [
+      0.23952,
+      0.21932,
+      0.25098
+    ]
+  },
+  "slice_timing": {
+    "token_fitted_states": [
+      5776283,
+      5687450,
+      5819985
+    ],
+    "chunk_fitted_states": [
+      323632,
+      324260,
+      326741
+    ],
+    "token_fit_wall_minutes": [
+      1.81,
+      2.11,
+      1.67
+    ],
+    "chunk_fit_wall_minutes": [
+      0.28,
+      0.44,
+      0.47
+    ],
+    "paired_chunk_minus_token_wall_minutes": {
+      "total": 17.16,
+      "gen": 1.36,
+      "old_log_prob": -4.03,
+      "adv": -0.76,
+      "update_actor": 20.31
+    },
+    "timers_nest": true
+  },
+  "slow_runs": [
+    {
+      "arm": "slice-chunk",
+      "seed": 1102,
+      "job": "13521110_8",
+      "node": "compsci-cluster-fitz-21",
+      "median_actor_update_seconds": 74.3
+    },
+    {
+      "arm": "rms-layer-chunk",
+      "seed": 1103,
+      "job": "13521110_15",
+      "node": "compsci-cluster-fitz-21",
+      "median_actor_update_seconds": 74.5
+    }
+  ],
+  "limitations": "Final-checkpoint diagnostic, own-policy targets; 3 seeds, 50 reused questions; conditional MC uncertainty; GRPO uses extra evaluation-question samples; node-associated slowdown not causally identified. No actor validation/test accuracy transcribed; no timing exclusions or corrections.",
+  "scatter_sha256": "c9667dcb8f6c0acffae6b9b937555e7be879425bc31eefa8fe2bdfb427a6be2c"
+}

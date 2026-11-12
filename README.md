@@ -47,11 +47,15 @@ certify reasoning. [Algorithm and package boundaries](docs/ARCHITECTURE.md).
 |---|---|
 | Token/chunk PPO, five seeds | Token SLICE **75.51%**, chunk SLICE **73.54%**. Chunking saved **11.7% online training GPUh** but lost **1.97 pp**, adjusted difference interval **[−3.29, −0.56] pp**. |
 | Seven-critic PPO, three seeds | Ridge **73.97%**, tested PPO **72.65%**; Ridge used **17.3% less online training GPUh**. Its adjusted accuracy interval against PPO crossed zero. |
+| Final-checkpoint value audit, three seeds | **SLICE/chunk had the lowest observed learned-critic MAE/RMSE: 0.23661/0.29351**; SLICE/token and PPO both had MAE ≈0.245. Chunking fitted **18× fewer states**; slow actor execution on one node confounded total-time comparisons. [Results and scatter plot](experiments/22-multiseed-value-audit.MD). |
 | Offline transfer, MATH with 100 target training questions | Transferred SLICE + refitted Ridge Brier **0.219051**, RMS-layer **0.228839**; difference interval **[−0.01490, −0.00445]**. |
 
+![Final-checkpoint value estimation: shared states within each seed, actor-specific Monte Carlo references and three actor seeds.](docs/figures/multiseed-value-scatter.png)
+
 These are **separate studies**, not a combined leaderboard. Actor accuracy measures
-final problem-solving success; offline Brier measures prefix-prediction error
-(lower is better). GPUh means GPU-hours, not elapsed hours. Online compute excludes
+final problem-solving success; offline Brier measures prefix-prediction error,
+while the MC audit measures final critics' error against sampled continuation
+values (lower is better). GPUh means GPU-hours, not elapsed hours. Online compute excludes
 prior feature learning; total-cost and limited-data advantages remain task-dependent.
 
 ## Setup
@@ -185,11 +189,14 @@ question. This compares fixed-policy value regression, not PPO actor performance
 [Experiment 21](experiments/21-fixed-policy-critics.MD) ·
 [Protocol and commands](docs/FIXED_POLICY_CRITICS.md).
 
-**Which estimator best tracks its own actor's value across more seeds and questions?**
-A planned repeat expands the original six-actor pilot to **three fresh seeds,
-50 questions and 128 MC continuations per state**. Conventional PPO retains its
-original GAE/value-loss training, and every method updates its own actor; MC is
-used only for evaluation. There are no results yet.
+**Which learned critic best estimates its trained actor's chance of finishing correctly?**
+Across three seeds, 50 questions and 128 MC continuations/state, **SLICE/chunk
+had the lowest observed learned-critic MAE, 0.23661**, versus SLICE/token 0.24496
+and PPO 0.24499; its MAE seed variation was also lower than PPO's, without
+establishing statistical superiority or general training stability. It fitted
+**18× fewer states** and cut Ridge-fitting time **79%**; measured training was
+13.4% cheaper than PPO but 7.3% costlier than SLICE/token, with two unusually slow
+chunk actor runs on the same node confounding the latter comparison.
 [Experiment 22](experiments/22-multiseed-value-audit.MD) ·
 [Protocol and commands](docs/VALUE_REPEAT.md).
 
@@ -198,6 +205,9 @@ used only for evaluation. There are no results yet.
 We have a reusable frozen-feature critic package and a working PPO pipeline.
 Token-level SLICE + Ridge is our current accuracy-focused math baseline; transfer
 is useful, but higher accuracy and lower costs depend on the task and data budget.
+SLICE/chunk is a promising alternative for value estimation and reduced critic
+work: it led the latest learned-critic error means, while its end-to-end speed
+advantage still needs a controlled same-node comparison.
 
 Next, we want to test a **bidirectional encoder critic** on identical prefixes,
 measuring prediction quality and repeated-prefix extraction cost before PPO.

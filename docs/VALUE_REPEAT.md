@@ -3,6 +3,11 @@
 **Question: which estimator tracks its own trained actor's value most accurately
 across several actor seeds and a larger reference-evaluation sample?**
 
+**Completed:** [Experiment 22](../experiments/22-multiseed-value-audit.MD) records
+the final value errors, scatter plot and node-associated timing investigation.
+Actor validation scores remain in raw outputs but are not presented as new
+actor test results in the experiment summary.
+
 This repeats the **original six-actor study**, not the subsequent fixed-policy
 regression benchmark. Each method updates its own actor. Conventional PPO uses
 the existing GAE-return targets, value clipping/loss and preselected `higher_lr`
