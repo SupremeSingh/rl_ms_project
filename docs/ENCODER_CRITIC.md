@@ -27,8 +27,8 @@ stages remain future work, before learning a new SLICE. No upstream code is patc
 Before chunk starting at response token p, feed exactly original question IDs
 plus answer IDs `[:p]`. Before the first chunk, p=0. Current/future chunks,
 reference answers and rewards are never input features. Final termination value
-is zero rather than an encoder call. Each prefix is a separate padded batch row,
-with its own mask and positions; do not concatenate prefixes or reuse causal KV
+is zero rather than an encoder call. By default, each prefix gets its own
+unpadded forward pass with its own mask and positions; do not concatenate prefixes or reuse causal KV
 caches. No full-answer bidirectional forward followed by intermediate-state slicing.
 
 The adapter captures the last **available** token in selected blocks before final
@@ -56,11 +56,19 @@ with both eager and SDPA**; the causal control also gave zero. Thus the
 `is_causal=False` flag alone is insufficient. These backends did not demonstrate
 bidirectionality in this local test. Do not use them for an encoder comparison.
 
-The official CUDA FlashAttention-2 backend is the next check. It is **not GPU
-validated locally**. The full sanity script requires actual earlier-token
-sensitivity, causal-control invariance, suffix exclusion and padding/batch
-invariance before `passed:true`. It stops without patching the package if the
-backend fails. A failed gate means no compressor training/PPO launch.
+The first actual-checkpoint CUDA FlashAttention-2 sanity on the cluster stopped
+at padded-batch versus individual-prefix invariance: 35.3% of concatenated
+coordinates exceeded the BF16 tolerance, with maximum absolute difference .621.
+That run did not reach the bidirectionality gate. The cause of the batch
+dependence is unconfirmed; it is not assumed harmless numerical noise.
+
+The revised default uses **one unpadded prefix per forward**. It still requires
+repeatability, actual earlier-token sensitivity, causal-control invariance and
+unseen-suffix exclusion. Padded batching remains an explicitly recorded diagnostic;
+a passing unpadded report does **not** approve padded batching. Selecting
+`--batch-size 4` makes batched-versus-individual invariance mandatory. Tolerances
+are unchanged and official package internals are unchanged. The unpadded GPU
+path remains to be verified; a failed gate means no compressor training/PPO launch.
 
 FlashAttention requires BF16 here. A future causal control must match encoder
 precision/backend; comparing old FP32 decoder results to BF16 encoder results
@@ -90,8 +98,8 @@ bash scripts/container_exec.sh "$PWD/.venv-encoder/bin/python" \
 bash scripts/container_exec.sh "$PWD/.venv-encoder/bin/python" \
   tools/encoder/sanity_llm2vec.py --model "$PWD/models/qwen-math" \
   --device cuda --attention flash_attention_2 --dtype bf16 \
-  --out outputs/encoder-sanity-v1
-cat outputs/encoder-sanity-v1/report.json
+  --batch-size 1 --out outputs/encoder-sanity-v2
+cat outputs/encoder-sanity-v2/report.json
 exit
 ```
 

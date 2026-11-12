@@ -28,9 +28,11 @@ def load_encoder(path, device='cpu', dtype=torch.float32, bidirectional=True, at
 
 
 @torch.inference_mode()
-def block_features(model, sequences, layers, pad_id, batch_size=4):
+def block_features(model, sequences, layers, pad_id, batch_size=1):
     """Last available token at selected blocks BEFORE final norm, then per-block RMS.
 
+    Default: one unpadded prefix/forward. Larger batches require a backend-specific
+    invariance gate; they are diagnostic/experimental until verified on the GPU.
     Prefixes are separate batch elements, not packed into one attention sequence.
     No dummy future token and no causal KV reuse. No re-tokenization/truncation.
     """

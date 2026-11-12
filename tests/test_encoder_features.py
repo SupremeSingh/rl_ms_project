@@ -71,3 +71,10 @@ def test_capture_hooks_removed_after_failure():
     encoder.forward=fail
     with pytest.raises(RuntimeError):block_features(encoder,[[1,2]],[0,1],0)
     assert all(not block._forward_hooks for block in encoder.layers)
+
+
+def test_default_execution_never_pads_or_batches_prefixes():
+    encoder=model()
+    block_features(encoder,[[1,2],[1,2,3,4]],[0],pad_id=39)
+    assert [list(t.shape) for t in encoder.seen]==[[1,2],[1,4]]
+    assert all(39 not in t for t in encoder.seen)
