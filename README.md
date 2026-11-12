@@ -221,8 +221,11 @@ Next, we want to test a **bidirectional encoder critic** on identical prefixes,
 measuring prediction quality and repeated-prefix extraction cost before PPO.
 The v5 [LLM2Vec foundation and sanity checks](docs/ENCODER_CRITIC.md) use the
 official package without patches and preserve the planned one-head SLICE/chunk
-algorithm. Prefix-only extraction is implemented; encoder adaptation, new SLICE
-training and online integration remain pending. A backend must demonstrate real
+algorithm. Prefix-only extraction has passed the unpadded GPU sanity checks.
+The [offline Numina comparison](docs/ENCODER_OFFLINE.md) implements official
+adaptation, fresh SLICE fitting and held-out outcome prediction, with a required
+smoke before the main run; results and online PPO integration remain pending.
+A backend must demonstrate real
 bidirectional attention before any training is launched.
 A separate **Lean-verified tactic-search** direction would score explicit proof
 states and measure success under fixed search budgets. Encoder-driven PPO and

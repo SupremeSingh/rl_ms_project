@@ -8,6 +8,7 @@ dist/
 
 # Local Python environment
 .venv*/
+third_party/llm2vec/
 
 # Downloaded data and model weights
 data/

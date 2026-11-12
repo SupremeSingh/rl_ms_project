@@ -3,7 +3,9 @@
 **Question: does a bidirectional encoder give the same compact chunk critic
 better features for value estimation and PPO?** No results yet. This foundation
 adds isolated dependency setup, prefix-only feature extraction and sanity gates.
-It does not yet adapt the encoder, train a new SLICE or launch encoder PPO.
+This foundation alone does not adapt the encoder, train a new SLICE or launch
+encoder PPO. The subsequent [offline comparison](ENCODER_OFFLINE.md) implements
+official adaptation and fresh SLICE training; its GPU smoke/results remain pending.
 
 ## Preserved algorithm
 
