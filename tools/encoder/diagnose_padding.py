@@ -12,7 +12,7 @@ def diagnostic_inputs(out):
     # A read-only model diagnostic needs the sealed manifest and base snapshot,
     # not training-question/actor paths that may have node-specific mount aliases.
     m=c.checked(out,'manifest.json')
-    if m['protocol']!=c.PROTOCOL:raise ValueError('Unexpected study protocol')
+    if m['protocol'] not in (c.PROTOCOL,'encoder-pooled-v2'):raise ValueError('Unexpected study protocol')
     recorded=Path(m['model']);resolved=recorded
     if not resolved.is_dir():
         if recorded.parts[-3:]!=(c.ROOT.name,'models','qwen-math'):

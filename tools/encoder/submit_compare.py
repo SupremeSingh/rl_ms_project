@@ -12,7 +12,7 @@ def read(p):return json.loads(Path(p).read_text())
 def digest(p):return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 def gate(smoke,source,questions):
     m=read(smoke/'manifest.json');v=read(smoke/'verification.json')
-    if m['protocol']!='encoder-pooled-v2' or m['mode']!='smoke' or not v['passed'] or v['manifest_sha256']!=digest(smoke/'manifest.json') or v['summary_sha256']!=digest(smoke/'summary.json'):raise ValueError('Passed matching expanded smoke required')
+    if m['protocol']!='encoder-vine-unpadded-v3' or m['mode']!='smoke' or not v['passed'] or v['manifest_sha256']!=digest(smoke/'manifest.json') or v['summary_sha256']!=digest(smoke/'summary.json'):raise ValueError('Passed matching expanded smoke required')
     if m['source_hash']!=digest(source/'manifest.json'):raise ValueError('Smoke actor source mismatch')
     if digest(m['question_metadata_path'])!=m['question_metadata_hash']:raise ValueError('Question provenance changed since smoke')
     if digest(m['questions_path'])!=m['questions_hash']:raise ValueError('Smoke question source changed')

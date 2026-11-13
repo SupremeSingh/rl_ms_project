@@ -31,6 +31,7 @@ def native_amp():
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--check',action='store_true')
+    p.add_argument('--unpadded-simcse',action='store_true',help='Singleton encoder execution; preserve the official joint contrastive loss')
     p.add_argument('--traceback-after',type=int,default=0,
                    help='Dump Python stack after this many seconds during startup')
     p.add_argument('script',nargs='?',type=Path)
@@ -45,6 +46,12 @@ def main():
     print('Encoder Trainer import passed: native PyTorch AMP; optional Apex disabled for this process.',flush=True)
     if a.check:return
     if a.script is None or a.config is None:p.error('script and config required')
+    if a.unpadded_simcse:
+        if a.script.name!='run_simcse.py':p.error('Unpadded adapter is only for SimCSE')
+        import llm2vec
+        from unpadded_adapter import make_unpadded
+        llm2vec.LLM2Vec=make_unpadded(llm2vec.LLM2Vec)
+        print('Unpadded singleton encoding enabled; joint contrastive batch retained',flush=True)
     cfg=json.loads(a.config.read_text())
     if not cfg.get('bf16') or cfg.get('fp16',False) or cfg.get('half_precision_backend','auto')=='apex':
         raise ValueError('Official encoder launcher requires native BF16, not Apex/FP16')

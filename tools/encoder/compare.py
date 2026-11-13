@@ -14,7 +14,7 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'packages/slice-critic/src'),str(Path(__file__).parent)]
 import torch
 import study
-from question_source import provenance,load_questions,main_budget
+from question_source import provenance,load_questions,main_budget,project_path
 from slice_critic.storage import sha256,write_json,model_identity
 from slice_critic.features import rms_coordinates,isotropic_normalization
 from slice_critic.bottleneck import Bottleneck,loss,encode
@@ -23,13 +23,13 @@ from slice_critic.linear import fit_system
 from math_rl.value_audit import stable_seed
 from math_rl.encoder_features import attention_probe,require_bidirectional
 
-PROTOCOL='encoder-pooled-v2'
+PROTOCOL='encoder-vine-unpadded-v3'
 LAYERS=[27,26,24,20,12]
 ARMS=['A','B','C','D']
 
 def read(p):return json.loads(Path(p).read_text())
 def identity():
-    files=[Path(__file__),Path(__file__).with_name('distributed_check.py'),Path(__file__).with_name('question_source.py'),Path(__file__).with_name('submit_compare.py'),Path(__file__).with_name('run_compare.sh')]
+    files=[Path(__file__),Path(__file__).with_name('distributed_check.py'),Path(__file__).with_name('question_source.py'),Path(__file__).with_name('unpadded_adapter.py'),Path(__file__).with_name('submit_compare.py'),Path(__file__).with_name('run_compare.sh')]
     files+=list((ROOT/'src/math_rl').glob('*.py'))+list((ROOT/'packages/slice-critic/src/slice_critic').rglob('*.py'))
     files += [Path(__file__).with_name('study.py'),Path(__file__).with_name('official_train.py'),ROOT/'requirements-encoder.txt',ROOT/'scripts/container_exec.sh',ROOT/'scripts/cluster_env.sh']
     return {str(p.relative_to(ROOT)):sha256(p) for p in sorted(set(files))}
@@ -57,12 +57,13 @@ def inventory():
     print(json.dumps(dict(verified_offline_question_files=candidates),indent=2))
 
 def prepare(out,args):
-    source=args.source.resolve();old=read(source/'manifest.json')
+    source=project_path(args.source,ROOT).resolve();old=read(source/'manifest.json')
+    old=dict(old,actor_path=str(project_path(old['actor_path'],ROOT)))
     gate=read(source/'verification.json')
     if not gate.get('passed') or old.get('protocol')!='fixed-policy-critics-v1':raise ValueError('Completed fixed-policy source required')
     for name,h in gate['files'].items():
         if sha256(source/name)!=h:raise ValueError('Source changed')
-    questions=args.questions
+    questions=project_path(args.questions,ROOT) if args.questions is not None else None
     if questions is None:
         candidates=[]
         for root in ('outputs','data'):
@@ -93,15 +94,21 @@ def prepare(out,args):
             family=family_key(q['question'])
             if family in families or (split=='train' and forbidden.get(family) in ('val','test')):raise ValueError('Question-family overlap or historical held-out question in training')
             families.add(family);selected.append(dict(id=q['id'],question=q['question'],ground_truth=q['reference'],split=split))
-    official=args.official.resolve()
+    official=project_path(args.official,ROOT).resolve()
     if subprocess.check_output(['git','-C',str(official),'rev-parse','HEAD'],text=True).strip()!=study.OFFICIAL or subprocess.check_output(['git','-C',str(official),'status','--porcelain'],text=True).strip():raise ValueError('Clean pinned official checkout required')
     out.mkdir(parents=True,exist_ok=False)
-    m=dict(protocol=PROTOCOL,mode=args.mode,runtime=identity(),questions_path=str(questions),questions_hash=sha256(questions),question_metadata_path=meta['metadata_path'],question_metadata_hash=meta['metadata_sha256'],main_question_budget=main_budget(qs),source=str(source),source_hash=sha256(source/'manifest.json'),actor_path=old['actor_path'],actor_identity=old['actor_identity'],model=str(ROOT/'models/qwen-math'),base_identity=old['base_identity'],official=str(official),seed=84621,reference_seed=84622,response_cap=2048,max_model_len=2560,sampling=dict(temperature=1.,top_p=1.,top_k=-1),shards=8,answers=8,adapt_seeds=[42] if args.mode=='smoke' else [42,43,44],compressor_seeds=[42] if args.mode=='smoke' else [42,43,44,45,46],epochs=2 if args.mode=='smoke' else 120,checkpoint_every=1 if args.mode=='smoke' else 20,adapt_steps=2 if args.mode=='smoke' else 1000,mc_questions=4 if args.mode=='smoke' else 1000,mc_samples=4 if args.mode=='smoke' else 128,mc_offsets=[0,128,256,512],stride=32,scope='Offline one-frozen-actor value comparison. Reused/inspected Numina families, not PPO or fresh benchmark.')
+    m=dict(protocol=PROTOCOL,mode=args.mode,runtime=identity(),questions_path=str(questions),questions_hash=sha256(questions),question_metadata_path=meta['metadata_path'],question_metadata_hash=meta['metadata_sha256'],main_question_budget=main_budget(qs),source=str(source),source_hash=sha256(source/'manifest.json'),actor_path=old['actor_path'],actor_identity=old['actor_identity'],model=str(ROOT/'models/qwen-math'),base_identity=old['base_identity'],official=str(official),seed=84621,reference_seed=84622,response_cap=2048,max_model_len=2560,sampling=dict(temperature=1.,top_p=1.,top_k=-1),shards=8,answers=8,adapt_seeds=[42] if args.mode=='smoke' else [42,43,44],compressor_seeds=[42] if args.mode=='smoke' else [42,43,44,45,46],epochs=2 if args.mode=='smoke' else 120,checkpoint_every=1 if args.mode=='smoke' else 20,adapt_steps=2 if args.mode=='smoke' else 1000,mc_questions=4 if args.mode=='smoke' else 1000,mc_samples=4 if args.mode=='smoke' else 128,mc_offsets=[0,128,256,512],stride=32,boundaries='VinePPO math splitter with existing 32-token fallback',execution='singleton-no-padding-joint-contrastive',scope='Offline one-frozen-actor value comparison. Reused/inspected Numina families, not PPO or fresh benchmark.')
     seal(out,'manifest.json',m);seal(out,'questions.json',selected)
 
 def validate(out):
     m=checked(out,'manifest.json')
     if m['protocol']!=PROTOCOL or m['runtime']!=identity():raise ValueError('Protocol/runtime changed')
+    for key in ('questions_path','question_metadata_path','source','actor_path','model','official'):
+        original=Path(m[key])
+        if not original.exists() and ROOT.name in original.parts:
+            i=len(original.parts)-1-list(reversed(original.parts)).index(ROOT.name)
+            candidate=ROOT.joinpath(*original.parts[i+1:])
+            if candidate.exists():m[key]=str(candidate)
     if sha256(m['question_metadata_path'])!=m['question_metadata_hash']:raise ValueError('Question provenance changed')
     if sha256(m['questions_path'])!=m['questions_hash']:raise ValueError('Question source changed')
     if model_identity(m['actor_path'])!=m['actor_identity'] or model_identity(m['model'])!=m['base_identity']:raise ValueError('Actor/base weights changed')
@@ -128,20 +135,28 @@ def generate(out,m,task):
         print('Generated',q['id'],flush=True)
     seal(out,f'generation-{task}.json',dict(passed=True))
 
-def positions(data,m):return list(range(0,len(data['token_ids']),m['stride']))
+def positions(data,m,tokenizer=None):
+    if tokenizer is None:raise ValueError('VinePPO positions require the original tokenizer')
+    from slice_critic.chunks import token_chunks
+    return list(token_chunks(tokenizer,data['token_ids'],'math',32).starts)
+
+def reference_positions(data,m,tokenizer):
+    from math_rl.value_audit import boundary_positions
+    return boundary_positions(positions(data,m,tokenizer),4)
+
 
 def profile(out,m):
     import numpy as np
     from transformers import AutoTokenizer
     tok=AutoTokenizer.from_pretrained(m['model'],local_files_only=True)
     lengths=[];texts=[];seen=set();counts=defaultdict(int)
-    # Four absolute, reward-independent prefix offsets per training answer.
+    # Spread adaptation examples over the answer's VinePPO boundaries.
     for row in items(out,m):
         if row['split']=='test':continue
         d=answer(out,row)
-        lengths.extend(len(d['prompt_ids'])+p for p in positions(d,m))
+        lengths.extend(len(d['prompt_ids'])+p for p in positions(d,m,tok))
         if row['split']!='train':continue
-        for p in [0,128,256,512,1024,1536,2016]:
+        for p in reference_positions(d,m,tok):
             if p>=len(d['token_ids']):continue
             ids=d['prompt_ids']+d['token_ids'][:p]
             text=' '.join(tok.decode(ids,skip_special_tokens=False,clean_up_tokenization_spaces=False).splitlines()).strip()
@@ -165,7 +180,9 @@ def configs(out,m,seed):
     a,b=study.trainer_configs(dict(model=m['model'],adaptation_steps=m['adapt_steps']),work)
     for c in (a,b):c.update(seed=seed,max_seq_length=checked(out,'profile.json')['context'],gradient_accumulation_steps=1)
     a['save_steps']=b['save_steps']=min(250,m['adapt_steps'])
-    a.update(train_file=str(out/'adaptation.txt'),validation_file=str(out/'adaptation.txt'),per_device_train_batch_size=2)
+    a.update(per_device_train_batch_size=1,gradient_accumulation_steps=2)
+    a['pad_to_max_length']=False
+    a.update(train_file=str(out/'adaptation.txt'),validation_file=str(out/'adaptation.txt'),per_device_train_batch_size=1)
     b.update(dataset_file_path=str(out/'adaptation.txt'),per_device_train_batch_size=8)
     return a,b
 
@@ -176,7 +193,9 @@ def adapt(out,m,task):
         write_json(work/f'{stage}.json',c)
         cmd=[sys.executable]
         if stage=='simcse':cmd+=['-m','torch.distributed.run','--standalone','--nproc_per_node=4']
-        cmd += [str(Path(__file__).with_name('official_train.py')),str(Path(m['official'])/'experiments'/f'run_{stage}.py'),str(work/f'{stage}.json')]
+        cmd += [str(Path(__file__).with_name('official_train.py'))]
+        if stage=='simcse':cmd+=['--unpadded-simcse']
+        cmd += [str(Path(m['official'])/'experiments'/f'run_{stage}.py'),str(work/f'{stage}.json')]
         env=dict(os.environ,TOKENIZERS_PARALLELISM='false')
         if stage=='mntp':env['CUDA_VISIBLE_DEVICES']=os.environ.get('CUDA_VISIBLE_DEVICES','0').split(',')[0]
         with (work/f'{stage}.log').open('w') as log:subprocess.run(cmd,check=True,stdout=log,stderr=subprocess.STDOUT,env=env)
@@ -217,9 +236,11 @@ def load(out,m,b):
     return model
 
 def extract(out,m,task):
+    from transformers import AutoTokenizer
+    tok=AutoTokenizer.from_pretrained(m['model'],local_files_only=True)
     b=backbones(m)[task//m['shards']];shard=task%m['shards'];model=load(out,m,b)
     for row in items(out,m)[shard::m['shards']]:
-        d=answer(out,row);ps=positions(d,m);features=[pooled(model,d['prompt_ids']+d['token_ids'][:p]) for p in ps]
+        d=answer(out,row);ps=positions(d,m,tok);features=[pooled(model,d['prompt_ids']+d['token_ids'][:p]) for p in ps]
         path=out/'features'/b/f'{row["key"]}.pt';path.parent.mkdir(parents=True,exist_ok=True)
         if path.exists():raise FileExistsError(path)
         torch.save(dict(x={k:torch.stack([r[k] for r in features]) for k in features[0]},positions=ps,y=torch.full((len(ps),),float(d['score'])),question=row['id'],split=row['split']),path)
@@ -300,7 +321,7 @@ def mc(out,m,task):
     rows=[]
     for q in tests[task::m['shards']]:
         key=f'{stable_seed(q["id"]):010d}-0';d=answer(out,dict(key=key))
-        for p in m['mc_offsets']:
+        for p in reference_positions(d,m,g.tokenizer):
             if p>=len(d['token_ids']):continue
             samples=[]
             for offset in range(0,m['mc_samples'],16):

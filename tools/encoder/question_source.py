@@ -9,6 +9,17 @@ def read(path):return json.loads(Path(path).read_text())
 def digest(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def project_path(path,root):
+    """Resolve node-specific mount spelling; callers still verify content hashes."""
+    path=Path(path);root=Path(root)
+    if path.exists():return path
+    if root.name in path.parts:
+        i=len(path.parts)-1-list(reversed(path.parts)).index(root.name)
+        candidate=root.joinpath(*path.parts[i+1:])
+        if candidate.exists():return candidate
+    return path
+
+
 def provenance(path):
     path=Path(path).resolve()
     for name in ('run.json','identity.json','manifest.json'):

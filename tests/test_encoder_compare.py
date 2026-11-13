@@ -12,12 +12,15 @@ import compare as c
 import submit_compare as submit
 
 
-def test_fixed_prefix_schedule_is_independent_of_suffix_and_reward():
-    m=dict(stride=32)
-    a=dict(token_ids=list(range(100)),score=0)
-    b=dict(token_ids=list(range(200)),score=1)
-    assert c.positions(a,m)==[0,32,64,96]
-    assert [x for x in c.positions(b,m) if x<100]==c.positions(a,m)
+def test_prefix_schedule_uses_vineppo_splitter(monkeypatch):
+    import slice_critic.chunks as chunks
+    calls=[];tokenizer=object();tokens=[1,2,3,4,5]
+    def split(tok,ids,mode,fallback):
+        calls.append((tok,ids,mode,fallback));return SimpleNamespace(starts=(0,2,3))
+    monkeypatch.setattr(chunks,'token_chunks',split)
+    assert c.positions(dict(token_ids=tokens),{},tokenizer)==[0,2,3]
+    assert calls==[(tokenizer,tokens,'math',32)]
+    with pytest.raises(ValueError,match='tokenizer'):c.positions(dict(token_ids=tokens),{})
 
 
 def test_factorial_counts_and_full_official_configs(tmp_path,monkeypatch):
