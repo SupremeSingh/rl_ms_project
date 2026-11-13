@@ -104,3 +104,47 @@ def test_primary_intervals_pair_seeds_and_cluster_questions():
     r=c.primary_intervals(m,rows,draws=20)
     assert len(r)==8
     assert all(v['mean']==1 and v['family_adjusted_interval']==[1,1] for v in r.values())
+
+
+def legacy_corpus(tmp_path):
+    rows=[]
+    for split,n in [('calibration',512),('screen',256),('train',10000),('val',1000),('test',2000)]:
+        for i in range(n):
+            code=''.join(chr(65+(i//(26**k))%26) for k in range(4))
+            rows.append(dict(id=f'{split}-{i}',question=f'{split} {code}',ground_truth='7',split=split,
+                             reference_solution='Must not enter adapted text',prompt_token_ids=[9]))
+    path=tmp_path/'questions.json';c.write_json(path,rows)
+    c.write_json(tmp_path/'manifest.json',dict(protocol='historical',questions_sha256=c.sha256(path)))
+    return path
+
+
+def test_historical_manifest_schema_budget_and_tamper_checks(tmp_path):
+    import question_source as source
+    path=legacy_corpus(tmp_path)
+    assert submit.resolve_questions(path)==path.resolve()
+    rows=source.load_questions(path)
+    assert source.main_budget(rows)==dict(train=10000,val=1000,test=2000)
+    assert rows[0]['reference']=='7' and 'reference_solution' not in rows[0]
+    assert source.provenance(path)['metadata_path']==str(tmp_path/'manifest.json')
+    path.write_text('[]')
+    with pytest.raises(ValueError,match='hash differs'):submit.resolve_questions(path)
+
+
+def test_legacy_source_smoke_keeps_assignments_and_seals_metadata(tmp_path,monkeypatch):
+    path=legacy_corpus(tmp_path)
+    src=tmp_path/'actor-source';src.mkdir()
+    c.write_json(src/'manifest.json',dict(protocol='fixed-policy-critics-v1',actor_path='/actor',actor_identity={},base_identity={}))
+    c.write_json(src/'verification.json',dict(passed=True,files={}))
+    monkeypatch.setattr(c,'model_identity',lambda *args:{})
+    monkeypatch.setattr(c,'identity',lambda:{'test':'runtime'})
+    monkeypatch.setattr(c.subprocess,'check_output',lambda cmd,**kw:c.study.OFFICIAL if 'rev-parse' in cmd else '')
+    args=SimpleNamespace(source=src,questions=path,numina=tmp_path/'absent',official=tmp_path/'official',mode='smoke')
+    out=tmp_path/'new';c.prepare(out,args)
+    selected=c.checked(out,'questions.json')
+    assert len(selected)==16
+    assert all(q['id'].startswith(q['split']+'-') for q in selected)
+    assert {q['split'] for q in selected}=={'train','val','test'}
+    m=c.checked(out,'manifest.json')
+    assert m['main_question_budget']==dict(train=10000,val=1000,test=2000)
+    assert m['question_metadata_hash']==c.sha256(tmp_path/'manifest.json')
+    assert all(q['ground_truth']=='7' for q in selected)

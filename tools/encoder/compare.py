@@ -14,6 +14,7 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'packages/slice-critic/src'),str(Path(__file__).parent)]
 import torch
 import study
+from question_source import provenance,load_questions,main_budget
 from slice_critic.storage import sha256,write_json,model_identity
 from slice_critic.features import rms_coordinates,isotropic_normalization
 from slice_critic.bottleneck import Bottleneck,loss,encode
@@ -28,7 +29,7 @@ ARMS=['A','B','C','D']
 
 def read(p):return json.loads(Path(p).read_text())
 def identity():
-    files=[Path(__file__),Path(__file__).with_name('distributed_check.py'),Path(__file__).with_name('submit_compare.py'),Path(__file__).with_name('run_compare.sh')]
+    files=[Path(__file__),Path(__file__).with_name('distributed_check.py'),Path(__file__).with_name('question_source.py'),Path(__file__).with_name('submit_compare.py'),Path(__file__).with_name('run_compare.sh')]
     files+=list((ROOT/'src/math_rl').glob('*.py'))+list((ROOT/'packages/slice-critic/src/slice_critic').rglob('*.py'))
     files += [Path(__file__).with_name('study.py'),Path(__file__).with_name('official_train.py'),ROOT/'requirements-encoder.txt',ROOT/'scripts/container_exec.sh',ROOT/'scripts/cluster_env.sh']
     return {str(p.relative_to(ROOT)):sha256(p) for p in sorted(set(files))}
@@ -44,20 +45,14 @@ def checked(out,name):
     if sha256(p)!=read(p.with_suffix(p.suffix+'.sha256'))['sha256']:raise ValueError(f'Changed artifact: {p}')
     return read(p)
 
-def provenance(path):
-    for name in ('run.json','identity.json'):
-        p=path.parent/name
-        if p.exists() and read(p).get('questions_sha256')==sha256(path):return read(p)
-    raise ValueError(f'No matching saved run provenance for {path}')
 
 def inventory():
     candidates=[]
     for root in ('outputs','data'):
         for p in (ROOT/root).glob('**/questions.json'):
             try:
-                q=read(p)
-                if isinstance(q,list) and len(q)>=13000:
-                    provenance(p);candidates.append(str(p))
+                q=load_questions(p)
+                main_budget(q);provenance(p);candidates.append(str(p))
             except (ValueError,OSError):continue
     print(json.dumps(dict(verified_offline_question_files=candidates),indent=2))
 
@@ -74,11 +69,11 @@ def prepare(out,args):
             for p in (ROOT/root).glob('**/questions.json'):
                 try:
                     provenance(p)
-                    if isinstance(read(p),list) and len(read(p))>=13000:candidates.append(p)
+                    main_budget(load_questions(p));candidates.append(p)
                 except (ValueError,OSError):continue
         if len(candidates)!=1:raise ValueError('Specify --questions using inventory; need exactly one verified 13,000-question offline corpus')
         questions=candidates[0]
-    questions=questions.resolve();qs=read(questions);meta=provenance(questions)
+    questions=questions.resolve();qs=load_questions(questions);meta=provenance(questions)
     if meta['questions_sha256']!=sha256(questions):raise ValueError('Question provenance mismatch')
     if model_identity(Path(old['actor_path']))!=old['actor_identity']:raise ValueError('Frozen actor changed')
     if model_identity(ROOT/'models/qwen-math')!=old['base_identity']:raise ValueError('Base model changed')
@@ -88,7 +83,7 @@ def prepare(out,args):
             obj=read(p);
             from slice_critic.text import family_key
             forbidden.update({family_key(q['question']):q['split'] for q in (obj['questions'] if isinstance(obj,dict) else obj)})
-    limits=dict(train=8,val=4,test=4) if args.mode=='smoke' else dict(train=7800,val=2600,test=2600)
+    limits=dict(train=8,val=4,test=4) if args.mode=='smoke' else main_budget(qs)
     selected=[];families=set()
     from slice_critic.text import family_key
     for split,n in limits.items():
@@ -101,12 +96,13 @@ def prepare(out,args):
     official=args.official.resolve()
     if subprocess.check_output(['git','-C',str(official),'rev-parse','HEAD'],text=True).strip()!=study.OFFICIAL or subprocess.check_output(['git','-C',str(official),'status','--porcelain'],text=True).strip():raise ValueError('Clean pinned official checkout required')
     out.mkdir(parents=True,exist_ok=False)
-    m=dict(protocol=PROTOCOL,mode=args.mode,runtime=identity(),questions_path=str(questions),questions_hash=sha256(questions),source=str(source),source_hash=sha256(source/'manifest.json'),actor_path=old['actor_path'],actor_identity=old['actor_identity'],model=str(ROOT/'models/qwen-math'),base_identity=old['base_identity'],official=str(official),seed=84621,reference_seed=84622,response_cap=2048,max_model_len=2560,sampling=dict(temperature=1.,top_p=1.,top_k=-1),shards=8,answers=8,adapt_seeds=[42] if args.mode=='smoke' else [42,43,44],compressor_seeds=[42] if args.mode=='smoke' else [42,43,44,45,46],epochs=2 if args.mode=='smoke' else 120,checkpoint_every=1 if args.mode=='smoke' else 20,adapt_steps=2 if args.mode=='smoke' else 1000,mc_questions=4 if args.mode=='smoke' else 1000,mc_samples=4 if args.mode=='smoke' else 128,mc_offsets=[0,128,256,512],stride=32,scope='Offline one-frozen-actor value comparison. Reused/inspected Numina families, not PPO or fresh benchmark.')
+    m=dict(protocol=PROTOCOL,mode=args.mode,runtime=identity(),questions_path=str(questions),questions_hash=sha256(questions),question_metadata_path=meta['metadata_path'],question_metadata_hash=meta['metadata_sha256'],main_question_budget=main_budget(qs),source=str(source),source_hash=sha256(source/'manifest.json'),actor_path=old['actor_path'],actor_identity=old['actor_identity'],model=str(ROOT/'models/qwen-math'),base_identity=old['base_identity'],official=str(official),seed=84621,reference_seed=84622,response_cap=2048,max_model_len=2560,sampling=dict(temperature=1.,top_p=1.,top_k=-1),shards=8,answers=8,adapt_seeds=[42] if args.mode=='smoke' else [42,43,44],compressor_seeds=[42] if args.mode=='smoke' else [42,43,44,45,46],epochs=2 if args.mode=='smoke' else 120,checkpoint_every=1 if args.mode=='smoke' else 20,adapt_steps=2 if args.mode=='smoke' else 1000,mc_questions=4 if args.mode=='smoke' else 1000,mc_samples=4 if args.mode=='smoke' else 128,mc_offsets=[0,128,256,512],stride=32,scope='Offline one-frozen-actor value comparison. Reused/inspected Numina families, not PPO or fresh benchmark.')
     seal(out,'manifest.json',m);seal(out,'questions.json',selected)
 
 def validate(out):
     m=checked(out,'manifest.json')
     if m['protocol']!=PROTOCOL or m['runtime']!=identity():raise ValueError('Protocol/runtime changed')
+    if sha256(m['question_metadata_path'])!=m['question_metadata_hash']:raise ValueError('Question provenance changed')
     if sha256(m['questions_path'])!=m['questions_hash']:raise ValueError('Question source changed')
     if model_identity(m['actor_path'])!=m['actor_identity'] or model_identity(m['model'])!=m['base_identity']:raise ValueError('Actor/base weights changed')
     if sha256(Path(m['source'])/'manifest.json')!=m['source_hash']:raise ValueError('Source manifest changed')

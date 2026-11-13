@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+from question_source import provenance,load_questions,main_budget
 
 ROOT=Path(__file__).resolve().parents[2]
 def read(p):return json.loads(Path(p).read_text())
@@ -13,24 +14,22 @@ def gate(smoke,source,questions):
     m=read(smoke/'manifest.json');v=read(smoke/'verification.json')
     if m['protocol']!='encoder-pooled-v2' or m['mode']!='smoke' or not v['passed'] or v['manifest_sha256']!=digest(smoke/'manifest.json') or v['summary_sha256']!=digest(smoke/'summary.json'):raise ValueError('Passed matching expanded smoke required')
     if m['source_hash']!=digest(source/'manifest.json'):raise ValueError('Smoke actor source mismatch')
+    if digest(m['question_metadata_path'])!=m['question_metadata_hash']:raise ValueError('Question provenance changed since smoke')
     if digest(m['questions_path'])!=m['questions_hash']:raise ValueError('Smoke question source changed')
     if questions and m['questions_path']!=str(questions.resolve()):raise ValueError('Question source differs from smoke')
     for file,h in m['runtime'].items():
         if digest(ROOT/file)!=h:raise ValueError('Code changed since smoke')
 
 def resolve_questions(explicit):
-    if explicit is not None:return explicit.resolve()
+    if explicit is not None:
+        path=explicit.resolve();provenance(path);main_budget(load_questions(path));return path
     matches=[]
     for root in ('outputs','data'):
         for p in (ROOT/root).glob('**/questions.json'):
             try:
-                rows=read(p)
-                if not isinstance(rows,list) or len(rows)<13000:continue
-                counts={s:sum(q['split']==s for q in rows) for s in ('train','val','test')}
-                if any(counts[s]<n for s,n in [('train',7800),('val',2600),('test',2600)]):continue
-                if any((p.parent/n).exists() and read(p.parent/n).get('questions_sha256')==digest(p) for n in ('run.json','identity.json')):matches.append(p.resolve())
+                provenance(p);main_budget(load_questions(p));matches.append(p.resolve())
             except (KeyError,ValueError,OSError):continue
-    if len(matches)!=1:raise ValueError('Specify --questions pointing to saved 13,000-question offline questions.json with matching run.json. Verified candidates: '+str(matches))
+    if len(matches)!=1:raise ValueError('Specify --questions with saved split assignments and matching run.json/identity.json/manifest.json. Verified candidates: '+str(matches))
     return matches[0]
 
 def submit(args):

@@ -12,11 +12,14 @@ Commit/push the new files locally first, then on the cluster:
 git pull --rebase origin v5
 source scripts/cluster_env.sh
 python3 tools/encoder/submit_compare.py --mode smoke \
+  --questions outputs/jlens-large-numina-v2/questions.json \
   --out outputs/encoder-pooled-smoke-v1
 ```
 
 The standard-library controller discovers a saved offline `questions.json` with
-matching package `run.json` and existing 7,800/2,600/2,600 question assignments
+matching active `manifest.json`, package `run.json`, or `identity.json`. The
+historical corpus uses 10,000/1,000/2,000 assignments; the separate package layout
+7,800/2,600/2,600 is also supported. Candidates are searched
 under `outputs/` or `data/`. If none or several match, supply
 `--questions /absolute/path/to/questions.json`. It does not repartition, download
 a substitute, or use the 500-question fixed-policy bank as the expanded corpus.
@@ -50,7 +53,7 @@ Main checks matching smoke source/questions/code identities. Budgets:
 
 | Item | Smoke | Main |
 |---|---:|---:|
-| Train/validation/test questions | 8/4/4 | 7,800/2,600/2,600 |
+| Train/validation/test questions | 8/4/4 | 10,000/1,000/2,000 |
 | Answers per question | 8 | 8 |
 | Adaptation seeds | 1 | 3 |
 | Steps per MNTP/SimCSE stage | 2 | 1,000 |

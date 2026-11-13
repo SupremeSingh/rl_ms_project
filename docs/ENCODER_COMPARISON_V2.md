@@ -78,24 +78,24 @@ trainer or loss patches are authorized by this specification.
 
 ## Data scale
 
-The repository's earlier offline preparation recipe (`src/math_rl/data.py`) is
-configured for 13,000 questions, eight answers/question, and 120 SLICE epochs.
-The package question splitter (`slice_critic/data.py`) allocates 60/20/20 percent.
-These are verified configuration values, not a claim that a particular cluster
-manifest has already been checked for this expanded comparison.
-
-Target the same scale, using existing offline Numina question assignments if the
-saved provenance confirms these counts and boundaries:
+The cluster inventory confirms the historical J-lens corpus contains 10,000
+training, 1,000 validation and 2,000 test questions, plus separate calibration
+(512) and screen (256) questions. Its active `manifest.json` matches the question
+SHA256 `99865d25d79929227862882a786fb02e4d074492df11c6946b6a6ea75e742351`.
+Use these historical assignments; calibration/screen are excluded. The earlier
+7,800/2,600/2,600 proposal came from a package default, not this saved corpus.
+The loader also supports that package layout when an actual matching corpus is
+supplied; it never repartitions one layout into the other.
 
 | Split | Questions | Answers/question | Shared answers |
 |---|---:|---:|---:|
-| Training | 7,800 | 8 | 62,400 |
-| Validation | 2,600 | 8 | 20,800 |
-| Test | 2,600 | 8 | 20,800 |
+| Training | 10,000 | 8 | 80,000 |
+| Validation | 1,000 | 8 | 8,000 |
+| Test | 2,000 | 8 | 16,000 |
 | Total | 13,000 | 8 | 104,000 |
 
-Relative to the completed encoder pilot: 15.6 times as many training questions,
-31.2 times as many training answers, and 52 times as many test questions. The
+Relative to the completed encoder pilot: 20 times as many training questions,
+40 times as many training answers, and 40 times as many test questions. The
 eight responses per question are correlated; confidence intervals cluster by
 question rather than treating responses or prefixes as independent questions.
 
@@ -137,7 +137,7 @@ compressors, and never use validation states to fit Ridge. Retain sigmoid-Brier
 curves as a diagnostic, not the selection objective. Report optimizer updates and
 train/validation curves; epochs
 alone do not demonstrate convergence. With up to eight sampled prefixes/answer,
-the training cap is 499,200 sampled prefixes, versus 16,000 in the pilot. Ridge
+the training cap is 640,000 sampled prefixes, versus 16,000 in the pilot. Ridge
 continues to use all designated training chunk states, one head and raw-sum
 epsilon .01. Changing training-state counts changes effective regularization;
 report that rather than silently renormalizing the accumulated system.
