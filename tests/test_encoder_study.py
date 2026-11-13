@@ -44,6 +44,28 @@ def test_adaptation_corpus_never_contains_val_or_test():
     assert all(len(Tokenizer().encode(line))==128 for line in lines)
 
 
+def test_corpus_normalizes_line_breaks_and_checks_written_loader_input(tmp_path):
+    m=module('study')
+    class LineBreakTokenizer(Tokenizer):
+        def decode(self,ids,**kw):
+            return '\r\n\r'.join(map(str,ids))+'\u2028'
+    tokenizer=LineBreakTokenizer()
+    rows=[dict(split='train',prompt_ids=[],token_ids=list(range(128*8)))]
+    lines=m.corpus(rows,tokenizer)
+    path=tmp_path/'adaptation.txt'
+    m.write_corpus(path,lines,tokenizer)
+    with path.open() as f:loaded=[line.strip() for line in f]
+    assert loaded==lines and len(loaded)==8
+    assert all(len(tokenizer.encode(line))==128 for line in loaded)
+    assert b'\r' not in path.read_bytes()
+    with pytest.raises(ValueError,match='round trip'):
+        m.write_corpus(path,[lines[0]+'\r\r'+lines[1]],tokenizer)
+    with pytest.raises(ValueError,match='blank lines'):
+        m.write_corpus(path,[''],tokenizer)
+    with pytest.raises(ValueError,match='fixed-length'):
+        m.write_corpus(path,['1 2'],tokenizer)
+
+
 def test_official_configs_use_training_only_equal_length_blocks(tmp_path):
     m=module('study');a,b=m.trainer_configs(dict(adaptation_steps=2,model='/base'),tmp_path)
     assert a['train_file']==a['validation_file'] and not a['do_eval']

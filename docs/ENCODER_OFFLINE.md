@@ -85,6 +85,14 @@ and archive only `.venv-encoder` before creating a replacement.
 Training text is generated solely from the selected training questions and saved
 sampled answers, never validation/test text or reference answers. Convert to
 128-token windows whose decoded/stripped text re-tokenizes to exactly 128 tokens.
+All decoded line breaks (including carriage returns) are replaced with spaces.
+Before either trainer starts, the written file is read back with the official
+loader's line/strip behavior; line identity, nonemptiness and 128-token length
+must all pass. This prevents carriage returns from introducing blank or shortened
+SimCSE examples. The first main run completed MNTP but failed during SimCSE with
+floating-point embedding indices; its corpus contained 71 carriage returns and
+14 blank loader lines. Preserve that run; the corrected corpus requires a fresh
+smoke and main run, including fresh MNTP adaptation.
 MNTP groups fixed-length blocks; SimCSE uses the official `Wiki1M` **text-file
 loader** pointing to our math corpus (no Wikipedia data). Equal lengths avoid
 variable padding in adaptation batches; critic extraction remains unpadded.

@@ -140,12 +140,23 @@ def corpus(rows,tokenizer,length=128):
         if r['split']!='train':continue
         ids=r['prompt_ids']+r['token_ids']
         for start in range(0,len(ids)-length+1,length):
-            text=tokenizer.decode(ids[start:start+length],skip_special_tokens=True).replace('\n',' ').strip()
-            if '!@#$%^&*()' in text:continue
+            text=' '.join(tokenizer.decode(ids[start:start+length],skip_special_tokens=True).splitlines()).strip()
+            if not text or '!@#$%^&*()' in text:continue
             # Official SimCSE loader strips lines; preserve exact fixed lengths after that operation.
             if len(tokenizer.encode(text,add_special_tokens=True))==length:lines.append(text)
     if len(set(lines))<8:raise ValueError('Too few distinct equal-length training windows')
     return list(dict.fromkeys(lines))
+
+
+def write_corpus(path,lines,tokenizer,length=128):
+    path.write_text('\n'.join(lines)+'\n',encoding='utf-8')
+    # Read exactly as the official Wiki1M loader does, including universal newlines.
+    with path.open(encoding='utf-8') as f:loaded=[line.strip() for line in f]
+    if loaded!=lines or not loaded or any(not line for line in loaded):
+        raise ValueError('Adaptation text changed during line-file round trip or contains blank lines')
+    if any(len(tokenizer.encode(line,add_special_tokens=True))!=length for line in loaded):
+        raise ValueError('Adaptation file must contain only fixed-length tokenized lines')
+    print(f'Adaptation corpus validated: {len(loaded)} nonempty {length}-token lines',flush=True)
 
 
 def trainer_configs(m,out):
@@ -173,7 +184,7 @@ def adapt(out,m):
     if (out/'adaptation.json').exists():raise ValueError('Adaptation already exists; no silent retraining')
     tokenizer=AutoTokenizer.from_pretrained(m['model'],local_files_only=True)
     lines=corpus(read(out/'rows.json'),tokenizer)
-    (out/'adaptation.txt').write_text('\n'.join(lines)+'\n')
+    write_corpus(out/'adaptation.txt',lines,tokenizer)
     configs=trainer_configs(m,out);times={}
     env=dict(os.environ,TOKENIZERS_PARALLELISM='false',WANDB_DISABLED='true')
     for stage,config,script in zip(('mntp','simcse'),configs,('run_mntp.py','run_simcse.py')):
