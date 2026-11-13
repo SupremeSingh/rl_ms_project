@@ -7,6 +7,9 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/encoder'))
 from diagnose_padding import inputs,errors,diagnostic_inputs
 import compare as c
 from diagnose_precision import bidirectional_mask
+from diagnose_precision import validate_indices,run_workers,CASES
+import diagnose_precision
+from types import SimpleNamespace
 
 
 def test_padding_variants_preserve_real_tokens_and_align_positions():
@@ -49,3 +52,28 @@ def test_dense_precision_reference_mask_is_bidirectional_and_excludes_pad_keys()
     assert torch.all(mask[0,0,:,2:]==0)
     # In particular, the first real query can see the final real key.
     assert mask[0,0,2,4]==0
+
+
+def test_eager_shift_rejected_on_cpu_before_invalid_rotary_index():
+    args,_=inputs([3,4,5],99,shift=16,device='cpu')
+    with pytest.raises(ValueError,match='rotary cache'):validate_indices(args,100,dense=True)
+    validate_indices(args,100,dense=False)
+    padded,_=inputs([3,4,5],99,padding=16,device='cpu')
+    validate_indices(padded,100,dense=True)
+    with pytest.raises(ValueError,match='vocabulary'):validate_indices(args,4,dense=False)
+
+
+def test_precision_workers_continue_after_cuda_process_failure(tmp_path,monkeypatch):
+    calls=[]
+    def run(cmd,**kwargs):
+        calls.append(cmd)
+        name=cmd[cmd.index('--case')+1]
+        if name!='fp32-eager':
+            c.write_json(Path(cmd[cmd.index('--out')+1]),dict(completed=name))
+        assert kwargs['env']['CUDA_LAUNCH_BLOCKING']=='1'
+        return SimpleNamespace(returncode=1 if name=='fp32-eager' else 0)
+    monkeypatch.setattr(diagnose_precision.subprocess,'run',run)
+    report=run_workers(tmp_path/'study',tmp_path/'result.json',tmp_path/'reference.pt')
+    assert len(calls)==4 and list(report)==list(CASES)
+    assert report['fp32-eager']['exit_code']==1
+    assert report['fp16-flash']['completed']=='fp16-flash'
