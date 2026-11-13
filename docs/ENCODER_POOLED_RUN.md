@@ -85,6 +85,12 @@ The gate checks the pinned official 32-by-32 contrastive loss, local embedding
 gradients against a dense reference, left-padded versus unpadded states, and real
 two-view BF16/LoRA/checkpointed backward at full length. A failed memory,
 gradient or padding gate stops training. Do not weaken it to force a pass.
+The gather's backward sums the replicated global-loss gradients, so embedding
+leaf gradients must match four times the single-loss reference. A separate
+actual DDP linear-model check requires the final averaged parameter gradients to
+match the dense global-batch reference without that factor. The first smoke
+incorrectly compared embedding leaves before DDP to the unscaled reference;
+the corrected gate checks both levels explicitly, without changing the loss.
 MNTP uses one GPU, batch two. Exports store `skip_instruction=False`: all our
 available prompt tokens belong in the pool, with no instruction/content separator.
 Official trainer/model/loss files remain unmodified.

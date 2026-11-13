@@ -9,6 +9,31 @@ import torch.distributed as dist
 import compare as c
 
 
+def check_embedding_gradients(actual,reference,world):
+    # Every rank evaluates the same global mean loss. Official AllGather.backward
+    # sums the contributions from those ranks; leaf embedding grads are W times
+    # the single-loss reference. DDP averages shared parameter grads afterward.
+    torch.testing.assert_close(actual,reference*world,atol=1e-5,rtol=1e-4)
+
+
+def check_ddp_parameters(fn,similarity,allq,alld,rank,world,device):
+    from torch.nn.parallel import DistributedDataParallel
+    torch.manual_seed(812)
+    layer=torch.nn.Linear(allq.shape[1],12,bias=False).to(device)
+    reference=torch.nn.Linear(allq.shape[1],12,bias=False).to(device)
+    reference.load_state_dict(layer.state_dict())
+    ddp=DistributedDataParallel(layer,device_ids=[device.index])
+    local=torch.cat([allq[rank*8:(rank+1)*8],alld[rank*8:(rank+1)*8]])
+    q,d=ddp(local).chunk(2)
+    value=fn(q,d);value.backward()
+    expected=torch.nn.functional.cross_entropy(similarity(reference(allq),reference(alld))*20,
+                                               torch.arange(8*world,device=device))
+    expected.backward()
+    torch.testing.assert_close(value,expected,atol=1e-5,rtol=1e-5)
+    torch.testing.assert_close(layer.weight.grad,reference.weight.grad,atol=1e-5,rtol=1e-4)
+    return float((layer.weight.grad-reference.weight.grad).abs().max())
+
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--out',type=Path,required=True);a=p.parse_args();out=a.out.resolve();m=c.validate(out)
     from official_train import native_amp
@@ -30,9 +55,11 @@ def main():
     rq=allq.clone().requires_grad_();rd=alld.clone().requires_grad_()
     ref=torch.nn.functional.cross_entropy(original(rq,rd)*20,torch.arange(32,device=device));ref.backward()
     torch.testing.assert_close(actual,ref,atol=1e-5,rtol=1e-5)
-    torch.testing.assert_close(q.grad,rq.grad[rank*8:(rank+1)*8],atol=1e-5,rtol=1e-4)
-    torch.testing.assert_close(d.grad,rd.grad[rank*8:(rank+1)*8],atol=1e-5,rtol=1e-4)
+    check_embedding_gradients(q.grad,rq.grad[rank*8:(rank+1)*8],world)
+    check_embedding_gradients(d.grad,rd.grad[rank*8:(rank+1)*8],world)
     if shapes!=[[32,32]]:raise ValueError('Official loss did not use 32 global candidates')
+    ddp_error=check_ddp_parameters(fn,original,allq,alld,rank,world,device)
+    if rank==0:print('Global loss, gather-gradient scaling and DDP parameter-gradient checks passed',flush=True)
     from llm2vec import LLM2Vec
     from peft import LoraConfig,get_peft_model
     context=c.checked(out,'profile.json')['context']
@@ -59,7 +86,7 @@ def main():
     if not torch.isfinite(loss) or any(p.grad is not None and not torch.isfinite(p.grad).all() for p in wrapper.parameters()):raise ValueError('Nonfinite distributed training gradients')
     memory=torch.tensor(torch.cuda.max_memory_allocated(),device=device,dtype=torch.float64);dist.all_reduce(memory,op=dist.ReduceOp.MAX)
     dist.barrier()
-    if rank==0:c.seal(out,'distributed-check.json',dict(passed=True,world_size=world,local_batch=8,contrastive_batch=32,loss_shapes=shapes,gradient_reference_match=True,padding_passed=True,context=context,peak_allocated_bytes=float(memory),loss=float(loss)))
+    if rank==0:c.seal(out,'distributed-check.json',dict(passed=True,world_size=world,local_batch=8,contrastive_batch=32,loss_shapes=shapes,embedding_gradient_scale=world,gradient_reference_match=True,ddp_parameter_gradient_reference_match=True,ddp_gradient_max_abs_error=ddp_error,padding_passed=True,context=context,peak_allocated_bytes=float(memory),loss=float(loss)))
     dist.destroy_process_group()
 
 if __name__=='__main__':main()
