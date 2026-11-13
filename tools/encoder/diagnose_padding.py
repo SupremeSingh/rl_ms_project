@@ -8,6 +8,21 @@ import torch
 import compare as c
 
 
+def diagnostic_inputs(out):
+    # A read-only model diagnostic needs the sealed manifest and base snapshot,
+    # not training-question/actor paths that may have node-specific mount aliases.
+    m=c.checked(out,'manifest.json')
+    if m['protocol']!=c.PROTOCOL:raise ValueError('Unexpected study protocol')
+    recorded=Path(m['model']);resolved=recorded
+    if not resolved.is_dir():
+        if recorded.parts[-3:]!=(c.ROOT.name,'models','qwen-math'):
+            raise ValueError('Cannot relocate an unrecognized base-model path')
+        resolved=c.ROOT/'models/qwen-math'
+    if c.model_identity(resolved)!=m['base_identity']:
+        raise ValueError('Diagnostic base model differs from sealed study')
+    return m,resolved
+
+
 def errors(a,b):
     a=a.float();b=b.float()
     if a.shape!=b.shape:raise ValueError('Mismatched diagnostic shapes')
@@ -41,10 +56,11 @@ def kernel_probe(length):
 @torch.inference_mode()
 def diagnose(out):
     from official_train import native_amp
-    native_amp();m=c.validate(out)
+    native_amp();m,model_path=diagnostic_inputs(out)
     from llm2vec import LLM2Vec
     from importlib.metadata import version
-    wrapper=LLM2Vec.from_pretrained(m['model'],enable_bidirectional=True,torch_dtype=torch.bfloat16,
+    print('Verified diagnostic model:',model_path,flush=True)
+    wrapper=LLM2Vec.from_pretrained(str(model_path),enable_bidirectional=True,torch_dtype=torch.bfloat16,
         attn_implementation='flash_attention_2',pooling_mode='mean',skip_instruction=False)
     model=wrapper.model.cuda().eval().requires_grad_(False)
     ids=wrapper.tokenizer.encode('Question: calculate nine divided by three. Solution: divide nine by three.',add_special_tokens=False)
@@ -53,7 +69,9 @@ def diagnose(out):
         attention_classes=[type(l.self_attn).__name__ for l in model.layers],
         is_causal=[l.self_attn.is_causal for l in model.layers],
         mask_source=inspect.getfile(type(model)._update_causal_mask),
-        manifest_sha256=c.sha256(out/'manifest.json'),variants={},scope='Diagnostic only; does not approve padding or modify existing study')
+        manifest_sha256=c.sha256(out/'manifest.json'),recorded_model_path=m['model'],resolved_model_path=str(model_path),
+        validation_scope='Sealed manifest and identical frozen base model; not training-data/runtime approval',
+        variants={},scope='Diagnostic only; does not approve padding or modify existing study')
     pad=wrapper.tokenizer.pad_token_id
     results={}
     variants=[('unpadded_default',0,'left',False,0),('unpadded_aligned',0,'left',True,0),

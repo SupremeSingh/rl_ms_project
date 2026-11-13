@@ -1,9 +1,11 @@
 from pathlib import Path
 import sys
 import torch
+import pytest
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/encoder'))
-from diagnose_padding import inputs,errors
+from diagnose_padding import inputs,errors,diagnostic_inputs
+import compare as c
 
 
 def test_padding_variants_preserve_real_tokens_and_align_positions():
@@ -21,3 +23,19 @@ def test_diagnostic_reports_failure_without_approving_padding():
     assert errors(a,a)['passed']
     r=errors(a,a*5)
     assert not r['passed'] and r['fraction_outside_tolerance']==1 and r['max_abs']==4
+
+
+def test_read_only_diagnostic_relocates_mount_alias_but_requires_same_model(tmp_path,monkeypatch):
+    root=tmp_path/'rl_ms_project';model=root/'models/qwen-math';model.mkdir(parents=True)
+    c.write_json(model/'config.json',{'model_type':'qwen2'})
+    (model/'model.safetensors').write_bytes(b'fixed test weights')
+    out=tmp_path/'old-study'
+    m=dict(protocol=c.PROTOCOL,model='/missing/project/rl_ms_project/models/qwen-math',
+           base_identity=c.model_identity(model),question_metadata_path='/missing/unrelated/manifest.json')
+    c.seal(out,'manifest.json',m)
+    monkeypatch.setattr(c,'ROOT',root)
+    before=(out/'manifest.json').read_bytes()
+    _,path=diagnostic_inputs(out)
+    assert path==model and (out/'manifest.json').read_bytes()==before
+    (model/'model.safetensors').write_bytes(b'changed weights')
+    with pytest.raises(ValueError,match='differs'):diagnostic_inputs(out)
