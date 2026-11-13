@@ -6,6 +6,7 @@ import pytest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/encoder'))
 from diagnose_padding import inputs,errors,diagnostic_inputs
 import compare as c
+from diagnose_precision import bidirectional_mask
 
 
 def test_padding_variants_preserve_real_tokens_and_align_positions():
@@ -39,3 +40,12 @@ def test_read_only_diagnostic_relocates_mount_alias_but_requires_same_model(tmp_
     assert path==model and (out/'manifest.json').read_bytes()==before
     (model/'model.safetensors').write_bytes(b'changed weights')
     with pytest.raises(ValueError,match='differs'):diagnostic_inputs(out)
+
+
+def test_dense_precision_reference_mask_is_bidirectional_and_excludes_pad_keys():
+    mask=bidirectional_mask(torch.tensor([[0,0,1,1,1]]),torch.float32)
+    assert mask.shape==(1,1,5,5)
+    assert torch.all(mask[0,0,:,0:2]==torch.finfo(torch.float32).min)
+    assert torch.all(mask[0,0,:,2:]==0)
+    # In particular, the first real query can see the final real key.
+    assert mask[0,0,2,4]==0
