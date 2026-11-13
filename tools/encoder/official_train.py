@@ -9,14 +9,20 @@ import json
 from pathlib import Path
 import runpy
 import sys
+import os
 
 
 def native_amp():
+    # Encoder training is exclusively PyTorch. Avoid probing unused TF/Flax stacks.
+    os.environ['USE_TF']='0'
+    os.environ['USE_FLAX']='0'
+    print('[encoder startup] Importing Transformers',file=sys.stderr,flush=True)
     import transformers
     from transformers.utils import import_utils
     if transformers.__version__!='4.44.2':
         raise ValueError('Native AMP launcher is scoped to pinned Transformers 4.44.2')
     import_utils._apex_available=False
+    print('[encoder startup] Importing Trainer (Apex disabled)',file=sys.stderr,flush=True)
     from transformers import Trainer
     assert not import_utils.is_apex_available()
     return Trainer
@@ -25,10 +31,17 @@ def native_amp():
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--check',action='store_true')
+    p.add_argument('--traceback-after',type=int,default=0,
+                   help='Dump Python stack after this many seconds during startup')
     p.add_argument('script',nargs='?',type=Path)
     p.add_argument('config',nargs='?',type=Path)
     a=p.parse_args()
+    if a.traceback_after:
+        import faulthandler
+        faulthandler.dump_traceback_later(a.traceback_after,repeat=False)
     native_amp()
+    if a.traceback_after:
+        faulthandler.cancel_dump_traceback_later()
     print('Encoder Trainer import passed: native PyTorch AMP; optional Apex disabled for this process.',flush=True)
     if a.check:return
     if a.script is None or a.config is None:p.error('script and config required')

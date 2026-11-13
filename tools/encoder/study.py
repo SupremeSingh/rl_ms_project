@@ -28,6 +28,28 @@ def identity():
     return {str(p.relative_to(ROOT)):sha256(p) for p in sorted(paths)}
 
 
+def select_question_ids(rows,limit,outcomes=None):
+    ids=sorted({r['id'] for r in rows},
+               key=lambda q:hashlib.sha256(str(q).encode()).hexdigest())
+    if len(ids)<limit:raise ValueError('Insufficient source questions')
+    selected=ids[:limit]
+    if outcomes is not None:
+        labels=set().union(*(outcomes(q) for q in selected))
+        if labels!={0,1}:
+            # Smoke-only repair: retain whole questions and all their answers.
+            for q in ids[limit:]:
+                if outcomes(q)-labels:
+                    for i in reversed(range(len(selected))):
+                        trial=selected[:];trial[i]=q
+                        combined=set().union(*(outcomes(x) for x in trial))
+                        if combined>=labels|outcomes(q):
+                            selected=trial;labels=combined;break
+                    if labels=={0,1}:break
+            if labels!={0,1}:
+                raise ValueError('Smoke split needs correct and incorrect nonempty saved answers')
+    return selected
+
+
 def prepare(source,numina,sanity,out,official,smoke):
     # Detect optional-container import collisions before reserving adaptation time.
     subprocess.run([sys.executable,str(Path(__file__).with_name('official_train.py')),'--check'],check=True)
@@ -49,21 +71,30 @@ def prepare(source,numina,sanity,out,official,smoke):
     source_rows=[]
     limits={'train':8,'val':4,'test':4} if smoke else {'train':500,'val':100,'test':50}
     for split,limit in limits.items():
-        ids=sorted({r['id'] for r in all_rows if r['split']==split},
-                   key=lambda q:hashlib.sha256(str(q).encode()).hexdigest())[:limit]
-        if len(ids)!=limit:raise ValueError(f'Insufficient source {split} questions')
+        candidates=[r for r in all_rows if r['split']==split]
+        cache={}
+        def saved(row):
+            if row['key'] not in cache:cache[row['key']]=answer(source,row)
+            return cache[row['key']]
+        def outcomes(q):
+            return {saved(r)['score'] for r in candidates
+                    if r['id']==q and saved(r)['token_ids']}
+        ids=select_question_ids(candidates,limit,outcomes if smoke and split!='test' else None)
         for row in all_rows:
             if row['split']!=split or row['id'] not in ids:continue
             q=allowed.get(row['id'])
             if q is None or q['split']!=split or str(q['ground_truth'])!=str(row['ground_truth']):
                 raise ValueError('Saved answer source differs from existing Numina split')
-            data=answer(source,row)
+            data=saved(row)
             if data['score'] not in (0,1) or data['score']!=int(data['verifier_status']=='correct'):
                 raise ValueError('Invalid saved verifier outcome')
             source_rows.append(dict(key=row['key'],question_id=row['id'],split=split,
                 prompt_ids=data['prompt_ids'],token_ids=data['token_ids'],score=data['score'],
                 source_file=str(source/'answers'/f'{row["key"]}.json'),
                 source_sha256=sha256(source/'answers'/f'{row["key"]}.json')))
+    for split in ('train','val'):
+        if {r['score'] for r in source_rows if r['split']==split and r['token_ids']}!={0,1}:
+            raise ValueError(f'{split} selection needs correct and incorrect nonempty saved answers')
     model=ROOT/'models/qwen-math'
     if model_identity(model)!=m['base_identity']:raise ValueError('Base Qwen differs from saved study')
     out.mkdir(parents=True,exist_ok=False)
@@ -74,6 +105,7 @@ def prepare(source,numina,sanity,out,official,smoke):
         rows_sha256=sha256(out/'rows.json'),runtime=identity(),arms=list(ARMS),
         seeds=[42] if smoke else [42,43,44],adaptation_steps=2 if smoke else 500,
         compressor_epochs=2 if smoke else 30,epsilon=.01,chunk_fallback_tokens=32,
+        question_selection='SHA256 order; smoke train/val replace final question if needed for both outcome classes; test unchanged',
         scope='Offline supervised prefix correctness, not MC value MAE or PPO. Same inspected Numina splits; reused fixed-policy sampled answers.')
     write_json(out/'manifest.json',record)
 

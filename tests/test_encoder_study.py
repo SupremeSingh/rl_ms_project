@@ -18,6 +18,22 @@ class Tokenizer:
     def encode(self,text,**kw):return list(map(int,text.split()))
 
 
+def test_smoke_selection_repairs_single_class_without_touching_test_selection():
+    m=module('study');rows=[dict(id=str(i)) for i in range(12)]
+    order=m.select_question_ids(rows,12)
+    labels={q:{1} for q in order};labels[order[-1]]={0}
+    selected=m.select_question_ids(rows,4,labels.__getitem__)
+    assert len(selected)==len(set(selected))==4
+    assert selected[:3]==order[:3] and selected[-1]==order[-1]
+    assert set().union(*(labels[q] for q in selected))=={0,1}
+    assert m.select_question_ids(rows,4)==order[:4]
+    assert m.select_question_ids(list(reversed(rows)),4,labels.__getitem__)==selected
+    labels[order[0]]={0}
+    assert m.select_question_ids(rows,4,labels.__getitem__)==order[:4]
+    with pytest.raises(ValueError,match='Smoke split'):
+        m.select_question_ids(rows,4,lambda q:{1})
+
+
 def test_adaptation_corpus_never_contains_val_or_test():
     m=module('study')
     rows=[dict(split='train',prompt_ids=[],token_ids=list(range(128*8))),

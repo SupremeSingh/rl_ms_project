@@ -33,6 +33,12 @@ Main: 500 training questions × four answers, 100 validation × four answers,
 50 test × one answer, all available chunk starts. This **reuses a subset of our
 existing Numina split**, not the whole original online training/test population.
 The smoke uses 8/4/4 questions, two adaptation steps and two compressor epochs.
+Smoke training and validation selection starts in deterministic SHA256 question
+order. If a split contains only one outcome class, it replaces the last eligible
+question with the first later question supplying the missing class, retaining all
+answers for every selected question. This is an integration-test selection rule;
+test selection and main-study selection remain unchanged. Preparation checks both
+training and validation classes before scheduling work proceeds to adaptation.
 Source identity, question split/reference agreement, saved answer hashes, base
 model identity, code identity and passed unpadded sanity are checked before work.
 No original SLICE checkpoint is reused because coordinates change.
@@ -64,6 +70,17 @@ model/loss modification or upstream source edit is made. The launcher rejects
 Apex/FP16 configurations, is included in study identity, and preparation runs
 its Trainer-import preflight. The first smoke failed at this import before any
 training; use a fresh output directory after pulling this fix.
+
+For a stalled import, run `bash tools/encoder/diagnose_startup.sh` before changing
+environments. It bounds startup checks to 180 seconds and labels image hashing,
+container launch and Trainer imports. The container wrapper reads the entire
+image to verify its checksum on each call; no Python import output appears
+until that finishes. Python emits a startup stack trace after 30 seconds.
+The encoder launcher disables unused TensorFlow/Flax discovery as well as Apex.
+The diagnostic does not delete data or install dependencies. Past output folders
+are not Python environments; do not remove results, model weights or HF caches
+to repair an import. If the environment is confirmed broken, stop jobs using it
+and archive only `.venv-encoder` before creating a replacement.
 
 Training text is generated solely from the selected training questions and saved
 sampled answers, never validation/test text or reference answers. Convert to
