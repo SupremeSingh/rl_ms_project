@@ -208,6 +208,15 @@ chunk actor runs on the same node confounding the latter comparison.
 [Experiment 22](experiments/22-multiseed-value-audit.MD) ·
 [Protocol and commands](docs/VALUE_REPEAT.md).
 
+**Does conditioning on the partial answer improve value estimation over GRPO's question baseline?**
+Yes in this retrospective diagnostic: four prefix continuations reduced mean
+MAE from **0.207 to 0.101** across 2,000 repeated disjoint 4/124 splits of saved
+GRPO-actor rollouts; on later prefixes, MAE fell from **0.229 to 0.087**.
+This supports useful prefix-level value information, but does not establish
+better actor learning or equal-total-cost savings: prefix MC uses four rollouts
+per state, while the question baseline uses four per question.
+[Experiment 23 and plot](experiments/23-prefix-mc-versus-question-baseline.MD).
+
 ## Conclusion and next directions
 
 We have a reusable frozen-feature critic package and a working PPO pipeline.
@@ -216,6 +225,9 @@ is useful, but higher accuracy and lower costs depend on the task and data budge
 SLICE/chunk is a promising alternative for value estimation and reduced critic
 work: it led the latest learned-critic error means, while its end-to-end speed
 advantage still needs a controlled same-node comparison.
+An additional same-policy MC diagnostic shows that conditioning on partial
+answers substantially improves value estimates over a question-only baseline,
+motivating better prefix-conditioned critics without yet proving an RL benefit.
 
 Next, we want to test a **bidirectional encoder critic** on identical prefixes,
 measuring prediction quality and repeated-prefix extraction cost before PPO.
