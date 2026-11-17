@@ -219,6 +219,10 @@ per state, while the question baseline uses four per question.
 
 ## Conclusion and next directions
 
+A [test-only follow-up and controlled cost protocol](docs/TEST_FOLLOWUP.md) is
+implemented for the 18 saved actors. Results are pending; no new test accuracy,
+learning curves or controlled speed ranking is claimed yet.
+
 We have a reusable frozen-feature critic package and a working PPO pipeline.
 Token-level SLICE + Ridge is our current accuracy-focused math baseline; transfer
 is useful, but higher accuracy and lower costs depend on the task and data budget.
