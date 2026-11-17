@@ -76,3 +76,20 @@ def test_replay_keeps_original_action_ids_and_exact_group_size():
     output[0].outputs[0].token_ids.append(3)
     assert answers[0]==[900000,2]
     with pytest.raises(ValueError):replay([dict(prompt_token_ids=[1,3])],1,{'1,3':answers})
+
+def test_imported_benchmark_entry_resolves_config_directory(tmp_path):
+    import ast
+    pytest.importorskip('hydra')
+    config=tmp_path/'configs';config.mkdir();(config/'online.yaml').write_text('value: 42\n')
+    tree=ast.parse((ROOT/'src/math_rl/benchmark_entry.py').read_text())
+    main=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='main')
+    # Execute the actual decorator/function with CPU stubs for the Ray driver.
+    code=('import hydra\nfrom pathlib import Path\nfrom types import SimpleNamespace\n'
+          f'ROOT=Path({str(tmp_path)!r})\n'
+          'def original(config):\n    print("CONFIG_VALUE="+str(config.value))\n'
+          'module=SimpleNamespace(main=SimpleNamespace(__wrapped__=original))\n'
+          +ast.unparse(main)+'\nmain()\n')
+    script=tmp_path/'entry.py';script.write_text(code)
+    result=subprocess.run([__import__('sys').executable,str(script)],cwd=tmp_path,capture_output=True,text=True)
+    assert result.returncode==0,result.stderr
+    assert 'CONFIG_VALUE=42' in result.stdout
