@@ -3,17 +3,23 @@
 Decision: stop further encoder-study compute for now and focus on other comparisons.
 No PPO has run in this study. No automatic recovery jobs should be submitted.
 
+The experiment README and pause rationale are in
+[Experiment 23](../experiments/23-encoder-critic-paused.MD). The cluster queue was
+confirmed empty after cancellation. The validation report was saved in
+`outputs/encoder-paused-validation-v1/`.
+
 All 104,000 actor answers, three encoder adaptations, and 416,000 feature files
 completed. SLICE C/D fitting exceeded the 64 GB host RAM allocation. Direct A/B
-fits succeeded. Seed-42 validation raw Brier:
+fits succeeded. Available validation raw Brier:
 
-| Readout | Causal | Adapted-42 |
-|---|---:|---:|
-| A, final mean | 0.1526351109 | 0.1721746055 |
-| B, two-thirds mean | 0.1487123081 | 0.1659588358 |
+| Readout | Causal | Adapted-42 | Adapted-43 |
+|---|---:|---:|---:|
+| A, final mean | 0.1526351109 | 0.1721746055 | 0.1707720234 |
+| B, two-thirds mean | 0.1487123081 | 0.1659588358 | 0.1649739875 |
 
 These are preliminary validation results, not test or MC-reference results. The
-encoder loses these two comparisons. C/D have no completed comparison yet.
+encoder loses both readouts in both completed adaptation seeds. Adapted-44 has no
+completed fits in the pause report. C/D have no completed comparison yet.
 
 ## Stop on the cluster
 

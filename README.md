@@ -208,6 +208,15 @@ chunk actor runs on the same node confounding the latter comparison.
 [Experiment 22](experiments/22-multiseed-value-audit.MD) ·
 [Protocol and commands](docs/VALUE_REPEAT.md).
 
+**Does converting Qwen into a bidirectional encoder improve the critic?**
+The earlier offline SLICE pilot favored causal features. In the larger follow-up,
+causal Qwen again had lower validation Brier on both direct pooled readouts across
+two completed encoder adaptation seeds. SLICE C/D fitting exhausted host RAM;
+MC and final test evaluation did not complete. We paused this direction on
+17 November 2026, preserving all answers, adapted models and extracted features.
+These findings concern the tested LLM2Vec recipe, not encoder critics generally.
+[Experiment 23: findings and pause decision](experiments/23-encoder-critic-paused.MD).
+
 ## Conclusion and next directions
 
 We have a reusable frozen-feature critic package and a working PPO pipeline.
@@ -217,16 +226,13 @@ SLICE/chunk is a promising alternative for value estimation and reduced critic
 work: it led the latest learned-critic error means, while its end-to-end speed
 advantage still needs a controlled same-node comparison.
 
-Next, we want to test a **bidirectional encoder critic** on identical prefixes,
-measuring prediction quality and repeated-prefix extraction cost before PPO.
-The v5 [LLM2Vec foundation and sanity checks](docs/ENCODER_CRITIC.md) use the
-official package without patches and preserve the planned one-head SLICE/chunk
-algorithm. Prefix-only extraction has passed the unpadded GPU sanity checks.
-The [offline Numina comparison](docs/ENCODER_OFFLINE.md) implements official
-adaptation, fresh SLICE fitting and held-out outcome prediction, with a required
-smoke before the main run; results and online PPO integration remain pending.
-A backend must demonstrate real
-bidirectional attention before any training is launched.
+The **LLM2Vec encoder comparison is paused** after negative completed comparisons
+and host-memory failures in the expanded SLICE fits. No encoder-based PPO benefit
+or cost saving has been demonstrated. [Findings](experiments/23-encoder-critic-paused.MD)
+and [optional recovery](docs/ENCODER_PAUSED_RECOVERY.md) record what can be reused.
+A possible follow-up is richer value supervision, including HiMo-style prediction
+of useful future-state features from the available prefix, first tested on the
+existing causal backbone. This is a research proposal, not an implemented gain.
 A separate **Lean-verified tactic-search** direction would score explicit proof
 states and measure success under fixed search budgets. Encoder-driven PPO and
 Lean search are not yet validated capabilities. Changing the encoder or
