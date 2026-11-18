@@ -93,3 +93,28 @@ def test_imported_benchmark_entry_resolves_config_directory(tmp_path):
     result=subprocess.run([__import__('sys').executable,str(script)],cwd=tmp_path,capture_output=True,text=True)
     assert result.returncode==0,result.stderr
     assert 'CONFIG_VALUE=42' in result.stdout
+
+def test_ray_temp_directory_ignores_long_slurm_tmpdir(tmp_path,monkeypatch):
+    import ast,tempfile
+    monkeypatch.setenv('TMPDIR',str(tmp_path/('long-slurm-prefix-'*5)))
+    tree=ast.parse((ROOT/'src/math_rl/cost_benchmark.py').read_text())
+    call=next(n for n in ast.walk(tree) if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='TemporaryDirectory')
+    kwargs={k.arg:ast.literal_eval(k.value) for k in call.keywords}
+    with tempfile.TemporaryDirectory(**kwargs) as folder:
+        suffix='/ray/session_2026-11-17_21-31-26_655458_1182212/sockets/plasma_store'
+        assert len((folder+suffix).encode())<=107
+        assert Path(folder).parent==Path('/tmp')
+
+def test_reuse_workload_checks_source_hashes_without_reusing_failed_trials(tmp_path):
+    from math_rl.provenance import sha256,write_json
+    old=tmp_path/'old';old.mkdir();(old/'data').mkdir()
+    (old/'data/train.parquet').write_bytes(b'fixed data')
+    answers={str(i):[[1,2],[3,2],[4,2],[5,2]] for i in range(16)}
+    write_json(old/'workload.json',dict(answers=answers,rewards={k:[0,1,0,1] for k in answers}))
+    source=tmp_path/'source';features={'filter_sha256':'fixed'}
+    write_json(old/'manifest.json',dict(protocol='fixed-workload-cost-v1',source=str(source),feature_manifest=features,
+        workload_sha256=sha256(old/'workload.json'),data_hashes={'data/train.parquet':sha256(old/'data/train.parquet')},runtime={'old':'kept for audit'}))
+    assert cost.reusable_workload(old,source,features)['runtime']=={'old':'kept for audit'}
+    with pytest.raises(ValueError,match='differ'):cost.reusable_workload(old,source,{'filter_sha256':'other'})
+    (old/'workload.json').write_text('{}')
+    with pytest.raises(ValueError,match='changed'):cost.reusable_workload(old,source,features)

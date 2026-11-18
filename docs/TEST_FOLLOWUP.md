@@ -83,6 +83,15 @@ remain unchanged. Both previously troublesome fitz-15 and fitz-21 are excluded
 
 ## Run on the cluster
 
+For a launcher-only failure after workload preparation, preserve the failed
+directory and start a new benchmark smoke with
+`--reuse-workload outputs/numina-cost-smoke-v2`. This checks the prior source,
+feature manifest, data and workload hashes, then copies only generated workload
+data into the new smoke. It never reuses trial results or treats a failed smoke
+as passed. New code gets a new runtime manifest. Ray trial temp directories use
+short `/tmp/b-*` paths rather than nesting under Slurm's long `TMPDIR`, avoiding
+the 107-byte Linux Unix-socket path limit.
+
 Push the code to v3 yourself; do not update code/environments during these jobs.
 Use existing editable environments; no dependency changes are required.
 

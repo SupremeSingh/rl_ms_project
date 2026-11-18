@@ -12,9 +12,10 @@ def check_gate(out,name):
     g=json.loads((out/name).read_text())
     if not g['passed'] or g['manifest_sha256']!=digest(out/'manifest.json'):raise ValueError('Matching passed gate required')
 
-def submit(out,mode,source=None,smoke=None,concurrency=6):
+def submit(out,mode,source=None,smoke=None,concurrency=6,reuse_workload=None):
     out=Path(out).resolve()
     if not 1<=concurrency<=12:raise ValueError('Invalid concurrency')
+    if reuse_workload is not None and mode!='benchmark-smoke':raise ValueError('Workload recovery is benchmark-smoke only')
     if mode=='main':check_gate(out,'smoke.json')
     else:
         if out.exists() or source is None:raise ValueError('Require source and a new output directory')
@@ -31,7 +32,7 @@ def submit(out,mode,source=None,smoke=None,concurrency=6):
             f'--job-name=followup-{label}',f'--output={logs}/{label}-%A_%a.out']
         if dep:args += [f'--dependency=afterok:{dep}','--kill-on-invalid-dep=yes']
         if count:args += [f'--array=0-{count-1}%{min(count,concurrency)}']
-        args += ['scripts/run_test_followup.sh',module,stage,str(out),str(Path(source).resolve()) if source else '',str(Path(smoke).resolve()) if smoke else '']
+        args += ['scripts/run_test_followup.sh',module,stage,str(out),str(Path(source).resolve()) if source else '',str(Path(smoke).resolve()) if smoke else '',str(Path(reuse_workload).resolve()) if reuse_workload else '']
         sidecar=ledger/f'{label}.json';sidecar.write_text(json.dumps(dict(state='submitting',command=args),indent=2))
         try:r=subprocess.run(args,cwd=ROOT,capture_output=True,text=True,timeout=90)
         except (OSError,subprocess.TimeoutExpired) as e:
@@ -54,5 +55,5 @@ def submit(out,mode,source=None,smoke=None,concurrency=6):
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--mode',choices=['smoke','main','benchmark-smoke','benchmark'],required=True)
-    p.add_argument('--out',type=Path,required=True);p.add_argument('--source',type=Path);p.add_argument('--smoke',type=Path);p.add_argument('--concurrency',type=int,default=6)
-    a=p.parse_args();submit(a.out,a.mode,a.source,a.smoke,a.concurrency)
+    p.add_argument('--out',type=Path,required=True);p.add_argument('--source',type=Path);p.add_argument('--smoke',type=Path);p.add_argument('--concurrency',type=int,default=6);p.add_argument('--reuse-workload',type=Path)
+    a=p.parse_args();submit(a.out,a.mode,a.source,a.smoke,a.concurrency,a.reuse_workload)

@@ -13,11 +13,29 @@ from .provenance import sha256,snapshot,write_json
 from .runner import ROOT
 
 
-def prepare(source,out,quick=False,passed_smoke=None):
+def reusable_workload(folder,source,feature_manifest):
+    """Reuse only immutable generated data, never a failed trial or old runtime."""
+    old=read(folder/'manifest.json')
+    if old['protocol']!='fixed-workload-cost-v1' or old['source']!=str(source) or old['feature_manifest']!=feature_manifest:
+        raise ValueError('Reusable workload source/features differ')
+    if sha256(folder/'workload.json')!=old['workload_sha256']:raise ValueError('Reusable workload changed')
+    for name,h in old['data_hashes'].items():
+        if sha256(folder/name)!=h:raise ValueError('Reusable data changed')
+    data=read(folder/'workload.json')
+    if len(data['answers'])!=16 or set(data['answers'])!=set(data['rewards']):raise ValueError('Incomplete workload')
+    for key,answers in data['answers'].items():
+        if len(answers)!=4 or len(data['rewards'][key])!=4:raise ValueError('Wrong group size')
+        if any(not 0<len(a)<=2048 or any(type(t) is not int or t<0 for t in a) for a in answers):raise ValueError('Invalid original actions')
+        if any(v not in (0,1) for v in data['rewards'][key]):raise ValueError('Invalid rewards')
+    return old
+
+
+def prepare(source,out,quick=False,passed_smoke=None,reuse_workload=None):
     from datasets import Dataset
     source=source.resolve();out=out.resolve()
     if out==source or source in out.parents:raise ValueError('Separate benchmark directory required')
     if not quick and passed_smoke is None:raise ValueError('A passed benchmark smoke is required')
+    if reuse_workload is not None and (not quick or passed_smoke is not None):raise ValueError('Workload-only recovery is for a fresh smoke')
     smoke_manifest=None
     if passed_smoke is not None:
         smoke_manifest=read(passed_smoke/'manifest.json');g=read(passed_smoke/'verification.json')
@@ -31,6 +49,8 @@ def prepare(source,out,quick=False,passed_smoke=None):
     from slice_critic.storage import model_identity
     if model_identity(ROOT/'models/qwen-math')!=m['model_hashes']:raise ValueError('Base actor changed')
     if sha256(child/'filters/sparse.pt')!=m['filter_sha256']:raise ValueError('Compressor changed')
+    reused=passed_smoke or reuse_workload
+    if reused:reusable_workload(reused,source,m)
     for name in ['train','val']:
         p=child/f'data/{name}.parquet'
         if sha256(p)!=m['data_hashes'][f'data/{name}.parquet']:raise ValueError('Changed source data')
@@ -38,17 +58,15 @@ def prepare(source,out,quick=False,passed_smoke=None):
     from .value_audit_gpu import Generator,grade
     from slice_critic.config import completion_prompt
     settings=dict(reference_seed=41017,response_cap=2048,max_model_len=2560)
-    generator=None if passed_smoke else Generator(ROOT/'models/qwen-math',settings);answers={};rewards={}
-    for i,row in enumerate([] if passed_smoke else Dataset.from_parquet(str(out/'data/train.parquet'))):
+    generator=None if reused else Generator(ROOT/'models/qwen-math',settings);answers={};rewards={}
+    for i,row in enumerate([] if reused else Dataset.from_parquet(str(out/'data/train.parquet'))):
         ids=generator.tokenizer.encode(completion_prompt(row['prompt'][1]['content']),add_special_tokens=False)
         if not 0<len(ids)<=512:raise ValueError('Overlong benchmark prompt')
         samples=grade(generator,row['reward_model']['ground_truth'],generator.generate(ids,4,2048,41017+i),[])
         key=','.join(map(str,ids));answers[key]=[s['token_ids'] for s in samples];rewards[key]=[s['score'] for s in samples]
-    if passed_smoke:
+    if reused:
         import shutil
-        if smoke_manifest['source']!=str(source):raise ValueError('Different smoke source')
-        if sha256(passed_smoke/'workload.json')!=smoke_manifest['workload_sha256']:raise ValueError('Smoke workload changed')
-        shutil.copyfile(passed_smoke/'workload.json',out/'workload.json')
+        shutil.copyfile(reused/'workload.json',out/'workload.json')
     else:
         if len(answers)!=16:raise ValueError('Duplicate prompts')
         write_json(out/'workload.json',dict(answers=answers,rewards=rewards,scope='64 fixed original-token answers from common base actor, training questions only.'))
@@ -59,7 +77,7 @@ def prepare(source,out,quick=False,passed_smoke=None):
         statistics[arm]=dict(path=str(p),sha256=sha256(p))
     write_json(out/'manifest.json',dict(protocol='fixed-workload-cost-v1',source=str(source),feature_manifest=m,
         workload_sha256=sha256(out/'workload.json'),data_hashes={str(p.relative_to(out)):sha256(p) for p in (out/'data').glob('*.parquet')},
-        runtime=snapshot(ROOT)['files'],statistics=statistics,quick=quick,rounds=1 if quick else 3,warmup_updates=1 if quick else 2,measured_updates=2 if quick else 3,
+        runtime=snapshot(ROOT)['files'],reused_workload_from=str(reused) if reused else None,statistics=statistics,quick=quick,rounds=1 if quick else 3,warmup_updates=1 if quick else 2,measured_updates=2 if quick else 3,
         scope='Computational overhead only. Fixed base actor/actions, fresh optimizers each trial; accumulated regime restores only Ridge statistics, not learned actors/optimizers. No learning or time-to-quality claim.'))
 
 
@@ -110,7 +128,9 @@ def execute(out):
         cmd,env,case=trial_command(out,m,arm,regime,round_index)
         log=case.with_suffix('.log');telemetry=case.with_suffix('.telemetry.jsonl')
         if case.exists() or log.exists():raise FileExistsError('Trials are never silently resumed/replaced')
-        with tempfile.TemporaryDirectory(prefix='slice-bench-') as temp:
+        # Ignore Slurm's nested TMPDIR: Ray appends a session/socket suffix and
+        # Linux AF_UNIX filenames cannot exceed 107 bytes.
+        with tempfile.TemporaryDirectory(prefix='b-',dir='/tmp') as temp:
             env['RAY_TMPDIR']=temp;start=time.perf_counter()
             with log.open('w') as f,telemetry.open('w') as t:
                 process=subprocess.Popen(cmd,cwd=ROOT,env=env,stdout=f,stderr=subprocess.STDOUT)
@@ -156,9 +176,9 @@ def execute(out):
     write_json(out/'verification.json',dict(passed=True,manifest_sha256=sha256(out/'manifest.json')))
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--stage',choices=['prepare','run'],required=True);p.add_argument('--source',type=Path);p.add_argument('--out',type=Path,required=True);p.add_argument('--quick',action='store_true');p.add_argument('--passed-smoke',type=Path)
+    p=argparse.ArgumentParser();p.add_argument('--stage',choices=['prepare','run'],required=True);p.add_argument('--source',type=Path);p.add_argument('--out',type=Path,required=True);p.add_argument('--quick',action='store_true');p.add_argument('--passed-smoke',type=Path);p.add_argument('--reuse-workload',type=Path)
     a=p.parse_args();out=a.out.resolve()
-    if a.stage=='prepare':prepare(a.source,out,a.quick,a.passed_smoke)
+    if a.stage=='prepare':prepare(a.source,out,a.quick,a.passed_smoke,a.reuse_workload)
     else:execute(out)
 
 if __name__=='__main__':main()
