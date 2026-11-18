@@ -45,6 +45,7 @@ certify reasoning. [Algorithm and package boundaries](docs/ARCHITECTURE.md).
 
 | Completed study | Main finding |
 |---|---|
+| Saved-actor test + controlled update cost, three seeds | **SLICE/token: 74.35% test accuracy** versus PPO **74.83%**, with **25–33% lower update time** on a fixed workload. Chunk SLICE: **72.82%**, with no consistent speed advantage over token SLICE. [Results and figures](experiments/24-test-accuracy-and-controlled-cost.MD). |
 | Token/chunk PPO, five seeds | Token SLICE **75.51%**, chunk SLICE **73.54%**. Chunking saved **11.7% online training GPUh** but lost **1.97 pp**, adjusted difference interval **[−3.29, −0.56] pp**. |
 | Seven-critic PPO, three seeds | Ridge **73.97%**, tested PPO **72.65%**; Ridge used **17.3% less online training GPUh**. Its adjusted accuracy interval against PPO crossed zero. |
 | Final-checkpoint value audit, three seeds | **SLICE/chunk had the lowest observed learned-critic MAE/RMSE: 0.23661/0.29351**; SLICE/token and PPO both had MAE ≈0.245. Chunking fitted **18× fewer states**; slow actor execution on one node confounded total-time comparisons. [Results and scatter plot](experiments/22-multiseed-value-audit.MD). |
@@ -217,18 +218,34 @@ better actor learning or equal-total-cost savings: prefix MC uses four rollouts
 per state, while the question baseline uses four per question.
 [Experiment 23 and plot](experiments/23-prefix-mc-versus-question-baseline.MD).
 
-## Conclusion and next directions
+**Which tested method best balances final actor accuracy and update overhead?**
+SLICE/token reached **74.35% test accuracy** versus PPO's **74.83%**, with
+**25–33% lower controlled update time**; GRPO was faster overall at 72.55%.
+SLICE/chunk reached 72.82% and had about 31% lower update time than PPO, but
+its advantage over token SLICE changed sign across statistics regimes; this
+does not establish equal accuracy, general stability or cheapest full training.
+[Experiment 24 and figures](experiments/24-test-accuracy-and-controlled-cost.MD).
 
-A [test-only follow-up and controlled cost protocol](docs/TEST_FOLLOWUP.md) is
-implemented for the 18 saved actors. Results are pending; no new test accuracy,
-learning curves or controlled speed ranking is claimed yet.
+![Final test accuracy versus controlled update time, normalized to PPO.](docs/figures/accuracy-update-cost.png)
+
+**Which method improves accuracy fastest over training?**
+A new five-method, three-seed study will monitor validation accuracy at updates
+0–120 and evaluate the final actors on test questions, while measuring training
+time separately from evaluation/export overhead. The 15 actors run independently,
+capped at six concurrent jobs; time curves remain hardware-sensitive. Results are
+pending; existing final-checkpoint comparisons cannot answer this question.
+[Experiment 25](experiments/25-learning-curves.MD) ·
+[Protocol and run commands](docs/LEARNING_CURVES.md).
+
+## Conclusion and next directions
 
 We have a reusable frozen-feature critic package and a working PPO pipeline.
 Token-level SLICE + Ridge is our current accuracy-focused math baseline; transfer
 is useful, but higher accuracy and lower costs depend on the task and data budget.
 SLICE/chunk is a promising alternative for value estimation and reduced critic
-work: it led the latest learned-critic error means, while its end-to-end speed
-advantage still needs a controlled same-node comparison.
+work: it led the latest learned-critic error means, but the controlled update
+benchmark did not show a consistent speed advantage over token SLICE. The new
+learning-curve study will measure fresh actor progress against training compute.
 An additional same-policy MC diagnostic shows that conditioning on partial
 answers substantially improves value estimates over a question-only baseline,
 motivating better prefix-conditioned critics without yet proving an RL benefit.

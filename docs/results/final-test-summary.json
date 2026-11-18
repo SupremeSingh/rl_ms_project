@@ -1,0 +1,145 @@
+{
+  "actor_runs": 18,
+  "base_accuracy_percent": 67.55,
+  "metrics": {
+    "grpo": {
+      "accuracy_by_seed_percent": {
+        "1101": 72.39999999999999,
+        "1102": 72.65,
+        "1103": 72.6
+      },
+      "accuracy_mean_percent": 72.55,
+      "accuracy_seed_sd_pp": 0.13228756555323545,
+      "evaluation_gpu_hours_mean": 0.7818023114507432,
+      "gain_over_base_pp": 5.0,
+      "mean_response_tokens": 673.8559999999999,
+      "truncation_rate": 0.03266666666666667,
+      "verifier_status_counts": {
+        "correct": 4353,
+        "incorrect": 1610,
+        "parse_failure": 37
+      }
+    },
+    "ppo": {
+      "accuracy_by_seed_percent": {
+        "1101": 73.95,
+        "1102": 76.2,
+        "1103": 74.35000000000001
+      },
+      "accuracy_mean_percent": 74.83333333333333,
+      "accuracy_seed_sd_pp": 1.2003471720020549,
+      "evaluation_gpu_hours_mean": 0.7045115831888958,
+      "gain_over_base_pp": 7.283333333333331,
+      "mean_response_tokens": 521.5658333333333,
+      "truncation_rate": 0.024833333333333332,
+      "verifier_status_counts": {
+        "correct": 4490,
+        "incorrect": 1488,
+        "parse_failure": 22
+      }
+    },
+    "rms-layer-chunk": {
+      "accuracy_by_seed_percent": {
+        "1101": 73.05,
+        "1102": 72.2,
+        "1103": 69.89999999999999
+      },
+      "accuracy_mean_percent": 71.71666666666665,
+      "accuracy_seed_sd_pp": 1.6296727687892887,
+      "evaluation_gpu_hours_mean": 0.80277843283028,
+      "gain_over_base_pp": 4.166666666666657,
+      "mean_response_tokens": 662.5121666666666,
+      "truncation_rate": 0.03233333333333333,
+      "verifier_status_counts": {
+        "correct": 4303,
+        "incorrect": 1672,
+        "parse_failure": 25
+      }
+    },
+    "rms-layer-token": {
+      "accuracy_by_seed_percent": {
+        "1101": 74.7,
+        "1102": 73.2,
+        "1103": 71.55
+      },
+      "accuracy_mean_percent": 73.14999999999999,
+      "accuracy_seed_sd_pp": 1.575595125658876,
+      "evaluation_gpu_hours_mean": 0.7030878594844424,
+      "gain_over_base_pp": 5.599999999999994,
+      "mean_response_tokens": 616.2863333333333,
+      "truncation_rate": 0.021333333333333333,
+      "verifier_status_counts": {
+        "correct": 4389,
+        "incorrect": 1586,
+        "parse_failure": 25
+      }
+    },
+    "slice-chunk": {
+      "accuracy_by_seed_percent": {
+        "1101": 73.5,
+        "1102": 72.35000000000001,
+        "1103": 72.6
+      },
+      "accuracy_mean_percent": 72.81666666666668,
+      "accuracy_seed_sd_pp": 0.6048415770541329,
+      "evaluation_gpu_hours_mean": 0.7759654063764955,
+      "gain_over_base_pp": 5.26666666666668,
+      "mean_response_tokens": 660.2511666666667,
+      "truncation_rate": 0.03166666666666667,
+      "verifier_status_counts": {
+        "correct": 4369,
+        "incorrect": 1600,
+        "parse_failure": 31
+      }
+    },
+    "slice-token": {
+      "accuracy_by_seed_percent": {
+        "1101": 74.0,
+        "1102": 74.55000000000001,
+        "1103": 74.5
+      },
+      "accuracy_mean_percent": 74.35000000000001,
+      "accuracy_seed_sd_pp": 0.30413812651491473,
+      "evaluation_gpu_hours_mean": 0.7354160067233412,
+      "gain_over_base_pp": 6.800000000000011,
+      "mean_response_tokens": 641.2121666666667,
+      "truncation_rate": 0.024833333333333336,
+      "verifier_status_counts": {
+        "correct": 4461,
+        "incorrect": 1512,
+        "parse_failure": 27
+      }
+    }
+  },
+  "primary": {
+    "slice-chunk_minus_ppo": {
+      "adjusted_interval_pp": [
+        -4.45,
+        0.33333333333333337
+      ],
+      "mean_pp": -2.0166666666666666,
+      "scope": "Paired seed/question bootstrap; two Bonferroni primary contrasts; only three seeds.",
+      "seed_differences_pp": [
+        -0.44999999999999996,
+        -3.85,
+        -1.7500000000000002
+      ]
+    },
+    "slice-chunk_minus_slice-token": {
+      "adjusted_interval_pp": [
+        -3.266666666666666,
+        0.15
+      ],
+      "mean_pp": -1.5333333333333332,
+      "scope": "Paired seed/question bootstrap; two Bonferroni primary contrasts; only three seeds.",
+      "seed_differences_pp": [
+        -0.5,
+        -2.1999999999999997,
+        -1.9
+      ]
+    }
+  },
+  "scope": "Greedy evaluation on reused inspected test questions; no selection or training.",
+  "test_questions": 2000,
+  "uncertainty": "Three seeds; no universal superiority, equivalence or optimization stability claim."
+}

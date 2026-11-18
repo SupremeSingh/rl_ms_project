@@ -1,0 +1,126 @@
+{
+  "metrics": {
+    "grpo/accumulated": {
+      "median_seconds": 73.24697704135906,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        77.19518995700248,
+        70.42015667639983,
+        73.24697704135906
+      ],
+      "sd_seconds": 3.4029490777920697
+    },
+    "grpo/initial": {
+      "median_seconds": 76.69282211099441,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        80.29878812228951,
+        76.69282211099441,
+        74.0201964736528
+      ],
+      "sd_seconds": 3.15083670798519
+    },
+    "ppo/accumulated": {
+      "median_seconds": 154.8937623113549,
+      "peak_memory_gib": 25.886655807495117,
+      "round_mean_step_seconds": [
+        131.86327256801692,
+        162.34497831366025,
+        154.8937623113549
+      ],
+      "sd_seconds": 15.890555176450947
+    },
+    "ppo/initial": {
+      "median_seconds": 150.29051682232725,
+      "peak_memory_gib": 25.886655807495117,
+      "round_mean_step_seconds": [
+        115.42657678302687,
+        157.24267995764967,
+        150.29051682232725
+      ],
+      "sd_seconds": 22.406893924395852
+    },
+    "rms-layer-chunk/accumulated": {
+      "median_seconds": 96.12717729333478,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        75.79675165765609,
+        97.8709384056662,
+        96.12717729333478
+      ],
+      "sd_seconds": 12.272167900923657
+    },
+    "rms-layer-chunk/initial": {
+      "median_seconds": 93.29775764102426,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        100.60235215568294,
+        89.7091249533308,
+        93.29775764102426
+      ],
+      "sd_seconds": 5.551242870937825
+    },
+    "rms-layer-token/accumulated": {
+      "median_seconds": 96.98157020367216,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        79.22522324164554,
+        103.99814868900769,
+        96.98157020367216
+      ],
+      "sd_seconds": 12.768568611355185
+    },
+    "rms-layer-token/initial": {
+      "median_seconds": 101.2777571962991,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        77.61931149696466,
+        102.11725429969374,
+        101.2777571962991
+      ],
+      "sd_seconds": 13.907887509495888
+    },
+    "slice-chunk/accumulated": {
+      "median_seconds": 106.9797540929867,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        109.9710626746916,
+        106.74814227068175,
+        106.9797540929867
+      ],
+      "sd_seconds": 1.797627464084988
+    },
+    "slice-chunk/initial": {
+      "median_seconds": 103.69047196535394,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        84.59225473498616,
+        107.42540562234353,
+        103.69047196535394
+      ],
+      "sd_seconds": 12.24775088363342
+    },
+    "slice-token/accumulated": {
+      "median_seconds": 103.08645476633683,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        88.00600749797498,
+        103.08645476633683,
+        108.21033451232749
+      ],
+      "sd_seconds": 10.503085765368438
+    },
+    "slice-token/initial": {
+      "median_seconds": 113.08953264902811,
+      "peak_memory_gib": 25.48656940460205,
+      "round_mean_step_seconds": [
+        113.08953264902811,
+        114.00324533569317,
+        106.69215820570632
+      ],
+      "sd_seconds": 3.9835759827927384
+    }
+  },
+  "notes": "No rollout generation timing: identical cached actions. Step includes replay/synchronization, reward, feature extraction, advantages and actual PPO actor/critic updates. Peak allocated memory is logged training memory, not total GPU reservation; nvidia-smi telemetry retained. No outcome-based exclusions.",
+  "scope": "Computational overhead only. Fixed base actor/actions, fresh optimizers each trial; accumulated regime restores only Ridge statistics, not learned actors/optimizers. No learning or time-to-quality claim."
+}
