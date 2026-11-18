@@ -96,7 +96,7 @@ def trial_command(out,m,arm,regime,round_index):
     cmd=[v for v in cmd if not v.startswith('actor_rollout_ref.model.critic_bottleneck_path=')]
     if arm.startswith('slice'):
         cmd += [f'actor_rollout_ref.model.critic_bottleneck_path={Path(m["source"])/"seed1101/filters/sparse.pt"}']
-    env=dict(os.environ,MATH_RL_BENCH_WORKLOAD=str(out/'workload.json'),MATH_RL_SEED='41017',RAY_ADDRESS='local')
+    env=dict(os.environ,MATH_RL_BENCH_WORKLOAD=str(out/'workload.json'),MATH_RL_BENCH_TIMINGS=str(case/'benchmark-steps.jsonl'),MATH_RL_SEED='41017',RAY_ADDRESS='local')
     env.pop('TORCH_ALLOW_TF32_CUBLAS_OVERRIDE',None);env.pop('MATH_RL_BENCH_STATISTICS',None)
     if regime=='accumulated' and arm in m['statistics']:env['MATH_RL_BENCH_STATISTICS']=m['statistics'][arm]['path']
     return cmd,env,case
@@ -104,9 +104,7 @@ def trial_command(out,m,arm,regime,round_index):
 
 def execute(out):
     import tempfile
-    # Import standard-library parser by file path; no runtime modification.
-    import runpy
-    logged_steps=runpy.run_path(str(ROOT/'tools/diagnostics/critic_cost_breakdown.py'))['logged_steps']
+    from .benchmark_metrics import read_steps
     m=read(out/'manifest.json')
     if m['runtime']!=snapshot(ROOT)['files'] or sha256(out/'workload.json')!=m['workload_sha256']:raise ValueError('Benchmark changed')
     for name,h in m['data_hashes'].items():
@@ -140,9 +138,10 @@ def execute(out):
                     try:code=process.wait(timeout=2);break
                     except subprocess.TimeoutExpired:pass
             if code:raise RuntimeError(f'Failed trial retained: {log}')
-        steps=logged_steps(log)
         total_steps=m['warmup_updates']+m['measured_updates']
-        if set(steps)!=set(range(1,total_steps+1)):raise ValueError(f'Missing timing steps: {log}')
+        result=read(case/'result.json')
+        if result['updates']!=total_steps or result['answers']!=64*total_steps:raise ValueError('Incomplete benchmark updates')
+        steps=read_steps(case/'benchmark-steps.jsonl',total_steps,m['workload_sha256'])
         measured=[steps[i] for i in range(m['warmup_updates']+1,total_steps+1)]
         trials.append(dict(arm=arm,regime=regime,round=round_index,steps=measured,total_process_seconds=time.perf_counter()-start))
         write_json(out/'trials.json',dict(trials=trials))

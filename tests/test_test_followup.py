@@ -53,6 +53,7 @@ def test_fixed_workload_command_preserves_update_algorithm_and_separates_outputs
         assert 'actor_rollout_ref.rollout.calculate_log_probs=false' in cmd
         assert case.parent==tmp_path/'trials'
         assert env['MATH_RL_BENCH_WORKLOAD']==str(tmp_path/'workload.json')
+        assert env['MATH_RL_BENCH_TIMINGS']==str(case/'benchmark-steps.jsonl')
         assert ('MATH_RL_BENCH_STATISTICS' in env)==(a in study.ARMS[:4])
         if a=='ppo':assert 'critic.optim.lr=5e-05' in cmd and 'critic.ppo_epochs=2' in cmd
         assert not any('fixed_policy' in s for s in cmd)
@@ -118,3 +119,17 @@ def test_reuse_workload_checks_source_hashes_without_reusing_failed_trials(tmp_p
     with pytest.raises(ValueError,match='differ'):cost.reusable_workload(old,source,{'filter_sha256':'other'})
     (old/'workload.json').write_text('{}')
     with pytest.raises(ValueError,match='changed'):cost.reusable_workload(old,source,features)
+
+def test_structured_metrics_survive_missing_console_and_reject_partial_records(tmp_path):
+    from math_rl.benchmark_metrics import append_metrics,read_steps
+    path=tmp_path/'trial/benchmark-steps.jsonl'
+    append_metrics(path,0,{'val/accuracy':.5},'workload')
+    assert not path.exists()
+    for step in [1,2,3]:
+        append_metrics(path,step,{'timing_s/step':12.3456789,'timing_s/update_actor':8.,'perf/max_memory_allocated_gb':4.},'workload')
+    records=read_steps(path,3,'workload')
+    assert records[3]['timing_s/step']==12.3456789
+    with pytest.raises(ValueError,match='identity'):read_steps(path,3,'other')
+    with pytest.raises(ValueError,match='Missing'):read_steps(path,4,'workload')
+    append_metrics(path,3,{'timing_s/step':10},'workload')
+    with pytest.raises(ValueError,match='duplicated'):read_steps(path,3,'workload')

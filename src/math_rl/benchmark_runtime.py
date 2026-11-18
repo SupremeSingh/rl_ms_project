@@ -21,6 +21,17 @@ def install():
     path=os.environ.get('MATH_RL_BENCH_WORKLOAD')
     if not path: raise RuntimeError('Benchmark runtime cannot run without explicit workload')
     workload=json.loads(Path(path).read_text())['answers']
+    timing_path=os.environ.get('MATH_RL_BENCH_TIMINGS')
+    if not timing_path:raise RuntimeError('Benchmark requires a structured timing destination')
+    import hashlib
+    workload_hash=hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    from verl.utils.tracking import Tracking
+    from .benchmark_metrics import append_metrics
+    original_log=Tracking.log
+    def log(self,data,step,*args,**kwargs):
+        append_metrics(timing_path,step,data,workload_hash)
+        return original_log(self,data,step,*args,**kwargs)
+    Tracking.log=log
     # Preserve dispatch metadata while making each worker phase finish GPU work
     # before returning its timing to the pinned driver loop.
     from functools import wraps

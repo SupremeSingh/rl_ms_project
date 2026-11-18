@@ -92,6 +92,13 @@ as passed. New code gets a new runtime manifest. Ray trial temp directories use
 short `/tmp/b-*` paths rather than nesting under Slurm's long `TMPDIR`, avoiding
 the 107-byte Linux Unix-socket path limit.
 
+Benchmark timings are written directly by the trainer's metric logger to each
+trial's `benchmark-steps.jsonl`, bound to the workload hash. Console output is
+retained for diagnostics but is not the timing source: Ray can omit a final
+console metric line even when training succeeds. The collector requires every
+step in order, rejects duplicates and checks the completed update/answer count.
+No missing timing is imputed from overall elapsed time.
+
 Push the code to v3 yourself; do not update code/environments during these jobs.
 Use existing editable environments; no dependency changes are required.
 
