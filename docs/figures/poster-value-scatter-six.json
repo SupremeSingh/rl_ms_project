@@ -1,0 +1,51 @@
+{
+  "original_sha256": "c9667dcb8f6c0acffae6b9b937555e7be879425bc31eefa8fe2bdfb427a6be2c",
+  "control_sha256": "670efe35f01ec95df1c7bbcfc37e6c5a01e340a2cd2b941c4a7d6fe9e94d8ba2",
+  "rendering": "Preserved raster points, contrast enhanced; vector axes and labels. No reconstructed points.",
+  "normalized_layer": "RMS-normalized token-level layer readout",
+  "control": {
+    "source_sha256": "02487ea9596316af668507091f248e275b191cd1a87b889b11e1883f9b70dfe3",
+    "study_manifest_sha256": "8dc4ee4ef654c2009f017ca5742bd4ccbcdbd0ff7b709a314ec2f82ddb2bfa94",
+    "states": 600,
+    "plot_split_seed": 20261113,
+    "shown_split_metrics": {
+      "grpo_question": {
+        "mae": 0.20704301075268847,
+        "rmse": 0.3042842143586712
+      },
+      "prefix_mc4": {
+        "mae": 0.10235215053763443,
+        "rmse": 0.1546485307208261
+      }
+    },
+    "resampling_repeats": 2000,
+    "resampling_seed": 1729,
+    "repeated_splits": {
+      "all_states": {
+        "grpo_mae_mean": 0.2070869354838712,
+        "prefix_mc4_mae_mean": 0.10072768817204308,
+        "mae_difference_mean": -0.10635924731182811,
+        "mae_difference_split_percentiles": [
+          -0.11344220430107538,
+          -0.09918010752688189
+        ],
+        "fraction_splits_prefix_lower_mae": 1.0,
+        "grpo_rmse_mean": 0.3044721260088116,
+        "prefix_mc4_rmse_mean": 0.148925268754956
+      },
+      "later_prefixes": {
+        "grpo_mae_mean": 0.22947016129032263,
+        "prefix_mc4_mae_mean": 0.08728327956989233,
+        "mae_difference_mean": -0.1421868817204303,
+        "mae_difference_split_percentiles": [
+          -0.14949910394265253,
+          -0.13455062724014355
+        ],
+        "fraction_splits_prefix_lower_mae": 1.0,
+        "grpo_rmse_mean": 0.33453075120362097,
+        "prefix_mc4_rmse_mean": 0.13461964848264216
+      }
+    },
+    "scope": "Post-hoc disjoint 4/124 split, GRPO actors only. Repeated split percentiles are sensitivity conditional on saved outcomes, not generalization confidence intervals. Prefix queries cost four per state versus four per question for baseline."
+  }
+}

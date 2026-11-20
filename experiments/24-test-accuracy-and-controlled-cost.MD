@@ -1,6 +1,6 @@
 # Which tested method best balances final actor accuracy and update overhead?
 
-**SLICE/token reached 74.35% test accuracy versus PPO's 74.83%, with 25–33% lower controlled update time. SLICE/chunk reached 72.82% and used about 31% less update time than PPO, but its speed advantage over token SLICE changed sign between matrix regimes; neither universal superiority nor equal accuracy is established.**
+**SLICE/token reached 74.35% test accuracy versus PPO's 74.83%, with 25–33% lower controlled update time; SLICE/chunk reached 72.82% with about 31% lower update time. GPU-wide telemetry showed no overall memory saving for SLICE or chunking, and chunking's time advantage over token SLICE changed sign between statistics regimes.**
 
 ## Final actor test evaluation
 
@@ -62,6 +62,46 @@ Logged peak allocated memory was approximately **25.49 GiB** for Ridge/GRPO and
 full-pipeline memory saving; it should not be interpreted as total GPU reservation
 or automatically as a per-device physical-memory measurement. Compact critic
 heads and better conditioning remain distinct properties.
+
+## GPU-wide memory follow-up
+
+A read-only analysis of the saved `nvidia-smi` telemetry on
+`compsci-cluster-fitz-17` summed `memory.used` across the **two assigned GPUs at
+each timestamp**, then took the maximum simultaneous sum for each trial.
+The table reports the median of those trial peaks across three rounds, separately
+for each statistics regime. These are GPU-wide readings, distinct from the
+training allocator peaks plotted above; the two metrics must not be combined or
+treated as interchangeable estimates.
+
+| Method | Initial median peak, both GPUs | Accumulated median peak, both GPUs |
+|---|---:|---:|
+| SLICE/token | 45.22 GiB | 45.22 GiB |
+| SLICE/chunk | 45.22 GiB | 45.22 GiB |
+| RMS layer/token | 45.22 GiB | 45.22 GiB |
+| RMS layer/chunk | 45.22 GiB | 45.22 GiB |
+| Conventional PPO | **44.54 GiB** | **44.54 GiB** |
+| GRPO | 45.22 GiB | 45.22 GiB |
+
+All three trial peaks within each method/regime had the same displayed value
+to two decimal places. PPO's observed peak was **0.68 GiB (about 1.5%) lower**
+than the others. This benchmark therefore provides **no evidence of an overall
+GPU-memory saving from SLICE or chunking**. It supports lower update time for
+SLICE, not a lower GPU-capacity requirement.
+
+Smaller critic features and heads can reduce critic-specific storage without
+lowering the system peak: actor training still processes every token, and common
+model/cache reservations can dominate. The nearly identical readings are
+consistent with that explanation, but do not identify which component caused
+the peak; that requires phase/process measurements and cache-setting checks.
+
+The telemetry was sampled approximately every two seconds and can miss brief
+peaks. It covers initialization and warm-up as well as updates, includes reserved
+GPU memory and any unrelated processes on those devices, and does not include
+fresh rollout generation in this fixed-action benchmark. It does not measure
+CPU memory or establish the minimum GPU capacity required for full training.
+The numerical follow-up above was supplied from the cluster probe's printed
+output; the raw telemetry remains in
+`outputs/numina-controlled-cost-v1/trials/*.telemetry.jsonl` on the cluster.
 
 ## Combined tradeoff figure
 

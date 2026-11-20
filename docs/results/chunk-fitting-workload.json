@@ -1,0 +1,12 @@
+{
+  "source": "experiments/22-multiseed-value-audit.MD; rounded reported three-seed means",
+  "scope": "120-update online training runs, seeds 1101\u20131103. Fitting component only, not offline end-to-end costs.",
+  "slice-token": {
+    "fitted_states_mean": 5761239,
+    "ridge_fit_wall_minutes_mean": 1.86
+  },
+  "slice-chunk": {
+    "fitted_states_mean": 324878,
+    "ridge_fit_wall_minutes_mean": 0.4
+  }
+}

@@ -228,6 +228,14 @@ does not establish equal accuracy, general stability or cheapest full training.
 
 ![Final test accuracy versus controlled update time, normalized to PPO.](docs/figures/accuracy-update-cost.png)
 
+**Did SLICE or chunking reduce total GPU memory use?**
+No saving was observed in the controlled benchmark: the median sampled peak
+summed across both assigned GPUs was **45.22 GiB** for SLICE, normalized-layer
+Ridge and GRPO, versus **44.54 GiB** for PPO. SLICE's demonstrated benefit here
+is lower update time; smaller critic heads did not translate into lower overall
+GPU memory use in this setup.
+[Experiment 24: memory measurements and limits](experiments/24-test-accuracy-and-controlled-cost.MD#gpu-wide-memory-follow-up).
+
 **Which method improves accuracy fastest over training?**
 A new five-method, three-seed study will monitor validation accuracy at updates
 0–120 and evaluate the final actors on test questions, while measuring training
@@ -244,8 +252,9 @@ Token-level SLICE + Ridge is our current accuracy-focused math baseline; transfe
 is useful, but higher accuracy and lower costs depend on the task and data budget.
 SLICE/chunk is a promising alternative for value estimation and reduced critic
 work: it led the latest learned-critic error means, but the controlled update
-benchmark did not show a consistent speed advantage over token SLICE. The new
-learning-curve study will measure fresh actor progress against training compute.
+benchmark did not show a consistent speed advantage over token SLICE. The
+GPU-wide memory check also found no overall memory saving for SLICE or chunking.
+The new learning-curve study will measure fresh actor progress against training compute.
 An additional same-policy MC diagnostic shows that conditioning on partial
 answers substantially improves value estimates over a question-only baseline,
 motivating better prefix-conditioned critics without yet proving an RL benefit.

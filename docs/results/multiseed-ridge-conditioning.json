@@ -1,0 +1,12 @@
+{
+  "source": "User-supplied cluster float64 SVD diagnostic of outputs/numina-value-repeat-v1/seed*/<arm>-seed*/linear-critic/statistics.pt",
+  "scope": "Rounded printed condition numbers of A + 0.01 I at update 120; three separately trained actors per method. Not measured in the controlled timing trials.",
+  "seeds": [1101, 1102, 1103],
+  "epsilon": 0.01,
+  "metrics": {
+    "slice-token": [29760, 30300, 29590],
+    "slice-chunk": [56080, 56150, 56240],
+    "rms-layer-token": [579400, 583300, 559000],
+    "rms-layer-chunk": [1392000, 1374000, 1268000]
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "source": "User-supplied read-only cluster telemetry probe, outputs/numina-controlled-cost-v1, node compsci-cluster-fitz-17",
+  "scope": "Rounded median observed trial peak of simultaneous nvidia-smi memory.used sum across two assigned GPUs; ~2-second sampling, initialization/warm-up included; not minimum capacity or process-isolated memory.",
+  "metrics": {
+    "slice-token": {
+      "initial": 45.22,
+      "accumulated": 45.22
+    },
+    "slice-chunk": {
+      "initial": 45.22,
+      "accumulated": 45.22
+    },
+    "ppo": {
+      "initial": 44.54,
+      "accumulated": 44.54
+    }
+  }
+}

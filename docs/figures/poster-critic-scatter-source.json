@@ -1,0 +1,8 @@
+{
+  "source_name": "multiseed-value-scatter.png",
+  "sha256": "c9667dcb8f6c0acffae6b9b937555e7be879425bc31eefa8fe2bdfb427a6be2c",
+  "rendering": "Raster point crops with vector axes and labels; chromatic mark contrast enhanced 1.8x.",
+  "annotation_removal": "Original MAE lettering above y=1.1 removed; annotation relocated above each panel.",
+  "data": "Original marks retained, no digitized/reconstructed coordinates, jitter, or prediction clipping.",
+  "metrics_source": "docs/results/multiseed-value-audit.json"
+}
