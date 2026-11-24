@@ -1,0 +1,11 @@
+{
+  "dataset": "data/math.jsonl",
+  "question_column": "problem",
+  "reference_column": "answer",
+  "model_path": "models/qwen-math",
+  "verifier_python": ".venv-verifier/bin/python",
+  "chunking": "math",
+  "chunk_fallback_tokens": 32,
+  "compression_width": 768,
+  "method": "ridge"
+}
